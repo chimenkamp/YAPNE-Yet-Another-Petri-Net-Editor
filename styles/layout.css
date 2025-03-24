@@ -1,0 +1,360 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: #D8DEE9; /* nord4 */
+    margin: 0;
+    padding: 0;
+    background-color: #2E3440; /* nord0 */
+  }
+  .container {
+    width: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+  }
+  header {
+    background-color: #3B4252; /* nord1 */
+    color: #ECEFF4; /* nord6 */
+    padding: 0px 0;
+  }
+  h1, h2, h3 {
+    margin-top: 0;
+    color: #E5E9F0; /* nord5 */
+  }
+  button {
+    background-color: #81A1C1; /* nord9 */
+    color: #ECEFF4; /* nord6 */
+    border: none;
+    padding: 8px 15px;
+    margin: 2px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+  }
+  button:hover {
+    background-color: #88C0D0; /* nord8 */
+  }
+  button.active {
+    background-color: #8FBCBB; /* nord7 */
+  }
+  button.danger {
+    background-color: #BF616A; /* nord11 */
+  }
+  button.danger:hover {
+    background-color: #D08770; /* nord12 */
+  }
+  button.success {
+    background-color: #A3BE8C; /* not shown in image but typical Nord green */
+  }
+  button.success:hover {
+    background-color: #8FBCBB; /* nord7 */
+  }
+  button:disabled {
+    background-color: #4C566A; /* darker variant based on Nord theme */
+    cursor: not-allowed;
+    color: #E5E9F0; /* nord5 */
+  }
+  /* Layout styles */
+  .editor-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .canvas-container {
+    flex: 1;
+    min-width: 600px;
+    background-color: #3B4252; /* nord1 */
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    padding: 15px;
+    position: relative;
+  }
+  .sidebar {
+    width: 300px;
+    background-color: #3B4252; /* nord1 */
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    padding: 15px;
+  }
+  .toolbar {
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #434C5E; /* nord2 */
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .toolbar-group {
+    margin-right: 10px;
+    margin-bottom: 10px;
+    display: flex;
+  }
+  .properties-panel {
+    margin-top: 15px;
+  }
+  .form-group {
+    margin-bottom: 15px;
+  }
+  label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+    color: #E5E9F0; /* nord5 */
+  }
+  input, select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #4C566A; /* darker variant */
+    border-radius: 4px;
+    box-sizing: border-box;
+    background-color: #434C5E; /* nord2 */
+    color: #ECEFF4; /* nord6 */
+  }
+  canvas {
+    display: block;
+    background-color: #2E3440; /* nord0 */
+    border-radius: 4px;
+    border: 1px solid #4C566A; /* darker variant */
+  }
+  /* Templates section */
+  .templates {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #434C5E; /* nord2 */
+  }
+  .template-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+  }
+  /* Simulation panel */
+  .simulation-controls {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #434C5E; /* nord2 */
+  }
+  .tokens-display {
+    margin-top: 10px;
+    font-size: 14px;
+  }
+  .tokens-display div {
+    margin-bottom: 5px;
+  }
+  /* File operations */
+  .file-operations {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #434C5E; /* nord2 */
+  }
+  .hidden {
+    display: none;
+  }
+  /* Footer */
+  footer {
+    margin-top: 30px;
+    text-align: center;
+    color: #D8DEE9; /* nord4 */
+    font-size: 14px;
+    padding: 20px 0;
+  }
+  .header-title{
+    margin: 0;
+    padding: 0;
+  }
+  .resizable-content {
+    min-height: 30px;
+    min-width: 30px;
+    resize: both;
+    overflow: auto;
+    max-height: fit-content;
+    max-width: fit-content;
+  }
+
+
+  /* Vertical toolbar styles */
+.vertical-toolbar {
+    position: absolute;
+    left: 10px;
+    top: 70px; /* Position below the existing toolbar */
+    display: flex;
+    flex-direction: column;
+    background-color: #3B4252; /* nord1 */
+    border-radius: 5px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    z-index: 100; /* Ensure it floats above the canvas */
+}
+
+.toolbar-group.vertical {
+    display: flex;
+    flex-direction: column;
+    margin-right: 0;
+    margin-bottom: 0;
+    gap: 8px;
+}
+
+.vertical-toolbar button {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+/* Add hover effect for better UX */
+.vertical-toolbar button:hover {
+    background-color: #88C0D0; /* nord8 */
+    transform: scale(1.05);
+}
+
+/* Make canvas position relative for absolute positioning context */
+.canvas-container {
+    position: relative;
+}
+
+/* Zoom Controls Styles */
+.zoom-controls {
+    position: absolute;
+    right: 15px;
+    top: 15px;
+    display: flex;
+    align-items: center;
+    background-color: rgba(59, 66, 82, 0.8); /* nord1 with opacity */
+    border-radius: 5px;
+    padding: 5px 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+}
+
+.zoom-controls button {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    font-size: 16px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#zoom-display {
+    margin: 0 10px;
+    min-width: 60px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Pan instructions */
+.pan-instructions {
+    position: absolute;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(59, 66, 82, 0.8); /* nord1 with opacity */
+    border-radius: 5px;
+    padding: 5px 15px;
+    font-size: 12px;
+    color: #E5E9F0; /* nord5 */
+    z-index: 100;
+    pointer-events: none; /* Allow clicking through */
+    transition: opacity 0.5s;
+    opacity: 0.8;
+}
+
+.pan-instructions:hover {
+    opacity: 0.3;
+}
+
+/* Navigation help section in sidebar */
+.navigation-help {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #434C5E; /* nord2 */
+}
+
+.help-list {
+    margin: 10px 0;
+    padding-left: 20px;
+    font-size: 14px;
+}
+
+.help-list li {
+    margin-bottom: 8px;
+}
+
+/* Canvas cursor styles during different modes */
+canvas.pan-active {
+    cursor: grabbing;
+}
+
+canvas.pan-ready {
+    cursor: grab;
+}
+
+body, header, footer, .sidebar, .vertical-toolbar, 
+.container, .editor-container, .canvas-container, #petri-canvas {
+    transition: all 0.3s ease-in-out;
+}
+
+body.fullscreen-mode header,
+body.fullscreen-mode footer,
+body.fullscreen-mode .sidebar {
+    opacity: 0;
+    visibility: hidden;
+    position: absolute;
+}
+
+body.fullscreen-mode .container {
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    margin: 0;
+    transition: width 0.3s ease-in-out, max-width 0.3s ease-in-out, 
+                padding 0.3s ease-in-out, margin 0.3s ease-in-out;
+}
+
+body.fullscreen-mode .editor-container {
+    display: block;
+    transition: display 0.3s ease-in-out;
+}
+
+body.fullscreen-mode .canvas-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    background-color: white;
+    transition: width 0.3s ease-in-out, height 0.3s ease-in-out, 
+                position 0.3s ease-in-out, top 0.3s ease-in-out, 
+                left 0.3s ease-in-out;
+}
+
+body.fullscreen-mode #petri-canvas {
+    width: 100vw !important;
+    height: 100vh !important;
+    transition: width 0.3s ease-in-out, height 0.3s ease-in-out;
+}
+
+/* Add a z-index to ensure controls stay visible */
+.zoom-controls {
+    z-index: 500; 
+    transition: z-index 0.3s ease-in-out;
+}
+
+.pan-instructions {
+    z-index: 499;
+    transition: z-index 0.3s ease-in-out;
+}
+
+/* Button animation for fullscreen toggle */
+#btn-fullscreen {
+    transition: transform 0.3s ease-in-out, background-color 0.3s ease-in-out;
+}
+
+body.fullscreen-mode #btn-fullscreen {
+    background-color: #ffaaaa;
+    transform: rotate(180deg);
+}

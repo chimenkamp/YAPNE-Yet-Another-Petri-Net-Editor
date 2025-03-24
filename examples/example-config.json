@@ -1,0 +1,27 @@
+[
+    {
+        "name": "Dining Philosophers",
+        "description": "Dining Philosophers problem with 3 philosophers",
+        "path": "examples/dining-philosophers.json"
+    },
+    {
+        "name": "Simple Producer-Consumer",
+        "description": "Simple Producer-Consumer problem with 1 producer and 1 consumer",
+        "path": "examples/simple-producer-consumer.json"
+    },
+    {
+        "name": "Mutual Exclusion",
+        "description": "Mutual Exclusion problem",
+        "path": "examples/mutual-exclusion.json"
+    },
+    {
+        "name": "Banker's Algorithm",
+        "description": "Banker's Algorithm problem",
+        "path": "examples/banker-algorithm.json"
+    },
+    {
+        "name": "Traffic Light",
+        "description": "Traffic Light problem",
+        "path": "examples/traffic-light.json"
+    }
+]

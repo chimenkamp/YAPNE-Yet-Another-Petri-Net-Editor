@@ -1,0 +1,44 @@
+{
+    "id": "3d89f3ac-2aa7-4789-ae67-e8752c7a7d6d",
+    "name": "Complex Traffic Light Control Petri Net",
+    "description": "Petri Net representing a complex traffic light control system with two intersecting roads (A and B), pedestrian crossings, and emergency vehicle priority.",
+    "places": [
+      {"id": "road_a_green", "position": {"x": 100, "y": 100}, "label": "Road A Green", "tokens": 1, "capacity": null, "radius": 20},
+      {"id": "road_a_yellow", "position": {"x": 100, "y": 200}, "label": "Road A Yellow", "tokens": 0, "capacity": null, "radius": 20},
+      {"id": "road_a_red", "position": {"x": 100, "y": 300}, "label": "Road A Red", "tokens": 0, "capacity": null, "radius": 20},
+  
+      {"id": "road_b_green", "position": {"x": 300, "y": 300}, "label": "Road B Green", "tokens": 0, "capacity": null, "radius": 20},
+      {"id": "road_b_yellow", "position": {"x": 300, "y": 200}, "label": "Road B Yellow", "tokens": 0, "capacity": null, "radius": 20},
+      {"id": "road_b_red", "position": {"x": 300, "y": 100}, "label": "Road B Red", "tokens": 1, "capacity": null, "radius": 20},
+  
+      {"id": "ped_cross_wait", "position": {"x": 200, "y": 400}, "label": "Pedestrian Waiting", "tokens": 0, "capacity": null, "radius": 20},
+      {"id": "ped_cross_go", "position": {"x": 200, "y": 500}, "label": "Pedestrian Crossing", "tokens": 0, "capacity": null, "radius": 20},
+  
+      {"id": "emergency_detected", "position": {"x": 400, "y": 400}, "label": "Emergency Detected", "tokens": 0, "capacity": null, "radius": 20}
+    ],
+    "transitions": [
+      {"id": "a_to_b", "position": {"x": 150, "y": 150}, "label": "A Green to Yellow", "width": 20, "height": 50, "isEnabled": true, "priority": 1, "delay": 0},
+      {"id": "a_yellow_red", "position": {"x": 150, "y": 250}, "label": "A Yellow to Red", "width": 20, "height": 50, "isEnabled": false, "priority": 1, "delay": 0},
+  
+      {"id": "b_to_a", "position": {"x": 250, "y": 250}, "label": "B Green to Yellow", "width": 20, "height": 50, "isEnabled": false, "priority": 1, "delay": 0},
+      {"id": "b_yellow_red", "position": {"x": 250, "y": 150}, "label": "B Yellow to Red", "width": 20, "height": 50, "isEnabled": false, "priority": 1, "delay": 0},
+  
+      {"id": "ped_request", "position": {"x": 200, "y": 350}, "label": "Pedestrian Request", "width": 20, "height": 50, "isEnabled": true, "priority": 2, "delay": 0},
+      {"id": "ped_cross_start", "position": {"x": 200, "y": 450}, "label": "Start Pedestrian Crossing", "width": 20, "height": 50, "isEnabled": false, "priority": 2, "delay": 0},
+      {"id": "ped_cross_end", "position": {"x": 200, "y": 550}, "label": "End Pedestrian Crossing", "width": 20, "height": 50, "isEnabled": false, "priority": 2, "delay": 0},
+  
+      {"id": "emergency_trigger", "position": {"x": 350, "y": 350}, "label": "Emergency Trigger", "width": 20, "height": 50, "isEnabled": true, "priority": 3, "delay": 0}
+    ],
+    "arcs": [
+      {"id": "arc_a1", "source": "road_a_green", "target": "a_to_b", "weight": 1, "type": "regular", "points": [], "label": ""},
+      {"id": "arc_a2", "source": "a_to_b", "target": "road_a_yellow", "weight": 1, "type": "regular", "points": [], "label": ""},
+      {"id": "arc_a3", "source": "road_a_yellow", "target": "a_yellow_red", "weight": 1, "type": "regular", "points": [], "label": ""},
+      {"id": "arc_a4", "source": "a_yellow_red", "target": "road_a_red", "weight": 1, "type": "regular", "points": [], "label": ""},
+  
+      {"id": "arc_b1", "source": "road_b_green", "target": "b_to_a", "weight": 1, "type": "regular", "points": [], "label": ""},
+      {"id": "arc_b2", "source": "b_to_a", "target": "road_b_yellow", "weight": 1, "type": "regular", "points": [], "label": ""},
+      {"id": "arc_b3", "source": "road_b_yellow", "target": "b_yellow_red", "weight": 1, "type": "regular", "points": [], "label": ""},
+      {"id": "arc_b4", "source": "b_yellow_red", "target": "road_b_red", "weight": 1, "type": "regular", "points": [], "label": ""}
+    ]
+  }
+  
