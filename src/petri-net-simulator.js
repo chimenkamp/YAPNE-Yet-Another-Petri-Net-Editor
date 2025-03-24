@@ -766,6 +766,7 @@ class PetriNetEditor {
     this.selectedElement = null;
     this.arcDrawing = null;
     this.dragStart = null;
+    this.dragOffset = null; // Add dragOffset property for absolute positioning
     this.eventListeners = new Map();
     this.gridSize = 10; // Grid size for snap to grid
     this.snapToGrid = true;
@@ -835,9 +836,8 @@ class PetriNetEditor {
       // Convert screen coordinates to world coordinates
       const worldPos = this.renderer.screenToWorld(x, y);
     
-      if (this.mode === 'select' && this.selectedElement && this.dragStart) {
+      if (this.mode === 'select' && this.selectedElement) {
         this.handleDrag(worldPos.x, worldPos.y);
-        // Add this line to render on each drag movement
         this.render();
       } else if (this.mode === 'addArc' && this.arcDrawing) {
         // Temporary rendering of arc during drawing
@@ -868,7 +868,10 @@ class PetriNetEditor {
         this.completeArcDrawing(worldPos.x, worldPos.y);
       }
 
+      // Reset drag variables
       this.dragStart = null;
+      this.dragOffset = null; // Reset dragOffset when done dragging
+      
       this.render();
 
       if (this.callbacks.onChange) {
@@ -935,6 +938,11 @@ class PetriNetEditor {
 
       if (distance <= place.radius) {
         this.selectedElement = { id, type: 'place' };
+        // Calculate and store drag offset
+        this.dragOffset = {
+          x: x - place.position.x,
+          y: y - place.position.y
+        };
         if (this.callbacks.onSelect) {
           this.callbacks.onSelect(id, 'place');
         }
@@ -954,6 +962,11 @@ class PetriNetEditor {
         y <= transition.position.y + halfHeight
       ) {
         this.selectedElement = { id, type: 'transition' };
+        // Calculate and store drag offset
+        this.dragOffset = {
+          x: x - transition.position.x,
+          y: y - transition.position.y
+        };
         if (this.callbacks.onSelect) {
           this.callbacks.onSelect(id, 'transition');
         }
@@ -983,6 +996,8 @@ class PetriNetEditor {
 
       if (distance < 10 && dotProduct >= 0 && dotProduct <= 1) {
         this.selectedElement = { id, type: 'arc' };
+        // For arcs, we don't need dragOffset as they're handled differently
+        this.dragOffset = null;
         if (this.callbacks.onSelect) {
           this.callbacks.onSelect(id, 'arc');
         }
@@ -992,22 +1007,40 @@ class PetriNetEditor {
 
     // If we got here, nothing was selected
     this.selectedElement = null;
+    this.dragOffset = null;
     if (this.callbacks.onSelect) {
       this.callbacks.onSelect(null, null);
     }
   }
 
   handleDrag(x, y) {
-    if (!this.selectedElement || !this.dragStart) return;
+    if (!this.selectedElement) return;
 
-    const dx = x - this.dragStart.x;
-    const dy = y - this.dragStart.y;
+    // For arcs, keep the old differential movement approach
+    if (this.selectedElement.type === 'arc') {
+      if (!this.dragStart) return;
+      
+      const dx = x - this.dragStart.x;
+      const dy = y - this.dragStart.y;
+      
+      // Arc handling code here (not implemented in this example)
+      
+      this.dragStart = { x, y };
+      return;
+    }
+
+    // For places and transitions, use the absolute positioning with dragOffset
+    if (!this.dragOffset) return;
+
+    // Calculate new position using absolute positioning with offset
+    const newX = x - this.dragOffset.x;
+    const newY = y - this.dragOffset.y;
 
     if (this.selectedElement.type === 'place') {
       const place = this.petriNet.places.get(this.selectedElement.id);
       if (place) {
-        place.position.x += dx;
-        place.position.y += dy;
+        place.position.x = newX;
+        place.position.y = newY;
 
         if (this.snapToGrid) {
           place.position.x = Math.round(place.position.x / this.gridSize) * this.gridSize;
@@ -1017,20 +1050,15 @@ class PetriNetEditor {
     } else if (this.selectedElement.type === 'transition') {
       const transition = this.petriNet.transitions.get(this.selectedElement.id);
       if (transition) {
-        transition.position.x += dx;
-        transition.position.y += dy;
+        transition.position.x = newX;
+        transition.position.y = newY;
 
         if (this.snapToGrid) {
           transition.position.x = Math.round(transition.position.x / this.gridSize) * this.gridSize;
           transition.position.y = Math.round(transition.position.y / this.gridSize) * this.gridSize;
         }
       }
-    } else if (this.selectedElement.type === 'arc') {
-      // For simplicity, arc dragging not implemented in this example
-      // In a real implementation, this would modify control points of the arc
     }
-
-    this.dragStart = { x, y };
   }
 
   addPlace(x, y) {
@@ -1278,8 +1306,24 @@ class PetriNetEditor {
   selectElement(id, type) {
     if (id && type) {
       this.selectedElement = { id, type };
+      
+      // Set dragOffset if selecting a place or transition programmatically
+      if (type === 'place') {
+        const place = this.petriNet.places.get(id);
+        if (place) {
+          this.dragOffset = { x: 0, y: 0 }; // Default offset
+        }
+      } else if (type === 'transition') {
+        const transition = this.petriNet.transitions.get(id);
+        if (transition) {
+          this.dragOffset = { x: 0, y: 0 }; // Default offset
+        }
+      } else {
+        this.dragOffset = null;
+      }
     } else {
       this.selectedElement = null;
+      this.dragOffset = null;
     }
     this.render();
 
@@ -1302,6 +1346,7 @@ class PetriNetEditor {
 
     if (success) {
       this.selectedElement = null;
+      this.dragOffset = null;
       this.render();
 
       if (this.callbacks.onChange) {
