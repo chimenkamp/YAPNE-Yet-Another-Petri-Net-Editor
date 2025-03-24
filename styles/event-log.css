@@ -96,7 +96,7 @@
   }
   
   .form-tab.active {
-    color: #88C0D0; /* nord8 */
+    color: #fff; /* White */
     border-bottom-color: #88C0D0; /* nord8 */
   }
   
@@ -138,17 +138,18 @@
   /* Event Log Panel */
   .event-log-panel {
     position: fixed;
-    top: 10%;
-    left: 10%;
-    right: 10%;
-    bottom: 10%;
-    background-color: #3B4252; /* nord1 */
+    top: 2%;
+    left: 2%;
+    right: 2%;
+    bottom: 2%;
+    background-color: #3B4252;
     border-radius: 5px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
     z-index: 990;
     overflow: hidden;
+    border: 3px solid black;
   }
   
   .event-log-header {
@@ -185,9 +186,9 @@
   
   .event-log-stats {
     padding: 15px 20px;
-    border-bottom: 1px solid #434C5E; /* nord2 */
+    border-bottom: 1px solid #434C5E;
     overflow-y: auto;
-    max-height: 30%;
+    min-height: 50%;
   }
   
   .stats-grid {
