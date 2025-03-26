@@ -1,0 +1,254 @@
+{
+    "id": "auction-process-dpn",
+    "name": "Simple Auction Process Data Petri Net",
+    "description": "A Data Petri Net representing a simple auction process as shown in Example 1. The last offer is stored in 'o' and time progression is captured by 't'.",
+    "places": [
+      {
+        "id": "p0",
+        "position": {
+          "x": 330,
+          "y": 10
+        },
+        "label": "p₀",
+        "tokens": 1,
+        "capacity": null,
+        "radius": 20
+      },
+      {
+        "id": "p1",
+        "position": {
+          "x": 250,
+          "y": 240
+        },
+        "label": "p₁",
+        "tokens": 0,
+        "capacity": null,
+        "radius": 20
+      },
+      {
+        "id": "p2",
+        "position": {
+          "x": 400,
+          "y": 240
+        },
+        "label": "p₂",
+        "tokens": 0,
+        "capacity": null,
+        "radius": 20
+      },
+      {
+        "id": "p3",
+        "position": {
+          "x": 330,
+          "y": 480
+        },
+        "label": "p₃",
+        "tokens": 0,
+        "capacity": null,
+        "radius": 20
+      }
+    ],
+    "transitions": [
+      {
+        "id": "init",
+        "position": {
+          "x": 330,
+          "y": 160
+        },
+        "label": "init",
+        "width": 20,
+        "height": 50,
+        "isEnabled": true,
+        "priority": 1,
+        "delay": 0,
+        "precondition": "",
+        "postcondition": "t' = t + 1; o' = 0;"
+      },
+      {
+        "id": "bid",
+        "position": {
+          "x": 140,
+          "y": 240
+        },
+        "label": "bid",
+        "width": 20,
+        "height": 50,
+        "isEnabled": false,
+        "priority": 1,
+        "delay": 0,
+        "precondition": "t > 0",
+        "postcondition": "o' = o + 5;"
+      },
+      {
+        "id": "hammer",
+        "position": {
+          "x": 330,
+          "y": 310
+        },
+        "label": "hammer",
+        "width": 20,
+        "height": 50,
+        "isEnabled": false,
+        "priority": 1,
+        "delay": 0,
+        "precondition": "t <= 0 && o > 0",
+        "postcondition": ""
+      },
+      {
+        "id": "timer",
+        "position": {
+          "x": 510,
+          "y": 240
+        },
+        "label": "timer",
+        "width": 20,
+        "height": 50,
+        "isEnabled": false,
+        "priority": 1,
+        "delay": 0,
+        "precondition": "t > 0",
+        "postcondition": "t' = t + 1;"
+      },
+      {
+        "id": "reset",
+        "position": {
+          "x": 590,
+          "y": 240
+        },
+        "label": "reset",
+        "width": 20,
+        "height": 50,
+        "isEnabled": false,
+        "priority": 1,
+        "delay": 0,
+        "precondition": "o == 0",
+        "postcondition": ""
+      }
+    ],
+    "arcs": [
+      {
+        "id": "a1",
+        "source": "p0",
+        "target": "init",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "a4",
+        "source": "init",
+        "target": "p2",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "a7",
+        "source": "p2",
+        "target": "timer",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "a8",
+        "source": "timer",
+        "target": "p2",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "a9",
+        "source": "p2",
+        "target": "hammer",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "a10",
+        "source": "hammer",
+        "target": "p3",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "a12",
+        "source": "reset",
+        "target": "p0",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "9895fd3d-20ff-4c14-a24e-ee7ea8918a32",
+        "source": "init",
+        "target": "p1",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "83665ab2-352a-4889-96cf-b973cdc69ccb",
+        "source": "p1",
+        "target": "bid",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "b1dd3d84-f9d8-4d8f-b277-04faa78d29c5",
+        "source": "bid",
+        "target": "p1",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "117ad2fa-5042-4d4f-8efc-c5d7940326ce",
+        "source": "p1",
+        "target": "hammer",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      },
+      {
+        "id": "b4a0d4d0-6f3b-4d43-8b86-b8696100b90c",
+        "source": "p3",
+        "target": "reset",
+        "weight": 1,
+        "type": "regular",
+        "points": [],
+        "label": "1"
+      }
+    ],
+    "dataVariables": [
+      {
+        "id": "var1",
+        "name": "o",
+        "type": "number",
+        "currentValue": 0,
+        "description": "Last offer in the auction"
+      },
+      {
+        "id": "var2",
+        "name": "t",
+        "type": "number",
+        "currentValue": 0,
+        "description": "Time progression (countdown timer)"
+      }
+    ]
+  }

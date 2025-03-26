@@ -23,5 +23,15 @@
         "name": "Traffic Light",
         "description": "Traffic Light problem",
         "path": "examples/traffic-light.json"
+    },
+    {
+        "name": "DPN: Simple Order Processing with Data",
+        "description": "A data Petri net example of a simple order processing system",
+        "path": "examples/DPN-Order-Processing.json"
+    },
+    {
+        "name": "DPN: Simple Auction Process Data Petri Net",
+        "description": "A Data Petri Net representing a simple auction process as shown in Example 1 from the paper. The last offer is stored in 'o' and time progression is captured by 't'",
+        "path": "examples/auction-process-dpn.json"
     }
 ]

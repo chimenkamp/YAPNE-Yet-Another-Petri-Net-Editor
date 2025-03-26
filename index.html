@@ -6,6 +6,7 @@
     <title>YAPNE - Yet Another Petri Net Editor</title>
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/event-log.css">
+    <link rel="stylesheet" href="styles/dpn-styles.css">
 </head> 
 <body>
     <header>
@@ -121,7 +122,14 @@
     <!-- Include the Element Overlay extension -->
     <script src="src/element-overlay.js"></script>
     
-    <!-- Include our app code -->
+    <!-- Include Data Petri Net extensions -->
+    <script src="src/extensions/dpn-model.js"></script>
+    <script src="src/extensions/dpn-api.js"></script>
+    <script src="src/extensions/dpn-renderer.js"></script>
+    <script src="src/extensions/dpn-ui.js"></script>
+    <script src="src/extensions/dpn-integration.js"></script>
+
+
     <script src="app.js"></script>
     <script>
     
@@ -211,6 +219,14 @@
                         toggleFullscreen();
                     }
                 });
+
+                // Wait for the PetriNetApp to be initialized
+                const initTimer = setInterval(() => {
+                    if (window.petriApp) {
+                        window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
+                        clearInterval(initTimer);
+                    }
+                }, 100);
                 
             } catch (error) {
                 console.error('Error initializing application:', error);

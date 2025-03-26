@@ -75,6 +75,8 @@ body {
     border-radius: 5px;
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     padding: 15px;
+    overflow: scroll;
+    max-height: 100vh;
   }
   .toolbar {
     margin-bottom: 15px;
