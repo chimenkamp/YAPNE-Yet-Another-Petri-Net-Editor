@@ -19,7 +19,8 @@ class PetriNetApp {
     this.propertiesPanel = null;
     this.tokensDisplay = null;
     this.zoomDisplay = null;
-    
+    this.overlay = null;
+
     // Simulation state
     this.autoRunInterval = null;
     this.autoRunDelay = 1000; // ms
@@ -49,6 +50,7 @@ class PetriNetApp {
     // Create the Petri net and editor
     this.api = new PetriNetAPI();
     this.editor = this.api.attachEditor(this.canvas);
+    this.editor.app = this;
     
     // Set up editor callbacks
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
@@ -61,6 +63,9 @@ class PetriNetApp {
     this.editor.render();
     this.updateTokensDisplay();
     this.updateZoomDisplay();
+
+    this.overlay = new ElementOverlay(this.editor, this.api);
+
   }
   
   /**
@@ -276,8 +281,13 @@ class PetriNetApp {
   handleElementSelected(id, type) {
     if (!id || !type) {
       this.propertiesPanel.innerHTML = '<p>No element selected.</p>';
+      // Update overlay
+      this.overlay.updateSelection(null, null);
       return;
     }
+    
+    // Update overlay with selected element
+    this.overlay.updateSelection(id, type);
     
     if (type === 'place') {
       this.showPlaceProperties(id);
@@ -285,6 +295,8 @@ class PetriNetApp {
       this.showTransitionProperties(id);
     } else if (type === 'arc') {
       this.showArcProperties(id);
+      // Clear overlay for arcs
+      this.overlay.updateSelection(null, null);
     }
   }
   

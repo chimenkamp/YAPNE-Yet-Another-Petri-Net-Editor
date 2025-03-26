@@ -1235,6 +1235,9 @@ class PetriNetEditor {
     this.petriNet.updateEnabledTransitions();
     this.renderer.render();
     this.renderSelection();
+    if (this.app && this.app.overlay) {
+      this.app.overlay.render();
+    }
   }
 
   renderSelection() {
@@ -1304,6 +1307,7 @@ class PetriNetEditor {
   }
 
   selectElement(id, type) {
+
     if (id && type) {
       this.selectedElement = { id, type };
       
@@ -1325,6 +1329,7 @@ class PetriNetEditor {
       this.selectedElement = null;
       this.dragOffset = null;
     }
+
     this.render();
 
     if (this.callbacks.onSelect) {
@@ -1334,7 +1339,7 @@ class PetriNetEditor {
 
   deleteSelected() {
     if (!this.selectedElement) return false;
-
+    
     let success = false;
     if (this.selectedElement.type === 'place') {
       success = this.petriNet.removePlace(this.selectedElement.id);
