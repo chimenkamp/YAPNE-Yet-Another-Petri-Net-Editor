@@ -141,7 +141,7 @@ class DataVariable {
           if (!assignment.trim()) continue;
           
           // Parse the assignment (format: "x' = expression")
-          const match = assignment.trim().match(/([a-zA-Z_][a-zA-Z0-9_]*)'s*=s*(.+)/);
+          const match = assignment.trim().match(/([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
           if (!match) continue;
           
           const [, variableName, expression] = match;
