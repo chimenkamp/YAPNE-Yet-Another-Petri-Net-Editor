@@ -1,6 +1,6 @@
 # YAPNE - Yet Another Petri Net Editor
 
-A web-based, dependency-free, editor and simulator for Petri nets with features for creating, editing, simulating, and analyzing Petri net models.
+A web-based, dependency-free, editor and simulator for Petri nets and data petri nets with features for creating, editing, simulating, and analyzing Petri net models.
 
 Inspired by [I ❤ Petri Nets](https://www.fernuni-hagen.de/ilovepetrinets/fapra/wise23/rot/index.html)
 
@@ -23,6 +23,13 @@ This project provides a complete solution for working with Petri nets, including
 - Automatic simulation with priorities and delays
 - Visual indication of enabled transitions
 - Tokens display and tracking
+
+### Data Petri Net Extension
+- Support for data variables with different types (number, string, boolean)
+- Data-aware transitions with preconditions (guards) and postconditions (updates)
+- Variable tracking and history during simulation
+- Visual indicators for data transitions
+- Expression validation
 
 ### Analysis and Export
 - Export to JSON and PNML formats
@@ -51,6 +58,18 @@ A standalone JavaScript library that provides the core functionality for Petri n
 - PetriNetEditor for user interaction
 - PetriNetAPI for high-level operations
 
+### Extensions Architecture
+The application supports extensions that can enhance the core functionality:
+
+#### Data Petri Net Extension
+Located in the `src/extensions/` directory:
+- `dpn-model.js` - Data variables and data-aware transitions
+- `dpn-api.js` - Extended API for data Petri nets
+- `dpn-renderer.js` - Custom rendering for data transitions
+- `dpn-ui.js` - UI components for data variables management
+- `dpn-integration.js` - Main integration module
+- `variable-tracking.js` - Variable history tracking
+
 ### Web Application
 Front-end components that use the library:
 
@@ -58,6 +77,59 @@ Front-end components that use the library:
 - `index.html` - Application structure and UI layout
 - `event-log-generator.js` - Module for generating event logs from Petri net simulations
 - `event-log-integration.js` - UI integration for the event log generator
+
+## Extension Integration
+
+### Integrating Extensions
+
+Extensions are integrated into the main application using a modular approach:
+
+1. **Include Extension Scripts**: Add extension scripts in the HTML file after the core library
+   ```html
+   <!-- Core library -->
+   <script src="src/petri-net-simulator.js"></script>
+   
+   <!-- Extensions -->
+   <script src="src/extensions/dpn-model.js"></script>
+   <script src="src/extensions/dpn-api.js"></script>
+   <script src="src/extensions/dpn-renderer.js"></script>
+   <script src="src/extensions/dpn-ui.js"></script>
+   <script src="src/extensions/dpn-integration.js"></script>
+   ```
+
+2. **Integration Pattern**: Each extension has an integration module that handles:
+   - Extending the core API class with new functionality
+   - Replacing or extending rendering functionality
+   - Adding new UI components
+   - Preserving compatibility with the core application
+
+3. **Initialization**: Extensions are initialized after the main application loads
+   ```javascript
+   document.addEventListener('DOMContentLoaded', () => {
+     // Wait for the main application to initialize
+     const initTimer = setInterval(() => {
+       if (window.petriApp) {
+         window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
+         clearInterval(initTimer);
+       }
+     }, 100);
+   });
+   ```
+
+### Creating New Extensions
+
+To create a new extension:
+
+1. Create JavaScript files for your extension components
+2. Extend the appropriate core classes (API, Renderer, Editor)
+3. Create an integration module that:
+   - Injects styles if needed
+   - Extends the API with new functionality
+   - Extends or replaces the renderer if needed
+   - Initializes UI components
+   - Extends application event handlers
+4. Include your extension scripts in the HTML after the core library
+5. Initialize your extension after the main application loads
 
 ## API Reference
 
@@ -128,6 +200,28 @@ const newApi = PetriNetAPI.importFromJSON(json);
 const pnml = api.exportAsPNML();
 ```
 
+### DataPetriNetAPI (Extension)
+
+Extended API for working with Data Petri Nets.
+
+```javascript
+// Create a new Data Petri Net
+const api = new DataPetriNetAPI();
+
+// Data variables
+const varId = api.createDataVariable('counter', 'number', 0, 'Counter variable');
+api.updateDataVariableValue(varId, 10);
+const variables = api.getDataVariables();
+
+// Data transitions
+const transId = api.createDataTransition(x, y, 'Process', 'counter > 0', 'counter\' = counter - 1;');
+api.setTransitionPrecondition(transId, 'counter >= 5');
+api.setTransitionPostcondition(transId, 'counter\' = counter - 1; status\' = "processed";');
+
+// Validation
+const result = api.validatePrecondition('counter > 0', ['counter', 'status']);
+```
+
 ### PetriNetEditor
 
 Handles user interaction with the Petri net.
@@ -174,9 +268,14 @@ const xes = generator.exportToXES();
 
 ## Usage
 
-1. Include the Petri net library in your HTML:
+1. Include the Petri net library and extensions in your HTML:
 ```html
 <script src="src/petri-net-simulator.js"></script>
+<script src="src/extensions/dpn-model.js"></script>
+<script src="src/extensions/dpn-api.js"></script>
+<script src="src/extensions/dpn-renderer.js"></script>
+<script src="src/extensions/dpn-ui.js"></script>
+<script src="src/extensions/dpn-integration.js"></script>
 ```
 
 2. Initialize the application:
