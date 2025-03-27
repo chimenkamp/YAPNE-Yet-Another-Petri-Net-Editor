@@ -162,19 +162,28 @@ class DataPetriNetUI {
           // Add event listeners
           const preconditionInput = document.getElementById('transition-precondition');
           if (preconditionInput) {
-            preconditionInput.addEventListener('change', (e) => {
+            preconditionInput.addEventListener('input', (e) => {
               // Update precondition
-              this.app.api.setTransitionPrecondition(id, e.target.value);
+              try {
+                this.app.api.setTransitionPrecondition(id, e.target.value);
+              } catch (error) {
+                preconditionInput.style.borderColor = 'red';
+              }
               
               // Refresh the properties panel to show updated status
-              this.app.showTransitionProperties(id);
+              this.app.updateTransitionStatus(id);
             });
           }
           
           const postconditionInput = document.getElementById('transition-postcondition');
           if (postconditionInput) {
-            postconditionInput.addEventListener('change', (e) => {
-              this.app.api.setTransitionPostcondition(id, e.target.value);
+            postconditionInput.addEventListener('input', (e) => {
+              try {
+                this.app.api.setTransitionPostcondition(id, e.target.value);
+              } catch (error) {
+                postconditionInput.style.borderColor = 'red';
+              }
+              this.app.updateTransitionStatus(id);
             });
           }
           

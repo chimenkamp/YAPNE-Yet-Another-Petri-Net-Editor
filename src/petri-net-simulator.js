@@ -383,6 +383,7 @@ class PetriNet {
 }
 
 // Renderer class for the Petri net
+// Renderer class for the Petri net
 class PetriNetRenderer {
   constructor(canvas, petriNet) {
     this.canvas = canvas;
@@ -394,6 +395,7 @@ class PetriNetRenderer {
     this.zoomFactor = 1.0;
     this.minZoom = 0.1;
     this.maxZoom = 3.0;
+    this.zoomSensitivity = 0.1; // Default zoom sensitivity
 
     // Default theme
     this.theme = {
@@ -749,12 +751,17 @@ class PetriNetRenderer {
     };
   }
 
+  // Set zoom sensitivity
+  setZoomSensitivity(sensitivity) {
+    this.zoomSensitivity = sensitivity;
+  }
+
   // Additional theme settings
   setTheme(theme) {
     this.theme = { ...this.theme, ...theme };
   }
 }
-
+// Editor class for user interaction
 // Editor class for user interaction
 class PetriNetEditor {
   
@@ -887,11 +894,13 @@ class PetriNetEditor {
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
       
-      // Determine zoom direction and factor
-      const delta = event.deltaY < 0 ? 1.1 : 0.9;
+      // Calculate zoom factor based on sensitivity
+      const direction = event.deltaY < 0 ? 1 : -1;
+      const zoomChange = 1 + (direction * this.renderer.zoomSensitivity);
+      const factor = Math.max(0.9, Math.min(1.1, zoomChange)); // Limit to reasonable range
       
       // Adjust zoom centered on the mouse position
-      this.renderer.adjustZoom(delta, x, y);
+      this.renderer.adjustZoom(factor, x, y);
       this.render();
     };
 
@@ -1466,6 +1475,13 @@ class PetriNetEditor {
     this.renderer.resetView();
     this.render();
   }
+  
+  // Set zoom sensitivity
+  setZoomSensitivity(sensitivity) {
+    if (this.renderer) {
+      this.renderer.setZoomSensitivity(sensitivity);
+    }
+  }
 
   // Event callbacks
   setOnChangeCallback(callback) {
@@ -1704,6 +1720,22 @@ class PetriNetAPI {
     if (this.editor) {
       this.editor.resetView();
     }
+  }
+  
+  /**
+   * Sets the sensitivity of the zoom operation when using the mouse wheel
+   * @param {number} sensitivity - Value between 0.01 and 0.5, where higher values make zooming more sensitive
+   * @returns {boolean} - Success of the operation
+   */
+  setZoomSensitivity(sensitivity) {
+    // Validate and clamp the sensitivity value
+    const validSensitivity = Math.max(0.01, Math.min(0.5, sensitivity));
+    
+    if (this.editor) {
+      this.editor.setZoomSensitivity(validSensitivity);
+      return true;
+    }
+    return false;
   }
 
   // Import/Export methods
@@ -2085,7 +2117,6 @@ class PetriNetAPI {
 
     return null;
   }
-
 }
 
 // Export the main classes
