@@ -1,5 +1,7 @@
 # YAPNE - Yet Another Petri Net Editor
 
+⚠️ **Warning:** This software is in early development and may contain bugs. Use with caution and report any issues you encounter.
+
 A web-based, dependency-free, editor and simulator for Petri nets and data Petri nets with features for creating, editing, simulating, and analyzing Petri net models.
 
 Inspired by [I ❤ Petri Nets](https://www.fernuni-hagen.de/ilovepetrinets/fapra/wise23/rot/index.html)
