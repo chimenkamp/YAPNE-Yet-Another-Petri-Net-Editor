@@ -9,7 +9,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
   constructor(canvas, petriNet) {
     super(canvas, petriNet);
     
-    // Extended theme properties for data transitions
+
     this.theme = {
       ...this.theme,
       dataTransitionColor: '#8FBCBB',             // Nord7 - bluish green
@@ -26,7 +26,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
    */
   drawTransitions() {
     for (const [id, transition] of this.petriNet.transitions.entries()) {
-      // Check if it's a data-aware transition
+
       const isDataAware = typeof transition.evaluatePrecondition === 'function';
       
       if (isDataAware) {
@@ -43,7 +43,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
    * @private
    */
   drawStandardTransition(transition) {
-    // Draw transition rectangle
+
     this.ctx.beginPath();
     this.ctx.rect(
       transition.position.x - transition.width / 2,
@@ -58,7 +58,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
 
-    // Draw label
+
     this.ctx.fillStyle = this.theme.textColor;
     this.ctx.font = '12px Arial';
     this.ctx.textAlign = 'center';
@@ -80,7 +80,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     const width = transition.width;
     const height = transition.height;
     
-    // Draw main rectangle
+
     this.ctx.beginPath();
     this.ctx.rect(
       x - width / 2,
@@ -89,11 +89,11 @@ class DataPetriNetRenderer extends PetriNetRenderer {
       height
     );
     
-    // Determine fill color based on enabled state
+
     if (transition.isEnabled) {
       this.ctx.fillStyle = this.theme.enabledDataTransitionColor;
     } else {
-      // Check if precondition failed (transition is eligible by tokens)
+
       const isTokenEnabled = this.isTransitionTokenEnabled(transition.id);
       this.ctx.fillStyle = isTokenEnabled ? 
         this.theme.disabledDataTransitionColor : // Data guard is preventing firing
@@ -105,7 +105,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
     
-    // Draw data indicators if transition has preconditions or postconditions
+
     if (transition.precondition) {
       this.drawDataGuardIndicator(x, y - height / 2, width);
     }
@@ -114,7 +114,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
       this.drawDataUpdateIndicator(x, y + height / 2, width);
     }
     
-    // Draw label
+
     this.ctx.fillStyle = this.theme.textColor;
     this.ctx.font = '12px Arial';
     this.ctx.textAlign = 'center';
@@ -135,7 +135,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
   drawDataGuardIndicator(x, y, width) {
     const indicatorHeight = 5;
     
-    // Draw small rectangle at the top
+
     this.ctx.beginPath();
     this.ctx.rect(
       x - width / 2,
@@ -160,7 +160,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
   drawDataUpdateIndicator(x, y, width) {
     const indicatorHeight = 5;
     
-    // Draw small rectangle at the bottom
+
     this.ctx.beginPath();
     this.ctx.rect(
       x - width / 2,
@@ -191,13 +191,13 @@ class DataPetriNetRenderer extends PetriNetRenderer {
       if (!place) continue;
 
       if (arc.type === "inhibitor") {
-        // Inhibitor arc: transition enabled only if place has fewer tokens than arc weight
+
         if (place.tokens >= arc.weight) return false;
       } else if (arc.type === "regular") {
-        // Regular arc: transition enabled only if place has enough tokens
+
         if (place.tokens < arc.weight) return false;
       }
-      // Read arcs don't affect enabling
+
     }
 
     return true;

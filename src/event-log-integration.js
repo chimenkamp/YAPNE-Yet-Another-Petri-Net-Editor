@@ -12,7 +12,7 @@ class EventLogIntegration {
       this.table = null;
       this.eventLogGenerator = null;
       
-      // Default simulation options
+
       this.simulationOptions = {
         startTimestamp: new Date(),
         defaultTransitionDuration: 1000,
@@ -36,15 +36,15 @@ class EventLogIntegration {
     }
     
     initialize() {
-      // Create UI elements
+
       this.createUI();
       
-      // Set up event listeners
+
       this.setupEventListeners();
     }
     
     createUI() {
-      // Create dialog element
+
       this.dialog = document.createElement('div');
       this.dialog.className = 'modal-overlay hidden';
       this.dialog.id = 'event-log-dialog';
@@ -160,7 +160,7 @@ class EventLogIntegration {
       this.dialog.innerHTML = dialogContent;
       document.body.appendChild(this.dialog);
       
-      // Create event log display panel
+
       this.eventLogPanel = document.createElement('div');
       this.eventLogPanel.className = 'event-log-panel hidden';
       this.eventLogPanel.id = 'event-log-panel';
@@ -200,7 +200,7 @@ class EventLogIntegration {
       this.eventLogPanel.innerHTML = eventLogPanelContent;
       document.body.appendChild(this.eventLogPanel);
       
-      // Add button to the UI for opening the event log generator
+
       const fileOperationsDiv = document.querySelector('.file-operations');
       if (fileOperationsDiv) {
         const eventLogButton = document.createElement('div');
@@ -209,7 +209,7 @@ class EventLogIntegration {
         fileOperationsDiv.appendChild(eventLogButton);
       }
       
-      // Set current date and time for the start timestamp
+
       const startTimestampInput = document.getElementById('start-timestamp');
       if (startTimestampInput) {
         const now = new Date();
@@ -224,31 +224,31 @@ class EventLogIntegration {
     }
     
     setupEventListeners() {
-      // Open event log generator dialog
+
       const openButton = document.getElementById('btn-event-log');
       if (openButton) {
         openButton.addEventListener('click', () => this.openDialog());
       }
       
-      // Close event log generator dialog
+
       const closeButton = document.getElementById('event-log-close');
       if (closeButton) {
         closeButton.addEventListener('click', () => this.closeDialog());
       }
       
-      // Run simulation
+
       const runButton = document.getElementById('event-log-run');
       if (runButton) {
         runButton.addEventListener('click', () => this.runSimulation());
       }
       
-      // Reset options
+
       const resetButton = document.getElementById('event-log-reset');
       if (resetButton) {
         resetButton.addEventListener('click', () => this.resetOptions());
       }
       
-      // Tab switching
+
       const tabButtons = document.querySelectorAll('.form-tab');
       tabButtons.forEach(button => {
         button.addEventListener('click', (e) => {
@@ -257,7 +257,7 @@ class EventLogIntegration {
         });
       });
       
-      // Show/hide normal distribution params
+
       const arrivalDistribution = document.getElementById('arrival-distribution');
       if (arrivalDistribution) {
         arrivalDistribution.addEventListener('change', (e) => {
@@ -268,7 +268,7 @@ class EventLogIntegration {
         });
       }
       
-      // Export buttons
+
       const exportCsvButton = document.getElementById('export-csv');
       if (exportCsvButton) {
         exportCsvButton.addEventListener('click', () => this.exportLog('csv'));
@@ -284,7 +284,7 @@ class EventLogIntegration {
         exportXesButton.addEventListener('click', () => this.exportLog('xes'));
       }
       
-      // Close event log panel
+
       const closeEventLogButton = document.getElementById('close-event-log');
       if (closeEventLogButton) {
         closeEventLogButton.addEventListener('click', () => this.closeEventLogPanel());
@@ -300,13 +300,13 @@ class EventLogIntegration {
     }
     
     switchTab(tabId) {
-      // Update active tab button
+
       const tabButtons = document.querySelectorAll('.form-tab');
       tabButtons.forEach(button => {
         button.classList.toggle('active', button.getAttribute('data-tab') === tabId);
       });
       
-      // Update active tab content
+
       const tabContents = document.querySelectorAll('.form-tab-content');
       tabContents.forEach(content => {
         content.classList.toggle('active', content.getAttribute('data-tab') === tabId);
@@ -314,7 +314,7 @@ class EventLogIntegration {
     }
     
     resetOptions() {
-      // Reset all form fields to default values
+
       document.getElementById('num-cases').value = 10;
       document.getElementById('max-steps').value = 100;
       document.getElementById('case-name').value = 'Case';
@@ -330,13 +330,13 @@ class EventLogIntegration {
       document.getElementById('end-places').value = '';
       document.getElementById('initial-marking').value = '';
       
-      // Update UI
+
       const normalParams = document.querySelector('.normal-params');
       if (normalParams) {
         normalParams.classList.add('hidden');
       }
       
-      // Set current date and time for the start timestamp
+
       const startTimestampInput = document.getElementById('start-timestamp');
       if (startTimestampInput) {
         const now = new Date();
@@ -351,7 +351,7 @@ class EventLogIntegration {
     }
     
     collectOptions() {
-      // Collect values from the form
+
       const options = {
         numCases: parseInt(document.getElementById('num-cases').value, 10),
         maxSteps: parseInt(document.getElementById('max-steps').value, 10),
@@ -366,12 +366,12 @@ class EventLogIntegration {
         arrivalParams: {}
       };
       
-      // Handle normal distribution params
+
       if (options.arrivalDistribution === 'normal') {
         options.arrivalParams.stddev = parseFloat(document.getElementById('stddev').value);
       }
       
-      // Random seed
+
       const seedInput = document.getElementById('random-seed').value;
       if (seedInput.trim() !== '') {
         options.seed = parseInt(seedInput, 10);
@@ -379,7 +379,7 @@ class EventLogIntegration {
         options.seed = null;
       }
       
-      // Start and end places
+
       const startPlacesInput = document.getElementById('start-places').value;
       if (startPlacesInput.trim() !== '') {
         options.startPlaces = startPlacesInput.split(',').map(id => id.trim());
@@ -394,7 +394,7 @@ class EventLogIntegration {
         options.endPlaces = [];
       }
       
-      // Initial marking
+
       const initialMarkingInput = document.getElementById('initial-marking').value;
       if (initialMarkingInput.trim() !== '') {
         try {
@@ -412,12 +412,12 @@ class EventLogIntegration {
     
     runSimulation() {
       try {
-        // Collect options from the form
+
         const options = this.collectOptions();
         this.simulationOptions = { ...this.simulationOptions, ...options };
         
-        // Create a deep copy of the Petri net for simulation
-        // This ensures we don't modify the actual Petri net
+
+
         const petriNetJson = this.app.api.exportAsJSON();
         const petriNet = PetriNet.fromJSON(petriNetJson);
         
@@ -431,16 +431,16 @@ class EventLogIntegration {
 
         this.eventLogGenerator = new EventLogGenerator(petriNet, this.simulationOptions);
         
-        // Run the simulation
+
         this.eventLog = this.eventLogGenerator.simulateCases(
           this.simulationOptions.numCases,
           this.simulationOptions.maxSteps
         );
         
-        // Close the dialog
+
         this.closeDialog();
         
-        // Display the generated event log
+
         this.displayEventLog();
       } catch (error) {
         console.error('Error running simulation:', error);
@@ -478,31 +478,31 @@ class EventLogIntegration {
         return;
       }
       
-      // Show the event log panel
+
       this.eventLogPanel.classList.remove('hidden');
       
-      // Display statistics
+
       this.displayStatistics();
       
-      // Clear the table body
+
       const tableBody = document.getElementById('event-log-table-body');
       tableBody.innerHTML = '';
       
-      // Display up to 250 events
+
       const eventsToShow = this.eventLog.slice(0, 250);
       
-      // Add events to the table
+
       eventsToShow.forEach(event => {
         const row = document.createElement('tr');
         
-        // Extract common fields
+
         const caseId = event['case:concept:name'] || '';
         const activity = event['concept:name'] || '';
         const timestamp = event['time:timestamp'] || '';
         const lifecycle = event['lifecycle:transition'] || '';
         const resource = event['org:resource'] || '';
         
-        // Extract additional data fields
+
         const dataFields = {};
         for (const [key, value] of Object.entries(event)) {
           if (!['case:concept:name', 'concept:name', 'time:timestamp', 'lifecycle:transition', 'org:resource'].includes(key)) {
@@ -510,16 +510,16 @@ class EventLogIntegration {
           }
         }
         
-        // Format the timestamp
+
         let formattedTimestamp = timestamp;
         try {
           const date = new Date(timestamp);
           formattedTimestamp = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
         } catch (e) {
-          // Use the original timestamp if parsing fails
+
         }
         
-        // Create cells
+
         row.innerHTML = `
           <td>${caseId}</td>
           <td>${activity}</td>
@@ -532,7 +532,7 @@ class EventLogIntegration {
         tableBody.appendChild(row);
       });
       
-      // Show a message if there are more events
+
       if (this.eventLog.length > 250) {
         const message = document.createElement('tr');
         message.innerHTML = `<td colspan="6" class="message">Showing 250 of ${this.eventLog.length} events. Export to see all events.</td>`;
@@ -546,7 +546,7 @@ class EventLogIntegration {
       const stats = this.eventLogGenerator.getStatistics();
       const statsContainer = document.getElementById('event-log-stats-content');
       
-      // Format duration in a human-readable way
+
       const formatDuration = (ms) => {
         if (isNaN(ms)) return 'N/A';
         
@@ -563,7 +563,7 @@ class EventLogIntegration {
         }
       };
       
-      // Create HTML for statistics
+
       let html = `
         <div class="stats-grid">
           <div class="stat-item">
@@ -597,12 +597,12 @@ class EventLogIntegration {
           <div class="activity-chart">
       `;
       
-      // Add activity frequency chart
+
       const activities = Object.entries(stats.activityFrequency)
         .filter(([name]) => !name.startsWith('Case_')) // Filter out case start/end events
         .sort((a, b) => b[1] - a[1]); // Sort by frequency
       
-      // Get the max frequency for scaling
+
       const maxFrequency = activities.length > 0 ? activities[0][1] : 0;
       
       activities.forEach(([name, count]) => {
@@ -655,7 +655,7 @@ class EventLogIntegration {
           return;
       }
       
-      // Create a blob and download link
+
       const blob = new Blob([data], { type: mimeType });
       const url = URL.createObjectURL(blob);
       
@@ -672,9 +672,9 @@ class EventLogIntegration {
     }
   }
   
-  // Initialize the EventLogIntegration when the app is ready
+
   document.addEventListener('DOMContentLoaded', () => {
-    // Wait for the PetriNetApp to be initialized
+
     const initEventLogTimer = setInterval(() => {
       if (window.petriApp) {
         window.eventLogIntegration = new EventLogIntegration(window.petriApp);

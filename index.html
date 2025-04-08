@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/event-log.css">
     <link rel="stylesheet" href="styles/dpn-styles.css">
+    <!-- <link rel="stylesheet" href="styles/random-generator.css"> -->
 </head> 
 <body>
     <header>
@@ -119,38 +120,37 @@
     <!-- Include the Petri Net library -->
     <script src="src/petri-net-simulator.js"></script>
 
-    <!-- Include the Element Overlay extension -->
-    <script src="src/element-overlay.js"></script>
+
     
     <!-- Include Data Petri Net extensions -->
+     <script src="src/extensions/dpn-expression-validation.js"></script>
     <script src="src/extensions/dpn-model.js"></script>
     <script src="src/extensions/dpn-api.js"></script>
     <script src="src/extensions/dpn-renderer.js"></script>
     <script src="src/extensions/dpn-ui.js"></script>
     <script src="src/extensions/dpn-integration.js"></script>
 
-
     <script src="app.js"></script>
     <script>
     
         document.addEventListener('DOMContentLoaded', () => {
             try {
-                // Detect OS and update pan instructions
+
                 const isMac = navigator.userAgent.includes('Mac');
                 const modifierKey = isMac ? 'Command' : 'Alt';
                 
-                // Update the pan instructions
+
                 const panInstructions = document.getElementById('pan-instructions');
                 panInstructions.innerHTML = `<span>Pan: Middle mouse button or ${modifierKey}+drag</span>`;
                 
-                // Update the navigation help list
+
                 const navigationHelpList = document.getElementById('navigation-help-list');
                 const panHelpItem = navigationHelpList.querySelector('li:first-child');
                 panHelpItem.innerHTML = `<strong>Pan:</strong> Middle mouse button or ${modifierKey}+drag`;
                 
-                // Initialize the app
+
                 const app = new window.PetriNetApp();
-                // Store app in window for debugging
+
                 window.petriApp = app;
                 
                 app.loadTemplateFile('examples/example-config.json').then((data) => {
@@ -163,7 +163,7 @@
                     });
                 });
 
-                // Add fullscreen toggle functionality
+
                 const fullscreenButton = document.getElementById('btn-fullscreen');
                 fullscreenButton.addEventListener('click', toggleFullscreen);
                 
@@ -171,10 +171,10 @@
                     const body = document.body;
                     const canvasElement = document.getElementById('petri-canvas');
                     
-                    // Toggle the fullscreen mode class
+
                     body.classList.toggle('fullscreen-mode');
                     
-                    // Change the button icon based on state
+
                     if (body.classList.contains('fullscreen-mode')) {
                         
                         fullscreenButton.innerHTML = '⤓';
@@ -188,30 +188,30 @@
                         fullscreenButton.innerHTML = '⛶';
                         fullscreenButton.title = 'Toggle Full Screen';
                         
-                        // Reset canvas size
+
                         setTimeout(() => {
                             canvasElement.width = "1090";
                             canvasElement.height = "800";
                         }, 10);
                     }
                     
-                    // Resize the canvas to fit the new container size with animation
+
                     if (window.petriApp && window.petriApp.resizeCanvas) {
-                        // Initial resize
+
                         setTimeout(() => {
                             window.petriApp.resizeCanvas();
                         }, 50);
                         
-                        // Final resize after animation completes
+
                         setTimeout(() => {
                             window.petriApp.resizeCanvas();
                         }, 350); // slightly longer than the CSS transition duration
                     }
                 }
                 
-                // Add keyboard shortcut for fullscreen (ESC to exit)
+
                 document.addEventListener('keydown', (e) => {
-                    // Use F11 key for fullscreen toggle (or another key if preferred)
+
                     if (e.key === 'Escape' && document.body.classList.contains('fullscreen-mode')) {
                         toggleFullscreen();
                     } else if (e.key === 'F' && (e.ctrlKey || e.metaKey)) {
@@ -220,7 +220,7 @@
                     }
                 });
 
-                // Wait for the PetriNetApp to be initialized
+
                 const initTimer = setInterval(() => {
                     if (window.petriApp) {
                         window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
@@ -234,10 +234,13 @@
             }
         });
     </script>
-    
+
     <script src="src/event-log-generator.js"></script>
     <script src="src/event-log-integration.js"></script>
-
+    <!-- <script src="src/extensions/random-petri-net-generator.js"></script> -->
     <script src="src/extensions/variable-tracking.js"></script>
+
+        <!-- Include the Element Overlay extension -->
+        <script src="src/element-overlay.js"></script>
 </body>
 </html>

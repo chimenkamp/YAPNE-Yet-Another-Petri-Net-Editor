@@ -1,0 +1,94 @@
+/* Add these styles to petri-net-generator-styles.css */
+
+/* Property controls styling */
+.property-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+    background-color: rgba(143, 188, 187, 0.1); /* nord7 with alpha */
+    padding: 12px;
+    border-radius: 4px;
+    border-left: 3px solid #8FBCBB; /* nord7 */
+  }
+  
+  .property-controls > div {
+    display: flex;
+    align-items: flex-start;
+  }
+  
+  .property-controls input[type="checkbox"] {
+    margin-top: 5px;
+    margin-right: 10px;
+  }
+  
+  .property-controls label {
+    font-weight: 500;
+    color: #E5E9F0; /* nord5 */
+    margin-bottom: 2px;
+  }
+  
+  .property-controls small {
+    display: block;
+    margin-left: 24px; /* Align with text after checkbox */
+    color: #D8DEE9; /* nord4 */
+    font-size: 12px;
+  }
+  
+  /* Add highlighting for property results in property panel */
+  .property-result {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  
+  .property-result.success {
+    background-color: rgba(163, 190, 140, 0.2); /* nord14 with alpha */
+    border-left: 3px solid #A3BE8C; /* nord14 */
+  }
+  
+  .property-result.warning {
+    background-color: rgba(235, 203, 139, 0.2); /* nord13 with alpha */
+    border-left: 3px solid #EBCB8B; /* nord13 */
+  }
+  
+  .property-result.error {
+    background-color: rgba(191, 97, 106, 0.2); /* nord11 with alpha */
+    border-left: 3px solid #BF616A; /* nord11 */
+  }
+  
+  /* Add property icons */
+  .property-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    text-align: center;
+    line-height: 18px;
+    border-radius: 50%;
+    margin-right: 6px;
+    font-size: 12px;
+    font-weight: bold;
+  }
+  
+  .property-icon.success {
+    background-color: #A3BE8C; /* nord14 */
+    color: #2E3440; /* nord0 */
+  }
+  
+  .property-icon.error {
+    background-color: #BF616A; /* nord11 */
+    color: #ECEFF4; /* nord6 */
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .property-controls > div {
+      flex-direction: column;
+    }
+    
+    .property-controls small {
+      margin-left: 0;
+      margin-top: 5px;
+    }
+  }

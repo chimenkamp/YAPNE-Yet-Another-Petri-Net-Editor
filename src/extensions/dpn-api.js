@@ -9,7 +9,7 @@ class DataPetriNetAPI extends PetriNetAPI {
    */
   constructor(id, name, description) {
     super(id, name, description);
-    // Replace standard PetriNet with DataPetriNet
+
     this.petriNet = new DataPetriNet(
       id || this.generateUUID(),
       name || "New Data Petri Net",
@@ -92,15 +92,15 @@ class DataPetriNetAPI extends PetriNetAPI {
   updateDataVariableValue(id, value) {
     const variable = this.petriNet.getDataVariable(id);
     if (!variable) return false;
-    
+
     const success = variable.setValue(value);
-    
-    // Update enabled transitions since variable value changed
+
+
     this.petriNet.updateEnabledTransitions();
-    
-    // Render changes if editor is attached
+
+
     if (this.editor) this.editor.render();
-    
+
     return success;
   }
 
@@ -113,15 +113,15 @@ class DataPetriNetAPI extends PetriNetAPI {
   setTransitionPrecondition(transitionId, precondition) {
     const transition = this.petriNet.transitions.get(transitionId);
     if (!transition || typeof transition.evaluatePrecondition !== 'function') return false;
-    
+
     transition.precondition = precondition;
-    
-    // Update enabled state based on new precondition
+
+
     this.petriNet.updateEnabledTransitions();
-    
-    // Render changes if editor is attached
+
+
     if (this.editor) this.editor.render();
-    
+
     return true;
   }
 
@@ -134,12 +134,12 @@ class DataPetriNetAPI extends PetriNetAPI {
   setTransitionPostcondition(transitionId, postcondition) {
     const transition = this.petriNet.transitions.get(transitionId);
     if (!transition || typeof transition.evaluatePostcondition !== 'function') return false;
-    
+
     transition.postcondition = postcondition;
-    
-    // Render changes if editor is attached
+
+
     if (this.editor) this.editor.render();
-    
+
     return true;
   }
 
@@ -160,11 +160,11 @@ class DataPetriNetAPI extends PetriNetAPI {
         variable.reset();
       }
     }
-    
-    // Update enabled transitions since variables changed
+
+
     this.petriNet.updateEnabledTransitions();
-    
-    // Render changes if editor is attached
+
+
     if (this.editor) this.editor.render();
   }
 
@@ -199,11 +199,11 @@ class DataPetriNetAPI extends PetriNetAPI {
   importDataVariablesFromJSON(json) {
     try {
       const variables = JSON.parse(json);
-      
-      // Clear existing variables first
+
+
       this.petriNet.dataVariables.clear();
-      
-      // Add each variable
+
+
       for (const varData of variables) {
         const variable = new DataVariable(
           varData.id || this.generateUUID(),
@@ -214,13 +214,13 @@ class DataPetriNetAPI extends PetriNetAPI {
         );
         this.petriNet.addDataVariable(variable);
       }
-      
-      // Update enabled transitions
+
+
       this.petriNet.updateEnabledTransitions();
-      
-      // Render changes if editor is attached
+
+
       if (this.editor) this.editor.render();
-      
+
       return true;
     } catch (error) {
       console.error("Error importing data variables:", error);
@@ -240,24 +240,24 @@ class DataPetriNetAPI extends PetriNetAPI {
     }
 
     try {
-      // Create a dummy valuation with all variables set to default values
+
       const dummyValuation = {};
       variableNames.forEach(name => {
         dummyValuation[name] = 0; // Use 0 as a safe default for validation
       });
 
-      // Create a sandbox function to try evaluating the expression
+
       const functionBody = `return ${expression};`;
       const evaluator = new Function(...variableNames, functionBody);
-      
-      // Try to evaluate
+
+
       evaluator(...variableNames.map(name => dummyValuation[name]));
-      
+
       return { valid: true, error: null };
     } catch (error) {
-      return { 
-        valid: false, 
-        error: `Invalid expression: ${error.message}` 
+      return {
+        valid: false,
+        error: `Invalid expression: ${error.message}`
       };
     }
   }
@@ -272,57 +272,101 @@ class DataPetriNetAPI extends PetriNetAPI {
     if (!expression.trim()) {
       return { valid: true, error: null }; // Empty expression is valid
     }
+  
 
-    // For each assignment in the postcondition
-    const assignments = expression.split(';');
+    const statements = expression.split(';');
     
-    for (const assignment of assignments) {
-      if (!assignment.trim()) continue;
+    for (const statement of statements) {
+      if (!statement.trim()) continue;
       
-      // Check the format (variableName' = expression)
-      const match = assignment.trim().match(/([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
-      if (!match) {
-        return { 
-          valid: false, 
-          error: `Invalid assignment format. Expected "variable' = expression", got "${assignment}"` 
-        };
-      }
+
+      const assignMatch = statement.trim().match(/^([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
       
-      const [, variableName, rightHandSide] = match;
-      
-      // Check if the variable exists
-      if (!variableNames.includes(variableName)) {
-        return {
-          valid: false,
-          error: `Unknown variable: ${variableName}`
-        };
-      }
-      
-      // Try to validate the right-hand expression
-      try {
-        // Create a dummy valuation
-        const dummyValuation = {};
-        variableNames.forEach(name => {
-          dummyValuation[name] = 0; // Use 0 as a safe default for validation
-        });
+      if (assignMatch) {
+
+        const [, variableName, rightHandSide] = assignMatch;
         
-        // Process the expression to replace primed variables
-        let processedExpression = rightHandSide;
-        variableNames.forEach(name => {
-          const regex = new RegExp(`${name}'`, 'g');
-          processedExpression = processedExpression.replace(regex, name);
-        });
+
+        if (!variableNames.includes(variableName)) {
+          return {
+            valid: false,
+            error: `Unknown variable: ${variableName}`
+          };
+        }
         
-        // Create a sandbox function to try evaluating the expression
-        const evaluator = new Function(...variableNames, `return (${processedExpression});`);
+
+        try {
+
+          const dummyValuation = {};
+          variableNames.forEach(name => {
+            dummyValuation[name] = 0; // Use 0 as a safe default for validation
+          });
+          
+
+          let processedExpression = rightHandSide;
+          variableNames.forEach(name => {
+            const regex = new RegExp(`${name}'`, 'g');
+            processedExpression = processedExpression.replace(regex, name);
+          });
+          
+
+          const evaluator = new Function(...variableNames, `return (${processedExpression});`);
+          
+
+          evaluator(...variableNames.map(name => dummyValuation[name]));
+        } catch (error) {
+          return { 
+            valid: false, 
+            error: `Invalid expression in "${statement}": ${error.message}` 
+          };
+        }
+      } else {
+
         
-        // Try to evaluate
-        evaluator(...variableNames.map(name => dummyValuation[name]));
-      } catch (error) {
-        return { 
-          valid: false, 
-          error: `Invalid expression in "${assignment}": ${error.message}` 
-        };
+
+        const primedVarsUsed = variableNames.filter(name => 
+          statement.match(new RegExp(`${name}'`, 'g'))
+        );
+        
+        if (primedVarsUsed.length === 0) {
+          return {
+            valid: false,
+            error: `Statement "${statement}" is not a valid assignment or constraint. It should either be an assignment (x' = expr) or a constraint involving primed variables (x' > 0).`
+          };
+        }
+        
+
+        try {
+
+          const dummyValuation = {};
+          variableNames.forEach(name => {
+            dummyValuation[name] = 0; // Use 0 as a safe default for validation
+          });
+          
+
+          const dummyTestValuation = { ...dummyValuation };
+          
+
+          let processedExpression = statement;
+          variableNames.forEach(name => {
+            const regex = new RegExp(`${name}'`, 'g');
+            processedExpression = processedExpression.replace(regex, `dummyTestValuation["${name}"]`);
+          });
+          
+
+          const evaluator = new Function(
+            ...variableNames,
+            'dummyTestValuation',
+            `return (${processedExpression});`
+          );
+          
+          evaluator(...variableNames.map(name => dummyValuation[name]), dummyTestValuation);
+        } catch (error) {
+          return {
+            valid: false,
+            error: `Invalid constraint in "${statement}": ${error.message}`
+          };
+        }
       }
     }
     
@@ -336,20 +380,28 @@ class DataPetriNetAPI extends PetriNetAPI {
   getDataExpressionHelp() {
     return {
       precondition: `
-Precondition (Guard) Help:
-- JavaScript expression that evaluates to true/false
-- Determines when a transition is enabled
-- Example: x > 5 && y === "ready"
-- Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
+  Precondition (Guard) Help:
+  - JavaScript expression that evaluates to true/false
+  - Determines when a transition is enabled
+  - Example: x > 5 && y === "ready"
+  - Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
       `,
       postcondition: `
-Postcondition (Data Update) Help:
-- Defines how variables change when transition fires
-- Format: variable' = expression;
-- Use semicolons to separate multiple assignments
-- Example: x' = x + 1; y' = "done";
-- Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
+  Postcondition (Data Update) Help:
+  - Defines how variables change when transition fires
+  - Two supported formats:
+    1. Direct assignment: variable' = expression;
+       Example: x' = x + 1; y' = "done";
+    
+    2. Constraint-based random assignment: expression containing variable';
+       Example: x' > 0 && x' < x*2;
+       (generates a random value satisfying the constraints)
+       
+  - Use semicolons to separate multiple assignments/constraints
+  - Direct assignments have priority over constraints
+  - Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
       `
     };
   }
+  
 }

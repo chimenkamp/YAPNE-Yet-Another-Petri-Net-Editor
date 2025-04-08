@@ -7,10 +7,10 @@ class DataPetriNetUI {
     constructor(app) {
       this.app = app;
       
-      // Reference to original functions we'll extend
+
       this.originalShowTransitionProperties = app.showTransitionProperties;
       
-      // Apply UI extensions
+
       this.initializeUI();
     }
   
@@ -18,19 +18,19 @@ class DataPetriNetUI {
      * Initialize UI components
      */
     initializeUI() {
-      // Add data variables panel to the sidebar
+
       this.addDataVariablesPanel();
       
-      // Add data values display to the simulation section
+
       this.addDataValuesDisplay();
       
-      // Override the transitions properties panel to include data conditions
+
       this.extendTransitionPropertiesPanel();
       
-      // Add a help button for data expressions
+
       this.addDataExpressionHelpButton();
       
-      // Update modes to support data transition creation
+
       this.extendEditorModes();
     }
   
@@ -41,7 +41,7 @@ class DataPetriNetUI {
       const sidebar = document.querySelector('.sidebar');
       if (!sidebar) return;
       
-      // Create data variables panel
+
       const dataVariablesPanel = document.createElement('div');
       dataVariablesPanel.className = 'data-variables-panel';
       dataVariablesPanel.innerHTML = `
@@ -55,7 +55,7 @@ class DataPetriNetUI {
         </div>
       `;
       
-      // Add the panel to the sidebar after the properties panel
+
       const propertiesPanel = sidebar.querySelector('.properties-panel');
       if (propertiesPanel) {
         sidebar.insertBefore(dataVariablesPanel, propertiesPanel.nextSibling);
@@ -63,7 +63,7 @@ class DataPetriNetUI {
         sidebar.appendChild(dataVariablesPanel);
       }
       
-      // Add event listeners for data variable management
+
       const addBtn = document.getElementById('btn-add-data-variable');
       if (addBtn) {
         addBtn.addEventListener('click', () => this.showAddVariableDialog());
@@ -74,7 +74,7 @@ class DataPetriNetUI {
         validateBtn.addEventListener('click', () => this.validateAllExpressions());
       }
       
-      // Initial display of data variables
+
       this.updateDataVariablesDisplay();
     }
   
@@ -85,7 +85,7 @@ class DataPetriNetUI {
       const simulationPanel = document.querySelector('.simulation-controls');
       if (!simulationPanel) return;
       
-      // Create data values display
+
       const dataValuesDisplay = document.createElement('div');
       dataValuesDisplay.className = 'data-values-display';
       dataValuesDisplay.innerHTML = `
@@ -95,7 +95,7 @@ class DataPetriNetUI {
         </div>
       `;
       
-      // Add to simulation panel after tokens display
+
       const tokensDisplay = simulationPanel.querySelector('.tokens-display');
       if (tokensDisplay) {
         simulationPanel.insertBefore(dataValuesDisplay, tokensDisplay.nextSibling);
@@ -103,7 +103,7 @@ class DataPetriNetUI {
         simulationPanel.appendChild(dataValuesDisplay);
       }
       
-      // Initial display of data values
+
       this.updateDataValuesDisplay();
     }
   
@@ -111,29 +111,29 @@ class DataPetriNetUI {
      * Extend the transition properties panel to include data conditions
      */
     extendTransitionPropertiesPanel() {
-      // Override the app's showTransitionProperties method
+
       this.app.showTransitionProperties = (id) => {
-        // Call the original method first to set up basic properties
+
         this.originalShowTransitionProperties.call(this.app, id);
         
-        // Add data-specific properties
+
         const transition = this.app.api.petriNet.transitions.get(id);
         if (!transition) return;
         
-        // Check if it's a data-aware transition
+
         const isDataAware = typeof transition.evaluatePrecondition === 'function';
         
-        // Get the properties panel
+
         const propertiesPanel = this.app.propertiesPanel;
         if (!propertiesPanel) return;
         
-        // Add data condition inputs
+
         if (isDataAware) {
-          // Find the button group to insert before
+
           const buttonGroup = propertiesPanel.querySelector('.form-group button');
           const insertPoint = buttonGroup ? buttonGroup.closest('.form-group') : null;
           
-          // Create the data conditions elements
+
           const dataConditionsHtml = `
             <div class="form-group">
               <label for="transition-precondition">Precondition (Guard)</label>
@@ -150,27 +150,27 @@ class DataPetriNetUI {
             </div>
           `;
           
-          // Insert the data conditions
+
           if (insertPoint) {
-            // Insert before the existing button group
+
             insertPoint.insertAdjacentHTML('beforebegin', dataConditionsHtml);
           } else {
-            // Append to the end if no button group found
+
             propertiesPanel.insertAdjacentHTML('beforeend', dataConditionsHtml);
           }
           
-          // Add event listeners
+
           const preconditionInput = document.getElementById('transition-precondition');
           if (preconditionInput) {
             preconditionInput.addEventListener('input', (e) => {
-              // Update precondition
+
               try {
                 this.app.api.setTransitionPrecondition(id, e.target.value);
               } catch (error) {
                 preconditionInput.style.borderColor = 'red';
               }
               
-              // Refresh the properties panel to show updated status
+
               this.app.updateTransitionStatus(id);
             });
           }
@@ -187,13 +187,13 @@ class DataPetriNetUI {
             });
           }
           
-          // Add help button event listener
+
           const helpButton = document.getElementById('btn-help-data-expressions');
           if (helpButton) {
             helpButton.addEventListener('click', () => this.showDataExpressionHelp());
           }
         } else {
-          // If it's not a data-aware transition, add a convert button
+
           const convertButtonHTML = `
             <div class="form-group">
               <button id="btn-convert-to-data-transition" type="button">Convert to Data Transition</button>
@@ -201,7 +201,7 @@ class DataPetriNetUI {
           `;
           propertiesPanel.insertAdjacentHTML('beforeend', convertButtonHTML);
           
-          // Add event listener for convert button
+
           const convertButton = document.getElementById('btn-convert-to-data-transition');
           if (convertButton) {
             convertButton.addEventListener('click', () => this.convertToDataTransition(id));
@@ -214,18 +214,18 @@ class DataPetriNetUI {
      * Add a help button for data expressions
      */
     addDataExpressionHelpButton() {
-      // The help button is added dynamically in the transition properties panel
+
     }
   
     /**
      * Extend editor modes to support data transitions
      */
     extendEditorModes() {
-      // Add button to toolbar if it exists
+
       const toolbar = document.querySelector('.vertical-toolbar .toolbar-group');
       if (!toolbar) return;
       
-      // Add new button for data transition after regular transition button
+
       const addTransitionBtn = document.getElementById('btn-add-transition');
       if (addTransitionBtn) {
         const dataTransitionBtn = document.createElement('button');
@@ -234,16 +234,16 @@ class DataPetriNetUI {
         dataTransitionBtn.innerHTML = '⊞'; // Different symbol for data transition
         dataTransitionBtn.className = '';
         
-        // Insert after the regular transition button
+
         addTransitionBtn.insertAdjacentElement('afterend', dataTransitionBtn);
         
-        // Add event listener
+
         dataTransitionBtn.addEventListener('click', () => {
           this.app.editor.setMode('addDataTransition');
           this.updateActiveButton('btn-add-data-transition');
         });
         
-        // Extend the editor to handle the new mode
+
         this.extendEditorWithDataTransitionMode();
       }
     }
@@ -273,43 +273,43 @@ class DataPetriNetUI {
      * Extend the editor to handle the data transition mode
      */
     extendEditorWithDataTransitionMode() {
-      // Store original method reference
+
       const originalHandleMouseDown = this.app.editor.eventListeners.get('mousedown');
       
-      // Create new mouseDown handler
+
       const newMouseDownHandler = (event) => {
-        // If not in data transition mode, use original handler
+
         if (this.app.editor.mode !== 'addDataTransition') {
           return originalHandleMouseDown(event);
         }
         
-        // Handle data transition creation
+
         const rect = this.app.editor.canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
         
-        // Convert to world coordinates
+
         const worldPos = this.app.editor.renderer.screenToWorld(x, y);
         
-        // Add data transition
+
         if (this.app.editor.snapToGrid) {
           worldPos.x = Math.round(worldPos.x / this.app.editor.gridSize) * this.app.editor.gridSize;
           worldPos.y = Math.round(worldPos.y / this.app.editor.gridSize) * this.app.editor.gridSize;
         }
         
-        // Create data transition
+
         const id = this.app.api.createDataTransition(
           worldPos.x, 
           worldPos.y, 
           `DT${this.app.api.petriNet.transitions.size + 1}`
         );
         
-        // Select the new element
+
         this.app.editor.selectElement(id, 'transition');
         this.app.editor.render();
       };
       
-      // Replace the mousedown event handler
+
       this.app.editor.canvas.removeEventListener('mousedown', originalHandleMouseDown);
       this.app.editor.canvas.addEventListener('mousedown', newMouseDownHandler);
       this.app.editor.eventListeners.set('mousedown', newMouseDownHandler);
@@ -322,9 +322,9 @@ class DataPetriNetUI {
       const container = document.getElementById('data-variables-content');
       if (!container) return;
       
-      // Check if there are any data variables
+
       if (this.app.api.petriNet.dataVariables && this.app.api.petriNet.dataVariables.size > 0) {
-        // Create a table for variables
+
         let html = `
           <table class="data-variables-table">
             <tr>
@@ -335,7 +335,7 @@ class DataPetriNetUI {
             </tr>
         `;
         
-        // Add rows for each variable
+
         for (const [id, variable] of this.app.api.petriNet.dataVariables) {
           html += `
             <tr>
@@ -353,7 +353,7 @@ class DataPetriNetUI {
         html += '</table>';
         container.innerHTML = html;
         
-        // Add event listeners for edit and delete buttons
+
         const editButtons = container.querySelectorAll('.btn-edit-variable');
         editButtons.forEach(button => {
           button.addEventListener('click', () => {
@@ -385,9 +385,9 @@ class DataPetriNetUI {
       const container = document.getElementById('data-values-content');
       if (!container) return;
       
-      // Check if there are any data variables
+
       if (this.app.api.petriNet.dataVariables && this.app.api.petriNet.dataVariables.size > 0) {
-        // Create a table for variable values
+
         let html = `
           <table class="data-values-table">
             <tr>
@@ -397,7 +397,7 @@ class DataPetriNetUI {
             </tr>
         `;
         
-        // Add rows for each variable
+
         for (const [id, variable] of this.app.api.petriNet.dataVariables) {
           html += `
             <tr>
@@ -413,7 +413,7 @@ class DataPetriNetUI {
         html += '</table>';
         container.innerHTML = html;
         
-        // Add event listeners for edit buttons
+
         const editButtons = container.querySelectorAll('.btn-edit-value');
         editButtons.forEach(button => {
           button.addEventListener('click', () => {
@@ -430,7 +430,7 @@ class DataPetriNetUI {
      * Show dialog to add a new data variable
      */
     showAddVariableDialog() {
-      // Create modal dialog
+
       const dialogId = 'add-variable-dialog';
       const dialog = document.createElement('div');
       dialog.className = 'modal-overlay';
@@ -474,7 +474,7 @@ class DataPetriNetUI {
       
       document.body.appendChild(dialog);
       
-      // Add event listeners
+
       const closeButton = dialog.querySelector('.close-btn');
       closeButton.addEventListener('click', () => {
         document.body.removeChild(dialog);
@@ -487,25 +487,25 @@ class DataPetriNetUI {
       
       const saveButton = dialog.querySelector('#btn-save-variable');
       saveButton.addEventListener('click', () => {
-        // Get input values
+
         const name = document.getElementById('variable-name').value;
         const type = document.getElementById('variable-type').value;
         const initialValueStr = document.getElementById('variable-initial-value').value;
         const description = document.getElementById('variable-description').value;
         
-        // Validate input
+
         if (!name) {
           alert('Variable name is required');
           return;
         }
         
-        // Check for valid identifier
+
         if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
           alert('Variable name must be a valid identifier (start with letter or underscore, contain only letters, numbers, or underscores)');
           return;
         }
         
-        // Check for duplicate names
+
         for (const [, variable] of this.app.api.petriNet.dataVariables) {
           if (variable.name === name) {
             alert(`A variable with name "${name}" already exists`);
@@ -513,7 +513,7 @@ class DataPetriNetUI {
           }
         }
         
-        // Parse initial value based on type
+
         let initialValue = null;
         if (initialValueStr) {
           try {
@@ -539,13 +539,13 @@ class DataPetriNetUI {
           }
         }
         
-        // Create the variable
+
         this.app.api.createDataVariable(name, type, initialValue, description);
         
-        // Close the dialog
+
         document.body.removeChild(dialog);
         
-        // Update displays
+
         this.updateDataVariablesDisplay();
         this.updateDataValuesDisplay();
       });
@@ -556,11 +556,11 @@ class DataPetriNetUI {
      * @param {string} id - ID of the variable to edit
      */
     showEditVariableDialog(id) {
-      // Get the variable
+
       const variable = this.app.api.getDataVariable(id);
       if (!variable) return;
       
-      // Create modal dialog
+
       const dialogId = 'edit-variable-dialog';
       const dialog = document.createElement('div');
       dialog.className = 'modal-overlay';
@@ -604,7 +604,7 @@ class DataPetriNetUI {
       
       document.body.appendChild(dialog);
       
-      // Add event listeners
+
       const closeButton = dialog.querySelector('.close-btn');
       closeButton.addEventListener('click', () => {
         document.body.removeChild(dialog);
@@ -617,25 +617,25 @@ class DataPetriNetUI {
       
       const saveButton = dialog.querySelector('#btn-save-variable');
       saveButton.addEventListener('click', () => {
-        // Get input values
+
         const name = document.getElementById('variable-name').value;
         const type = document.getElementById('variable-type').value;
         const valueStr = document.getElementById('variable-value').value;
         const description = document.getElementById('variable-description').value;
         
-        // Validate input
+
         if (!name) {
           alert('Variable name is required');
           return;
         }
         
-        // Check for valid identifier
+
         if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
           alert('Variable name must be a valid identifier (start with letter or underscore, contain only letters, numbers, or underscores)');
           return;
         }
         
-        // Check for duplicate names (except itself)
+
         for (const [varId, v] of this.app.api.petriNet.dataVariables) {
           if (varId !== id && v.name === name) {
             alert(`A variable with name "${name}" already exists`);
@@ -643,7 +643,7 @@ class DataPetriNetUI {
           }
         }
         
-        // Parse value based on type
+
         let parsedValue = null;
         if (valueStr) {
           try {
@@ -669,20 +669,20 @@ class DataPetriNetUI {
           }
         }
         
-        // Update the variable
+
         variable.name = name;
         variable.type = type;
         variable.currentValue = parsedValue;
         variable.description = description;
         
-        // Close the dialog
+
         document.body.removeChild(dialog);
         
-        // Update displays
+
         this.updateDataVariablesDisplay();
         this.updateDataValuesDisplay();
         
-        // Update enabled transitions as variable properties changed
+
         this.app.api.petriNet.updateEnabledTransitions();
         if (this.app.editor) {
           this.app.editor.render();
@@ -695,11 +695,11 @@ class DataPetriNetUI {
      * @param {string} id - ID of the variable to edit
      */
     showEditValueDialog(id) {
-      // Get the variable
+
       const variable = this.app.api.getDataVariable(id);
       if (!variable) return;
       
-      // Create modal dialog
+
       const dialogId = 'edit-value-dialog';
       const dialog = document.createElement('div');
       dialog.className = 'modal-overlay';
@@ -727,7 +727,7 @@ class DataPetriNetUI {
       
       document.body.appendChild(dialog);
       
-      // Add event listeners
+
       const closeButton = dialog.querySelector('.close-btn');
       closeButton.addEventListener('click', () => {
         document.body.removeChild(dialog);
@@ -740,10 +740,10 @@ class DataPetriNetUI {
       
       const saveButton = dialog.querySelector('#btn-save-value');
       saveButton.addEventListener('click', () => {
-        // Get input value
+
         const valueStr = document.getElementById('variable-value').value;
         
-        // Parse value based on type
+
         let parsedValue = null;
         if (valueStr) {
           try {
@@ -769,16 +769,16 @@ class DataPetriNetUI {
           }
         }
         
-        // Update the variable
+
         this.app.api.updateDataVariableValue(id, parsedValue);
         
-        // Close the dialog
+
         document.body.removeChild(dialog);
         
-        // Update displays
+
         this.updateDataValuesDisplay();
         
-        // If a transition is selected, refresh properties to show updated status
+
         if (this.app.selectedElement && this.app.selectedElement.type === 'transition') {
           this.app.showTransitionProperties(this.app.selectedElement.id);
         }
@@ -789,11 +789,11 @@ class DataPetriNetUI {
      * Show help for data expressions
      */
     showDataExpressionHelp() {
-      // Get variable names
+
       const variableNames = Array.from(this.app.api.petriNet.dataVariables.values())
         .map(v => v.name);
       
-      // Create help dialog
+
       const dialogId = 'data-expression-help-dialog';
       const dialog = document.createElement('div');
       dialog.className = 'modal-overlay';
@@ -842,7 +842,7 @@ class DataPetriNetUI {
       
       document.body.appendChild(dialog);
       
-      // Add event listeners
+
       const closeButton = dialog.querySelector('.close-btn');
       closeButton.addEventListener('click', () => {
         document.body.removeChild(dialog);
@@ -859,11 +859,11 @@ class DataPetriNetUI {
      * @param {string} id - ID of the transition to convert
      */
     convertToDataTransition(id) {
-      // Get existing transition data
+
       const oldTransition = this.app.api.petriNet.transitions.get(id);
       if (!oldTransition) return;
       
-      // Create data transition with same properties
+
       const dataTransition = new DataAwareTransition(
         id,
         { x: oldTransition.position.x, y: oldTransition.position.y },
@@ -874,16 +874,16 @@ class DataPetriNetUI {
         ""  // empty postcondition
       );
       
-      // Replace in the petri net
+
       this.app.api.petriNet.transitions.set(id, dataTransition);
       
-      // Update enabled status
+
       this.app.api.petriNet.updateEnabledTransitions();
       
-      // Refresh properties panel
+
       this.app.showTransitionProperties(id);
       
-      // Render changes
+
       if (this.app.editor) {
         this.app.editor.render();
       }
@@ -893,19 +893,19 @@ class DataPetriNetUI {
      * Validate all expressions in transitions
      */
     validateAllExpressions() {
-      // Get all variable names
+
       const variableNames = Array.from(this.app.api.petriNet.dataVariables.values())
         .map(v => v.name);
       
       let hasErrors = false;
       let resultMessage = "Expression Validation Results:\n\n";
       
-      // Check each transition
+
       for (const [id, transition] of this.app.api.petriNet.transitions) {
-        // Skip non-data transitions
+
         if (typeof transition.evaluatePrecondition !== 'function') continue;
         
-        // Validate precondition
+
         if (transition.precondition && transition.precondition.trim() !== "") {
           const preResult = this.app.api.validatePrecondition(
             transition.precondition, 
@@ -919,7 +919,7 @@ class DataPetriNetUI {
           }
         }
         
-        // Validate postcondition
+
         if (transition.postcondition && transition.postcondition.trim() !== "") {
           const postResult = this.app.api.validatePostcondition(
             transition.postcondition, 
@@ -934,7 +934,7 @@ class DataPetriNetUI {
         }
       }
       
-      // Show results
+
       if (hasErrors) {
         alert(resultMessage);
       } else {

@@ -25,7 +25,7 @@ class EventLogGenerator {
     constructor(petriNet, options = {}) {
       this.petriNet = petriNet;
 
-      // Set default options
+
       this.options = {
         startTimestamp: options.startTimestamp || new Date(),
         defaultTransitionDuration: options.defaultTransitionDuration || 1000,
@@ -43,26 +43,26 @@ class EventLogGenerator {
         seed: options.seed || null
       };
 
-      // Convert startTimestamp to Date object if it's a string
+
       if (typeof this.options.startTimestamp === 'string') {
         this.options.startTimestamp = new Date(this.options.startTimestamp);
       }
       
-      // Initialize simulation state
+
       this.currentTimestamp = new Date(this.options.startTimestamp);
       this.activeCases = [];
       this.completedCases = [];
       this.eventLog = [];
       this.caseCounter = 1;
       
-      // Initialize random number generator with seed if provided
+
       if (this.options.seed !== null) {
         this.random = this.createSeededRandom(this.options.seed);
       } else {
         this.random = Math.random;
       }
       
-      // Automatically detect start and end places if not specified
+
       if (this.options.startPlaces.length === 0) {
         this.detectStartPlaces();
       }
@@ -97,13 +97,13 @@ class EventLogGenerator {
       this.options.startPlaces = [];
       
       for (const [id, place] of this.petriNet.places) {
-        // Place has initial tokens
+
         if (place.tokens > 0) {
           this.options.startPlaces.push(id);
           continue;
         }
         
-        // Place has no incoming arcs
+
         const hasIncomingArcs = Array.from(this.petriNet.arcs.values())
           .some(arc => arc.target === id);
         
@@ -122,7 +122,7 @@ class EventLogGenerator {
       this.options.endPlaces = [];
       
       for (const [id, place] of this.petriNet.places) {
-        // Place has no outgoing arcs
+
         const hasOutgoingArcs = Array.from(this.petriNet.arcs.values())
           .some(arc => arc.source === id);
         
@@ -141,15 +141,15 @@ class EventLogGenerator {
       const caseId = `${this.options.caseName}_${this.caseCounter++}`;
       const timestamp = new Date(this.currentTimestamp);
       
-      // Create a deep copy of the Petri net for this case
+
       const net = this.clonePetriNet();
       
-      // Apply initial marking if specified, otherwise use default
+
       if (this.options.initialMarking) {
         this.applyMarking(net, this.options.initialMarking);
       }
       
-      // Initialize the case
+
       const newCase = {
         id: caseId,
         net: net,
@@ -161,7 +161,7 @@ class EventLogGenerator {
         events: []
       };
       
-      // Log case creation event
+
       this.logEvent({
         case: caseId,
         activity: 'Case_Start',
@@ -180,14 +180,14 @@ class EventLogGenerator {
      * @private
      */
     clonePetriNet() {
-      // Create a new Petri net with the same ID, name, and description
+
       const clone = new PetriNet(
         this.petriNet.id,
         this.petriNet.name,
         this.petriNet.description
       );
       
-      // Clone places
+
       for (const [id, place] of this.petriNet.places) {
         const placeClone = new Place(
           id,
@@ -199,7 +199,7 @@ class EventLogGenerator {
         clone.places.set(id, placeClone);
       }
       
-      // Clone transitions
+
       for (const [id, transition] of this.petriNet.transitions) {
         const transitionClone = new Transition(
           id,
@@ -211,7 +211,7 @@ class EventLogGenerator {
         clone.transitions.set(id, transitionClone);
       }
       
-      // Clone arcs
+
       for (const [id, arc] of this.petriNet.arcs) {
         const arcClone = new Arc(
           id,
@@ -235,12 +235,12 @@ class EventLogGenerator {
      * @private
      */
     applyMarking(net, marking) {
-      // Reset all places to 0 tokens
+
       for (const [id, place] of net.places) {
         place.tokens = 0;
       }
       
-      // Apply the specified marking
+
       for (const [placeId, tokens] of Object.entries(marking)) {
         const place = net.places.get(placeId);
         if (place) {
@@ -255,7 +255,7 @@ class EventLogGenerator {
      * @private
      */
     logEvent(event) {
-      // Create a standardized event object
+
       const logEntry = {
         'case:concept:name': event.case,
         'concept:name': event.activity,
@@ -264,17 +264,17 @@ class EventLogGenerator {
         'org:resource': event.resource || 'system'
       };
       
-      // Add any additional data
+
       if (event.data) {
         for (const [key, value] of Object.entries(event.data)) {
           logEntry[key] = value;
         }
       }
       
-      // Add to the event log
+
       this.eventLog.push(logEntry);
       
-      // If the event is for a specific case, add it to the case events too
+
       if (event.case) {
         const activeCase = this.activeCases.find(c => c.id === event.case);
         if (activeCase) {
@@ -308,7 +308,7 @@ class EventLogGenerator {
           newTime.setDate(newTime.getDate() + scaledDelay / 86400000);
           break;
         default:
-          // Default to milliseconds
+
           newTime.setTime(newTime.getTime() + scaledDelay);
       }
       
@@ -328,11 +328,11 @@ class EventLogGenerator {
           interval = this.options.caseArrivalRate;
           break;
         case 'exponential':
-          // Exponential distribution with mean = caseArrivalRate
+
           interval = -Math.log(1 - this.random()) * this.options.caseArrivalRate;
           break;
         case 'normal':
-          // Normal distribution with mean = caseArrivalRate and stddev = arrivalParams.stddev or caseArrivalRate/3
+
           const stddev = this.options.arrivalParams.stddev || this.options.caseArrivalRate / 3;
           let u1 = 1 - this.random();
           let u2 = 1 - this.random();
@@ -357,7 +357,7 @@ class EventLogGenerator {
       const net = simulationCase.net;
       net.updateEnabledTransitions();
       
-      // Get all enabled transitions
+
       const enabledTransitions = [];
       for (const [id, transition] of net.transitions) {
         if (transition.isEnabled) {
@@ -369,10 +369,10 @@ class EventLogGenerator {
         return null;
       }
       
-      // Select according to the configured strategy
+
       switch (this.options.transitionSelectionStrategy) {
         case 'priority':
-          // Sort by priority (highest first)
+
           enabledTransitions.sort((a, b) => {
             const transA = net.transitions.get(a);
             const transB = net.transitions.get(b);
@@ -381,15 +381,15 @@ class EventLogGenerator {
           return enabledTransitions[0];
           
         case 'random':
-          // Select a random transition with equal probability
+
           const randomIndex = Math.floor(this.random() * enabledTransitions.length);
           return enabledTransitions[randomIndex];
           
         case 'weighted':
-          // Select based on weights
+
           const weights = this.options.transitionWeights;
           
-          // Calculate total weight
+
           let totalWeight = 0;
           const transitionWeights = enabledTransitions.map(id => {
             const weight = weights[id] || 1;
@@ -397,7 +397,7 @@ class EventLogGenerator {
             return { id, weight };
           });
           
-          // Select based on weighted probability
+
           let randomValue = this.random() * totalWeight;
           for (const { id, weight } of transitionWeights) {
             randomValue -= weight;
@@ -406,7 +406,7 @@ class EventLogGenerator {
             }
           }
           
-          // Fallback to first transition
+
           return enabledTransitions[0];
           
         default:
@@ -423,7 +423,7 @@ class EventLogGenerator {
     isCaseComplete(simulationCase) {
       const net = simulationCase.net;
       
-      // Case is complete if any of the end places has at least one token
+
       for (const placeId of this.options.endPlaces) {
         const place = net.places.get(placeId);
         if (place && place.tokens > 0) {
@@ -431,7 +431,7 @@ class EventLogGenerator {
         }
       }
       
-      // Case is also complete if no transitions are enabled (deadlock)
+
       net.updateEnabledTransitions();
       let hasEnabledTransitions = false;
       for (const [, transition] of net.transitions) {
@@ -451,16 +451,16 @@ class EventLogGenerator {
      * @private
      */
     processCase(simulationCase) {
-      // Check if the case is already complete
+
       if (simulationCase.state === 'complete') {
         return false;
       }
       
-      // Select the next transition to fire
+
       const transitionId = this.selectNextTransition(simulationCase);
       
       if (!transitionId) {
-        // No transitions can fire, check if case is complete
+
         if (this.isCaseComplete(simulationCase)) {
           this.completeCase(simulationCase);
           return false;
@@ -468,11 +468,11 @@ class EventLogGenerator {
         return true; // Case is not complete but stuck (deadlock)
       }
       
-      // Get the transition
+
       const transition = simulationCase.net.transitions.get(transitionId);
       const transitionName = transition.label || transitionId;
       
-      // Log transition start event
+
       this.logEvent({
         case: simulationCase.id,
         activity: transitionName,
@@ -482,18 +482,18 @@ class EventLogGenerator {
         data: { transitionId }
       });
       
-      // Calculate duration - use transition delay or default
+
       const duration = transition.delay || this.options.defaultTransitionDuration;
       
-      // Fire the transition
+
       simulationCase.net.fireTransition(transitionId);
       simulationCase.steps++;
       
-      // Update timestamp
+
       const completionTime = this.calculateNextTimestamp(simulationCase.currentTime, duration);
       simulationCase.currentTime = completionTime;
       
-      // Log transition complete event
+
       this.logEvent({
         case: simulationCase.id,
         activity: transitionName,
@@ -507,7 +507,7 @@ class EventLogGenerator {
         }
       });
       
-      // Check if the case is now complete
+
       if (this.isCaseComplete(simulationCase)) {
         this.completeCase(simulationCase);
         return false;
@@ -525,7 +525,7 @@ class EventLogGenerator {
       simulationCase.state = 'complete';
       simulationCase.endTime = new Date(simulationCase.currentTime);
       
-      // Log case completion event
+
       this.logEvent({
         case: simulationCase.id,
         activity: 'Case_End',
@@ -538,7 +538,7 @@ class EventLogGenerator {
         }
       });
       
-      // Move from active to completed cases
+
       const index = this.activeCases.findIndex(c => c.id === simulationCase.id);
       if (index !== -1) {
         const [completedCase] = this.activeCases.splice(index, 1);
@@ -553,18 +553,18 @@ class EventLogGenerator {
      * @returns {Array} The generated event log
      */
     simulateCases(numCases, maxSteps = 1000) {
-      // Reset simulation state
+
       this.activeCases = [];
       this.completedCases = [];
       this.eventLog = [];
       this.caseCounter = 1;
       this.currentTimestamp = new Date(this.options.startTimestamp);
       
-      // Create initial case
+
       const firstCase = this.createCase();
       this.activeCases.push(firstCase);
       
-      // Calculate arrival times for all cases
+
       const caseArrivals = [{ time: this.currentTimestamp, caseNum: 1 }];
       
       for (let i = 2; i <= numCases; i++) {
@@ -573,27 +573,27 @@ class EventLogGenerator {
         this.currentTimestamp = arrivalTime;
       }
       
-      // Sort arrivals by time
+
       caseArrivals.sort((a, b) => a.time - b.time);
       
-      // Simulation loop
+
       let nextArrivalIndex = 1; // Skip the first one which we already created
       
       while (this.activeCases.length > 0 || nextArrivalIndex < caseArrivals.length) {
-        // Find the next event time (either case step or new arrival)
+
         let nextEventTime = null;
         
-        // Find the earliest active case time
+
         for (const activeCase of this.activeCases) {
           if (!nextEventTime || activeCase.currentTime < nextEventTime) {
             nextEventTime = activeCase.currentTime;
           }
         }
         
-        // Check if next arrival is earlier
+
         const nextArrival = caseArrivals[nextArrivalIndex];
         if (nextArrival && (!nextEventTime || nextArrival.time < nextEventTime)) {
-          // Process new case arrival
+
           this.currentTimestamp = nextArrival.time;
           const newCase = this.createCase();
           this.activeCases.push(newCase);
@@ -601,26 +601,26 @@ class EventLogGenerator {
           continue;
         }
         
-        // Process the case with the earliest time
+
         this.currentTimestamp = nextEventTime;
         
-        // Find the case with the earliest time
+
         const earliestCaseIndex = this.activeCases.findIndex(
           c => c.currentTime.getTime() === nextEventTime.getTime()
         );
         
         const currentCase = this.activeCases[earliestCaseIndex];
         
-        // Process one step for this case
+
         if (currentCase.steps < maxSteps) {
           const isActive = this.processCase(currentCase);
           
-          // If case is complete, it's already been moved to completedCases
+
           if (!isActive) {
-            // No need to remove from activeCases, it's done in completeCase method
+
           }
         } else {
-          // Max steps reached, force complete the case
+
           this.completeCase(currentCase);
         }
       }
@@ -637,7 +637,7 @@ class EventLogGenerator {
         return '';
       }
       
-      // Get all unique headers
+
       const headers = new Set();
       this.eventLog.forEach(event => {
         Object.keys(event).forEach(key => headers.add(key));
@@ -646,11 +646,11 @@ class EventLogGenerator {
       const headerRow = Array.from(headers).join(',');
       const rows = [headerRow];
       
-      // Add each event
+
       this.eventLog.forEach(event => {
         const row = Array.from(headers).map(header => {
           const value = event[header] || '';
-          // Handle commas and quotes in values
+
           if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
             return `"${value.replace(/"/g, '""')}"`;
           }
@@ -679,7 +679,7 @@ class EventLogGenerator {
     <string key="concept:name" value="${this.petriNet.name || 'Petri Net Simulation'}"/>
     <string key="source" value="PetriNetSimulator"/>`;
       
-      // Group events by case
+
       const eventsByCase = {};
       
       this.eventLog.forEach(event => {
@@ -692,12 +692,12 @@ class EventLogGenerator {
       
       let traces = '';
       
-      // Process each case as a trace
+
       for (const [caseId, events] of Object.entries(eventsByCase)) {
         traces += `\n  <trace>
       <string key="concept:name" value="${caseId}"/>`;
         
-        // Add events to trace
+
         events.forEach(event => {
           traces += `\n    <event>`;
           for (const [key, value] of Object.entries(event)) {
@@ -736,28 +736,28 @@ class EventLogGenerator {
      * @returns {Object} Simulation statistics
      */
     getStatistics() {
-      // Calculate basic statistics
+
       const totalCases = this.completedCases.length;
       const totalEvents = this.eventLog.length;
       
-      // Case duration statistics
+
       const caseDurations = this.completedCases.map(c => c.endTime - c.startTime);
       const avgCaseDuration = caseDurations.reduce((sum, d) => sum + d, 0) / totalCases;
       
-      // Calculate min, max, median durations
+
       const sortedDurations = [...caseDurations].sort((a, b) => a - b);
       const minDuration = sortedDurations[0];
       const maxDuration = sortedDurations[sortedDurations.length - 1];
       const medianDuration = sortedDurations[Math.floor(sortedDurations.length / 2)];
       
-      // Activity frequency
+
       const activityFrequency = {};
       this.eventLog.forEach(event => {
         const activity = event['concept:name'];
         activityFrequency[activity] = (activityFrequency[activity] || 0) + 1;
       });
       
-      // Average case length (number of events)
+
       const caseLength = {};
       for (const event of this.eventLog) {
         const caseId = event['case:concept:name'];

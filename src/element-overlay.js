@@ -18,7 +18,7 @@ class ElementOverlay {
     this.arrowLineWidth = 2;
     this.newElementDistance = 120; // Fixed distance to create new element
     
-    // Container for arrow elements
+
     this.arrowContainer = document.createElement('div');
     this.arrowContainer.className = 'petri-overlay-container';
     this.arrowContainer.style.position = 'absolute';
@@ -26,7 +26,7 @@ class ElementOverlay {
     this.arrowContainer.style.top = '0';
     this.arrowContainer.style.left = '0';
     
-    // Create arrow elements
+
     this.arrowElements = {
       top: this.createArrowElement('top'),
       right: this.createArrowElement('right'),
@@ -34,15 +34,15 @@ class ElementOverlay {
       left: this.createArrowElement('left')
     };
     
-    // Add arrow elements to container
+
     Object.values(this.arrowElements).forEach(arrow => {
       this.arrowContainer.appendChild(arrow);
     });
     
-    // Add container to document
+
     this.canvas.parentElement.appendChild(this.arrowContainer);
     
-    // Keep reference to render method for animation frame
+
     this.render = this.render.bind(this);
   }
   
@@ -64,7 +64,7 @@ class ElementOverlay {
     arrow.style.cursor = 'pointer';
     arrow.style.display = 'none';
     
-    // Set different shape based on direction
+
     switch(direction) {
       case 'top':
         arrow.style.clipPath = 'polygon(50% 0%, 100% 100%, 0% 100%)';
@@ -80,7 +80,7 @@ class ElementOverlay {
         break;
     }
     
-    // Add event listeners
+
     arrow.addEventListener('mouseenter', () => this.handleArrowHover(direction, true));
     arrow.addEventListener('mouseleave', () => this.handleArrowHover(direction, false));
     arrow.addEventListener('click', (event) => this.handleArrowClick(direction, event));
@@ -106,10 +106,10 @@ class ElementOverlay {
   handleArrowClick(direction, event) {
     if (!this.isVisible || !this.selectedElement) return;
     
-    // Get position of currently selected element
+
     const { x, y } = this.selectedElement.position;
     
-    // Calculate new element position based on fixed distance in the arrow direction
+
     const newPos = { x, y };
     switch (direction) {
       case 'top':
@@ -126,38 +126,38 @@ class ElementOverlay {
         break;
     }
     
-    // Apply grid snapping if enabled
+
     if (this.editor.snapToGrid) {
       newPos.x = Math.round(newPos.x / this.editor.gridSize) * this.editor.gridSize;
       newPos.y = Math.round(newPos.y / this.editor.gridSize) * this.editor.gridSize;
     }
     
-    // Create the new opposite element (place -> transition, transition -> place)
+
     let newElementId;
     
     if (this.selectedElementType === 'place') {
-      // Create a transition
+
       newElementId = this.api.createTransition(
         newPos.x, 
         newPos.y, 
         `T${this.api.petriNet.transitions.size + 1}`
       );
       
-      // Create an arc from place to transition
+
       this.api.createArc(this.selectedElement.id, newElementId);
     } else {
-      // Create a place
+
       newElementId = this.api.createPlace(
         newPos.x, 
         newPos.y, 
         `P${this.api.petriNet.places.size + 1}`
       );
       
-      // Create an arc from transition to place
+
       this.api.createArc(this.selectedElement.id, newElementId);
     }
     
-    // Select the new element
+
     this.editor.selectElement(newElementId, this.selectedElementType === 'place' ? 'transition' : 'place');
   }
   
@@ -181,7 +181,7 @@ class ElementOverlay {
       : this.api.petriNet.transitions.get(id);
     this.selectedElementType = type;
     
-    // Update positions immediately
+
     this.updateArrowPositions();
   }
   
@@ -203,13 +203,13 @@ class ElementOverlay {
       return;
     }
     
-    // Get element position
+
     const { x, y } = this.selectedElement.position;
     
-    // Convert world coordinates to screen coordinates
+
     const screenPos = this.editor.renderer.worldToScreen(x, y);
     
-    // Calculate arrow positions (in screen coordinates)
+
     const positions = {
       top: {
         x: screenPos.x,
@@ -229,14 +229,14 @@ class ElementOverlay {
       }
     };
     
-    // Update arrow positions
+
     Object.entries(positions).forEach(([direction, pos]) => {
       const arrow = this.arrowElements[direction];
       arrow.style.left = `${pos.x}px`;
       arrow.style.top = `${pos.y}px`;
       arrow.style.display = 'block';
       
-      // Scale arrows with zoom
+
       const scaleFactor = Math.max(0.5, Math.min(2, this.editor.renderer.zoomFactor));
       arrow.style.transform = `translate(22%, 15%) scale(${scaleFactor})`;
     });
