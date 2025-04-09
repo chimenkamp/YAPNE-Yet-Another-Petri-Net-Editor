@@ -38,14 +38,13 @@ class DataPetriNetUI {
      * Add the data variables management panel to the sidebar
      */
     addDataVariablesPanel() {
-      const sidebar = document.querySelector('.sidebar');
+      const sidebar = document.querySelector('#data-variables-content-conatiner');
       if (!sidebar) return;
       
 
       const dataVariablesPanel = document.createElement('div');
       dataVariablesPanel.className = 'data-variables-panel';
       dataVariablesPanel.innerHTML = `
-        <h3>Data Variables</h3>
         <div id="data-variables-content">
           <p>No data variables defined.</p>
         </div>
