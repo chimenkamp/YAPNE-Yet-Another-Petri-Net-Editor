@@ -51,61 +51,218 @@
                 <canvas id="petri-canvas" width="1090" height="800" class="resizable-content"></canvas>
             </div>
 
+            <!-- BEGIN REDESIGNED SIDEBAR -->
             <div class="sidebar">
-                <div class="properties-panel">
-                    <h3>Properties</h3>
-                    <div id="properties-content">
-                        <p>No element selected.</p>
-                    </div>
+                <!-- Tab Navigation -->
+                <div class="sidebar-tabs">
+                    <button class="sidebar-tab active" data-tab="model">Model</button>
+                    <button class="sidebar-tab" data-tab="simulation">Simulation</button>
+                    <button class="sidebar-tab" data-tab="file">File</button>
+                    <button class="sidebar-tab" data-tab="help">Help</button>
                 </div>
+                
+                <!-- Tab Content -->
+                <div class="sidebar-content">
+                    <!-- Model Tab -->
+                    <div class="sidebar-pane active" data-tab="model">
+                        <!-- Properties Section -->
+                        <div id="properties-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">⚙️</span>
+                                    <h3>Properties</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content" id="properties-content">
+                                <p>No element selected.</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Data Variables Section -->
+                        <div id="data-variables-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">🔢</span>
+                                    <h3>Data Variables</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content" id="data-variables-content-conatiner"> 
 
-
-                <div class="simulation-controls">
-                    <h3>Simulation</h3>
-                    <div>
-                        <button id="btn-step" class="success" title="Fire a single transition">Step</button>
-                        <button id="btn-auto-run" class="success" title="Auto-fire transitions">Auto Run</button>
-                        <button id="btn-reset" title="Reset simulation">Reset</button>
+                            </div>
+                        </div>
                     </div>
                     
-                    <div class="tokens-display" id="tokens-display">
-                        <!-- Will be filled dynamically -->
-                    </div>
-                </div>
-
-                <div class="templates">
-                    <h3>Templates</h3>
-                    <div class="template-buttons">
-                        <!-- <button id="btn-producer-consumer">Producer-Consumer</button>
-                        <button id="btn-mutex">Mutual Exclusion</button>
-                        <button id="btn-dining-philosophers">Dining Philosophers</button> -->
-
-                        <select id="template-select">
-                            <option value="">Select a template...</option>
-                        </select>
+                    <!-- Simulation Tab -->
+                    <div class="sidebar-pane" data-tab="simulation">
+                        <!-- Simulation Controls Section -->
+                        <div id="simulation-controls-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">▶️</span>
+                                    <h3>Controls</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <div class="button-group">
+                                    <button id="btn-step" class="success" title="Fire a single transition">Step</button>
+                                    <button id="btn-auto-run" class="success" title="Auto-fire transitions">Auto Run</button>
+                                    <button id="btn-reset" title="Reset simulation">Reset</button>
+                                </div>
+                            </div>
                         </div>
-                </div>
-                
-                <div class="file-operations">
-                    <h3>File Operations</h3>
-                    <div class="toolbar-group">
-                        <button id="btn-save">Save (JSON)</button>
-                        <button id="btn-load">Load</button>
-                        <input type="file" id="file-input" class="hidden" accept=".json">
+                        
+                        <!-- Token Marking Section -->
+                        <div id="tokens-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">⚫</span>
+                                    <h3>Token Marking</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content tokens-display" id="tokens-display">
+                                <!-- Will be filled dynamically -->
+                                <p>No places in the Petri net.</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Data Values Section -->
+                        <div id="data-values-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">📊</span>
+                                    <h3>Data Values</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content" id="data-values-content">
+                                <!-- Will be filled dynamically -->
+                                <p>No data variables defined.</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Variable History Section -->
+                        <div id="variable-history-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">📝</span>
+                                    <h3>Variable History</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <div class="section-content" id="variable-history-content">
+                                    <p>History tracking is disabled.</p>
+                                </div>
+                                <div class="section-actions">
+                                    <button id="btn-toggle-history">Start Tracking</button>
+                                    <button id="btn-clear-history">Clear</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="toolbar-group">
-                        <button id="btn-export-pnml">Export PNML</button>
+                    
+                    <!-- File Tab -->
+                    <div class="sidebar-pane" data-tab="file">
+                        <!-- Templates Section -->
+                        <div id="templates-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">📋</span>
+                                    <h3>Templates</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <select id="template-select">
+                                    <option value="">Select a template...</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <!-- File Operations Section -->
+                        <div id="file-operations-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">📁</span>
+                                    <h3>File Operations</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <div class="button-group">
+                                    <button id="btn-save">Save (JSON)</button>
+                                    <button id="btn-load">Load</button>
+                                    <input type="file" id="file-input" class="hidden" accept=".json">
+                                </div>
+                                <div class="button-group">
+                                    <button id="btn-export-pnml">Export PNML</button>
+                                    <button id="btn-event-log" class="blue">Generate Event Log</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="navigation-help">
-                    <h3>Navigation</h3>
-                    <ul class="help-list" id="navigation-help-list">
-                        <li><strong>Pan:</strong> Middle mouse button or Space+drag</li>
-                        <li><strong>Zoom:</strong> Mouse wheel or use zoom controls</li>
-                        <li><strong>Reset View:</strong> Click ↺ button to reset pan/zoom</li>
-                        <li><strong>Full Screen:</strong> Click ⛶ button to toggle full screen mode</li>
-                    </ul>
+                    
+                    <!-- Help Tab -->
+                    <div class="sidebar-pane" data-tab="help">
+                        <!-- Navigation Help Section -->
+                        <div id="navigation-help-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">🔍</span>
+                                    <h3>Navigation</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <ul class="help-list" id="navigation-help-list">
+                                    <li><strong>Pan:</strong> Middle mouse button or Space+drag</li>
+                                    <li><strong>Zoom:</strong> Mouse wheel or use zoom controls</li>
+                                    <li><strong>Reset View:</strong> Click ↺ button to reset pan/zoom</li>
+                                    <li><strong>Full Screen:</strong> Click ⛶ button to toggle full screen mode</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <!-- Tools Help Section -->
+                        <div id="tools-help-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">🛠️</span>
+                                    <h3>Editor Tools</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <ul class="help-list">
+                                    <li><strong>Select:</strong> Click the ✓ button to select and move elements</li>
+                                    <li><strong>Add Place:</strong> Click the ○ button to add places</li>
+                                    <li><strong>Add Transition:</strong> Click the □ button to add transitions</li>
+                                    <li><strong>Add Arc:</strong> Click the → button to connect elements</li>
+                                    <li><strong>Delete:</strong> Select an element and click 🗑️ to delete</li>
+                                    <li><strong>Auto Layout:</strong> Click 🪄 to automatically arrange elements</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <!-- About Section -->
+                        <div id="about-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">ℹ️</span>
+                                    <h3>About</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <p>YAPNE - Yet Another Petri Net Editor</p>
+                                <p>BETA Version</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -113,17 +270,15 @@
 
     <footer>
         <div class="container">
-            <p>Petri Net Editor Example Project</p>
+        
         </div>
     </footer>
 
     <!-- Include the Petri Net library -->
     <script src="src/petri-net-simulator.js"></script>
 
-
-    
     <!-- Include Data Petri Net extensions -->
-     <script src="src/extensions/dpn-expression-validation.js"></script>
+    <script src="src/extensions/dpn-expression-validation.js"></script>
     <script src="src/extensions/dpn-model.js"></script>
     <script src="src/extensions/dpn-api.js"></script>
     <script src="src/extensions/dpn-renderer.js"></script>
@@ -135,20 +290,88 @@
     
         document.addEventListener('DOMContentLoaded', () => {
             try {
+                // Sidebar tab functionality
+                const tabs = document.querySelectorAll('.sidebar-tab');
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        // Deactivate all tabs
+                        tabs.forEach(t => t.classList.remove('active'));
+                        // Activate clicked tab
+                        tab.classList.add('active');
+                        
+                        // Hide all panes
+                        const panes = document.querySelectorAll('.sidebar-pane');
+                        panes.forEach(pane => pane.classList.remove('active'));
+                        
+                        // Show corresponding pane
+                        const targetPane = document.querySelector(`.sidebar-pane[data-tab="${tab.dataset.tab}"]`);
+                        if (targetPane) targetPane.classList.add('active');
+                        
+                        // Save active tab in localStorage
+                        if (window.localStorage) {
+                            localStorage.setItem('activeTab', tab.dataset.tab);
+                        }
+                    });
+                });
+                
+                // Section collapse functionality
+                const sectionHeaders = document.querySelectorAll('.section-header');
+                sectionHeaders.forEach(header => {
+                    header.addEventListener('click', () => {
+                        const section = header.closest('.sidebar-section');
+                        section.classList.toggle('section-collapsed');
+                        
+                        // Save collapsed state
+                        if (window.localStorage) {
+                            saveCollapsedSections();
+                        }
+                    });
+                });
+                
+                // Function to save collapsed section states
+                function saveCollapsedSections() {
+                    const collapsedSections = [];
+                    document.querySelectorAll('.sidebar-section.section-collapsed').forEach(section => {
+                        if (section.id) collapsedSections.push(section.id);
+                    });
+                    localStorage.setItem('sidebarSections', JSON.stringify(collapsedSections));
+                }
+                
+                // Restore previous states
+                if (window.localStorage) {
+                    // Restore active tab
+                    const savedTab = localStorage.getItem('activeTab');
+                    if (savedTab) {
+                        const tab = document.querySelector(`.sidebar-tab[data-tab="${savedTab}"]`);
+                        if (tab) tab.click();
+                    }
+                    
+                    // Restore collapsed sections
+                    const savedState = localStorage.getItem('sidebarSections');
+                    if (savedState) {
+                        try {
+                            const collapsedSections = JSON.parse(savedState);
+                            document.querySelectorAll('.sidebar-section').forEach(section => {
+                                if (section.id && collapsedSections.includes(section.id)) {
+                                    section.classList.add('section-collapsed');
+                                }
+                            });
+                        } catch (e) {
+                            console.error('Error restoring sidebar state', e);
+                        }
+                    }
+                }
 
                 const isMac = navigator.userAgent.includes('Mac');
                 const modifierKey = isMac ? 'Command' : 'Alt';
                 
-
                 const panInstructions = document.getElementById('pan-instructions');
                 panInstructions.innerHTML = `<span>Pan: Middle mouse button or ${modifierKey}+drag</span>`;
                 
-
                 const navigationHelpList = document.getElementById('navigation-help-list');
                 const panHelpItem = navigationHelpList.querySelector('li:first-child');
                 panHelpItem.innerHTML = `<strong>Pan:</strong> Middle mouse button or ${modifierKey}+drag`;
                 
-
                 const app = new window.PetriNetApp();
 
                 window.petriApp = app;
@@ -163,7 +386,6 @@
                     });
                 });
 
-
                 const fullscreenButton = document.getElementById('btn-fullscreen');
                 fullscreenButton.addEventListener('click', toggleFullscreen);
                 
@@ -171,12 +393,9 @@
                     const body = document.body;
                     const canvasElement = document.getElementById('petri-canvas');
                     
-
                     body.classList.toggle('fullscreen-mode');
                     
-
                     if (body.classList.contains('fullscreen-mode')) {
-                        
                         fullscreenButton.innerHTML = '⤓';
                         fullscreenButton.title = 'Exit Full Screen';
                         
@@ -188,30 +407,24 @@
                         fullscreenButton.innerHTML = '⛶';
                         fullscreenButton.title = 'Toggle Full Screen';
                         
-
                         setTimeout(() => {
                             canvasElement.width = "1090";
                             canvasElement.height = "800";
                         }, 10);
                     }
                     
-
                     if (window.petriApp && window.petriApp.resizeCanvas) {
-
                         setTimeout(() => {
                             window.petriApp.resizeCanvas();
                         }, 50);
                         
-
                         setTimeout(() => {
                             window.petriApp.resizeCanvas();
                         }, 350); // slightly longer than the CSS transition duration
                     }
                 }
                 
-
                 document.addEventListener('keydown', (e) => {
-
                     if (e.key === 'Escape' && document.body.classList.contains('fullscreen-mode')) {
                         toggleFullscreen();
                     } else if (e.key === 'F' && (e.ctrlKey || e.metaKey)) {
@@ -219,7 +432,6 @@
                         toggleFullscreen();
                     }
                 });
-
 
                 const initTimer = setInterval(() => {
                     if (window.petriApp) {
@@ -240,7 +452,7 @@
     <!-- <script src="src/extensions/random-petri-net-generator.js"></script> -->
     <script src="src/extensions/variable-tracking.js"></script>
 
-        <!-- Include the Element Overlay extension -->
-        <script src="src/element-overlay.js"></script>
+    <!-- Include the Element Overlay extension -->
+    <script src="src/element-overlay.js"></script>
 </body>
 </html>
