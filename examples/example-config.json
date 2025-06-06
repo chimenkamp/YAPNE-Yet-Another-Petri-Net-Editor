@@ -20,9 +20,9 @@
         "path": "examples/banker-algorithm.json"
     },
     {
-        "name": "Traffic Light",
-        "description": "Traffic Light problem",
-        "path": "examples/traffic-light.json"
+        "name": "DPN - Fibonacci(n)",
+        "description": "A Data Petri Net that computes the Fibonacci number for a given n",
+        "path": "examples/DPN-Fibonacci(n).json"
     },
     {
         "name": "DPN: Simple Order Processing with Data",

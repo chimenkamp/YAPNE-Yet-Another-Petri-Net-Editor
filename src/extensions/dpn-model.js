@@ -131,7 +131,7 @@ class DataAwareTransition extends Transition {
     }
   
     try {
-
+    
       const newValuation = { ...valuation };
       
 
@@ -160,7 +160,7 @@ class DataAwareTransition extends Transition {
         return !stmt.trim().match(/^[a-zA-Z_][a-zA-Z0-9_]*'\s*=/) && 
                stmt.trim().match(/[a-zA-Z_][a-zA-Z0-9_]*'/);
       });
- 
+
       if (constraintStatements.length > 0) {
 
         const primedVars = new Set();
@@ -300,7 +300,7 @@ createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
   findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
 
     const currentValue = originalValuation[variableName];
-    
+    console.log("Call me maybe")
 
     if (typeof currentValue === 'boolean') {
 
@@ -312,19 +312,20 @@ createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
       }
       return currentValue; // Fallback to current value
     }
-    console.log(`Current Value: ${currentValue}`);
+    console.log(variableName, constraintStatements, originalValuation, currentValuation);
     if (typeof currentValue === 'number') {
-      const parser = new ExpressionParser();
+      // Create the solver
+      const solver = new ExpressionSolver(currentValuation);
 
-      const expr1 = constraintStatements;
-      console.log(`Expression: ${expr1}`);
+      const expr = "x' > x + 5; x' < x + 100";
 
-      const currentValue = parser.getRandomValidNumber(expr1, "x");
-      console.log(`Random Valid Value: ${currentValue}`);
-      return currentValue;
+      const newValues = solver.solve(constraintStatements.join("; "));
+
+      console.log(`Random Valid Value: ${newValues[variableName]}`);
+
+      return newValues[variableName];
 
     } else if (typeof currentValue === 'string') {
-
 
       console.warn(`Constraint-based sampling for string variables is not yet implemented`);
     }
