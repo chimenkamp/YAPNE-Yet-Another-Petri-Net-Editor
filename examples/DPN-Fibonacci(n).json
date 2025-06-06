@@ -1,1 +1,320 @@
-{"name":"New Data Petri Net","description":"","places":[{"id":"P_Init","position":{"x":30,"y":200},"label":"P_Init","tokens":1,"capacity":null,"radius":20},{"id":"P_Loop","position":{"x":300,"y":200},"label":"P_Loop","tokens":0,"capacity":null,"radius":20},{"id":"P_Update","position":{"x":300,"y":-50},"label":"P_Update","tokens":0,"capacity":null,"radius":20},{"id":"P_U2","position":{"x":580,"y":-50},"label":"P_U2","tokens":0,"capacity":null,"radius":20},{"id":"P_U3","position":{"x":700,"y":90},"label":"P_U3","tokens":0,"capacity":null,"radius":20},{"id":"P_U4","position":{"x":590,"y":200},"label":"P_U4","tokens":0,"capacity":null,"radius":20},{"id":"P_Done","position":{"x":300,"y":520},"label":"P_Done","tokens":0,"capacity":null,"radius":20}],"transitions":[{"id":"T_Setup","position":{"x":150,"y":200},"label":"T_Setup","width":20,"height":50,"isEnabled":true,"priority":1,"delay":0,"precondition":"","postcondition":"a' = 0; b' = 1; i' = 2;"},{"id":"T_CheckLoop","position":{"x":300,"y":70},"label":"T_CheckLoop","width":20,"height":50,"isEnabled":false,"priority":1,"delay":0,"precondition":"i < n;","postcondition":""},{"id":"T_CheckDone","position":{"x":300,"y":360},"label":"T_CheckDone","width":20,"height":50,"isEnabled":false,"priority":1,"delay":0,"precondition":"i >= n;","postcondition":"result' = b;"},{"id":"T_CalcTemp","position":{"x":460,"y":-50},"label":"T_CalcTemp","width":20,"height":50,"isEnabled":false,"priority":1,"delay":0,"precondition":"","postcondition":"temp' = a + b;"},{"id":"T_SetA","position":{"x":700,"y":-50},"label":"T_SetA","width":20,"height":50,"isEnabled":false,"priority":1,"delay":0,"precondition":"","postcondition":"a' = b;"},{"id":"T_SetB","position":{"x":700,"y":200},"label":"T_SetB","width":20,"height":50,"isEnabled":false,"priority":1,"delay":0,"precondition":"","postcondition":"b' = temp;"},{"id":"T_IncI","position":{"x":470,"y":200},"label":"T_IncI","width":20,"height":50,"isEnabled":false,"priority":1,"delay":0,"precondition":"","postcondition":"i' = i + 1;"}],"arcs":[{"id":"A1","source":"P_Init","target":"T_Setup","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A2","source":"T_Setup","target":"P_Loop","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A3","source":"P_Loop","target":"T_CheckLoop","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A4","source":"T_CheckLoop","target":"P_Update","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A5","source":"P_Update","target":"T_CalcTemp","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A6","source":"T_CalcTemp","target":"P_U2","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A7","source":"P_U2","target":"T_SetA","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A8","source":"T_SetA","target":"P_U3","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A9","source":"P_U3","target":"T_SetB","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A10","source":"T_SetB","target":"P_U4","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A11","source":"P_U4","target":"T_IncI","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A12","source":"T_IncI","target":"P_Loop","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A13","source":"P_Loop","target":"T_CheckDone","weight":1,"type":"regular","points":[],"label":"1"},{"id":"A14","source":"T_CheckDone","target":"P_Done","weight":1,"type":"regular","points":[],"label":"1"}],"dataVariables":[{"id":"var_n","name":"n","type":"number","currentValue":7,"description":"Input value for which Fibonacci is computed"},{"id":"var_a","name":"a","type":"number","currentValue":0,"description":"Holds F(i-2)"},{"id":"var_b","name":"b","type":"number","currentValue":0,"description":"Holds F(i-1)"},{"id":"var_temp","name":"temp","type":"number","currentValue":0,"description":"Temporary for sum a+b"},{"id":"var_i","name":"i","type":"number","currentValue":0,"description":"Loop counter"},{"id":"var_result","name":"result","type":"number","currentValue":0,"description":"Final Fibonacci(n)"}]}
+{
+  "name": "New Data Petri Net",
+  "description": "",
+  "places": [
+    {
+      "id": "P_Init",
+      "position": { "x": 30, "y": 200 },
+      "label": "P_Init",
+      "tokens": 1,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Loop",
+      "position": { "x": 300, "y": 200 },
+      "label": "P_Loop",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Update",
+      "position": { "x": 300, "y": -50 },
+      "label": "P_Update",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_U2",
+      "position": { "x": 580, "y": -50 },
+      "label": "P_U2",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_U3",
+      "position": { "x": 700, "y": 90 },
+      "label": "P_U3",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_U4",
+      "position": { "x": 590, "y": 200 },
+      "label": "P_U4",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Done",
+      "position": { "x": 300, "y": 520 },
+      "label": "P_Done",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "T_Setup",
+      "position": { "x": 150, "y": 200 },
+      "label": "T_Setup",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "",
+      "postcondition": "a' = 0; b' = 1; i' = 1;"
+    },
+    {
+      "id": "T_CheckLoop",
+      "position": { "x": 300, "y": 70 },
+      "label": "T_CheckLoop",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "i < n;",
+      "postcondition": ""
+    },
+    {
+      "id": "T_CheckDone",
+      "position": { "x": 300, "y": 360 },
+      "label": "T_CheckDone",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "i >= n;",
+      "postcondition": "result' = b;"
+    },
+    {
+      "id": "T_CalcTemp",
+      "position": { "x": 460, "y": -50 },
+      "label": "T_CalcTemp",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "",
+      "postcondition": "temp' = a + b;"
+    },
+    {
+      "id": "T_SetA",
+      "position": { "x": 700, "y": -50 },
+      "label": "T_SetA",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "",
+      "postcondition": "a' = b;"
+    },
+    {
+      "id": "T_SetB",
+      "position": { "x": 700, "y": 200 },
+      "label": "T_SetB",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "",
+      "postcondition": "b' = temp;"
+    },
+    {
+      "id": "T_IncI",
+      "position": { "x": 470, "y": 200 },
+      "label": "T_IncI",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "",
+      "postcondition": "i' = i + 1;"
+    }
+  ],
+  "arcs": [
+    {
+      "id": "A1",
+      "source": "P_Init",
+      "target": "T_Setup",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A2",
+      "source": "T_Setup",
+      "target": "P_Loop",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A3",
+      "source": "P_Loop",
+      "target": "T_CheckLoop",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A4",
+      "source": "T_CheckLoop",
+      "target": "P_Update",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A5",
+      "source": "P_Update",
+      "target": "T_CalcTemp",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A6",
+      "source": "T_CalcTemp",
+      "target": "P_U2",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A7",
+      "source": "P_U2",
+      "target": "T_SetA",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A8",
+      "source": "T_SetA",
+      "target": "P_U3",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A9",
+      "source": "P_U3",
+      "target": "T_SetB",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A10",
+      "source": "T_SetB",
+      "target": "P_U4",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A11",
+      "source": "P_U4",
+      "target": "T_IncI",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A12",
+      "source": "T_IncI",
+      "target": "P_Loop",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A13",
+      "source": "P_Loop",
+      "target": "T_CheckDone",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A14",
+      "source": "T_CheckDone",
+      "target": "P_Done",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    }
+  ],
+  "dataVariables": [
+    {
+      "id": "var_n",
+      "name": "n",
+      "type": "number",
+      "currentValue": 7,
+      "description": "Input value for which Fibonacci is computed"
+    },
+    {
+      "id": "var_a",
+      "name": "a",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Holds F(i-2)"
+    },
+    {
+      "id": "var_b",
+      "name": "b",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Holds F(i-1)"
+    },
+    {
+      "id": "var_temp",
+      "name": "temp",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Temporary for sum a+b"
+    },
+    {
+      "id": "var_i",
+      "name": "i",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Loop counter"
+    },
+    {
+      "id": "var_result",
+      "name": "result",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Final Fibonacci(n)"
+    }
+  ]
+}
