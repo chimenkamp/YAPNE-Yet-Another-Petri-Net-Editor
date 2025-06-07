@@ -260,62 +260,324 @@ class PNMLImporter {
     }
   
     async handleFileUpload(file, dialog) {
-      try {
-        await this.showProgress(dialog, 'Reading file...', 10);
-        
-        const content = await this.readFileContent(file);
-        
-        await this.showProgress(dialog, 'Parsing PNML...', 30);
-        
-        const parsedNet = this.parsePNML(content);
-        
-        if (!parsedNet) {
-          throw new Error('Failed to parse PNML file. Please check the file format.');
-        }
-  
-        this.currentParsedNet = parsedNet;
-        
-        await this.showProgress(dialog, 'Preparing layout...', 60);
-        
-        // Show settings and preview sections
-        dialog.querySelector('#import-settings').style.display = 'block';
-        dialog.querySelector('#preview-section').style.display = 'block';
-        
-        // Update preview info
-        this.updatePreviewInfo(dialog, parsedNet);
-        
-        // Set apply algorithm checkbox based on whether positions exist
-        const hasPositions = parsedNet.places.some(p => p.position) || parsedNet.transitions.some(t => t.position);
-        const applyAlgorithmCheckbox = dialog.querySelector('#apply-algorithm');
-        if (hasPositions) {
-          // If positions exist, default to preserving them (unchecked)
-          applyAlgorithmCheckbox.checked = false;
-        } else {
-          // If no positions, must apply algorithm (checked and disabled)
-          applyAlgorithmCheckbox.checked = true;
-        }
-        
-        await this.showProgress(dialog, 'Generating preview...', 80);
-        
-        // Enable import button
-        dialog.querySelector('#btn-apply-import').disabled = false;
-        
-        // Generate initial layout and preview
-        await this.updatePreview(dialog);
-        
-        await this.showProgress(dialog, 'Ready!', 100);
-        
-        // Hide progress bar after a delay
-        setTimeout(() => {
+        try {
+          await this.showProgress(dialog, 'Reading file...', 10);
+          
+          const content = await this.readFileContent(file);
+          
+          await this.showProgress(dialog, 'Parsing PNML...', 30);
+          
+          const parsedNet = this.parsePNML(content);
+          
+          if (!parsedNet) {
+            throw new Error('Failed to parse PNML file. Please check the file format.');
+          }
+      
+          this.currentParsedNet = parsedNet;
+          
+          // Check if we have data variables and ensure integration is ready
+          if (parsedNet.dataVariables && parsedNet.dataVariables.length > 0) {
+            await this.showProgress(dialog, 'Preparing data integration...', 40);
+            await this.ensureDataPetriNetIntegration();
+          }
+          
+          await this.showProgress(dialog, 'Preparing layout...', 60);
+          
+          // Show settings and preview sections
+          dialog.querySelector('#import-settings').style.display = 'block';
+          dialog.querySelector('#preview-section').style.display = 'block';
+          
+          // Update preview info
+          this.updatePreviewInfo(dialog, parsedNet);
+          
+          // Set apply algorithm checkbox based on whether positions exist
+          const hasPositions = parsedNet.places.some(p => p.position) || parsedNet.transitions.some(t => t.position);
+          const applyAlgorithmCheckbox = dialog.querySelector('#apply-algorithm');
+          if (hasPositions) {
+            // If positions exist, default to preserving them (unchecked)
+            applyAlgorithmCheckbox.checked = false;
+          } else {
+            // If no positions, must apply algorithm (checked and disabled)
+            applyAlgorithmCheckbox.checked = true;
+          }
+          
+          await this.showProgress(dialog, 'Generating preview...', 80);
+          
+          // Enable import button
+          dialog.querySelector('#btn-apply-import').disabled = false;
+          
+          // Generate initial layout and preview
+          await this.updatePreview(dialog);
+          
+          await this.showProgress(dialog, 'Ready!', 100);
+          
+          // Hide progress bar after a delay
+          setTimeout(() => {
+            this.hideProgress(dialog);
+          }, 1000);
+          
+        } catch (error) {
           this.hideProgress(dialog);
-        }, 1000);
-        
-      } catch (error) {
-        this.hideProgress(dialog);
-        alert('Error loading PNML file: ' + error.message);
-        console.error('PNML import error:', error);
+          alert('Error loading PNML file: ' + error.message);
+          console.error('PNML import error:', error);
+        }
       }
-    }
+      
+      // Ensure DataPetriNet integration is ready before importing
+      async ensureDataPetriNetIntegration() {
+        return new Promise((resolve) => {
+          // If already integrated, resolve immediately
+          if (this.app.dataPetriNetUI || (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI)) {
+            resolve();
+            return;
+          }
+          
+          // Wait for integration to be ready
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds max wait
+          
+          const checkIntegration = () => {
+            attempts++;
+            
+            if (this.app.dataPetriNetUI || (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI)) {
+              console.log("DataPetriNet integration ready");
+              resolve();
+            } else if (attempts >= maxAttempts) {
+              console.warn("DataPetriNet integration not ready after timeout, proceeding anyway");
+              resolve();
+            } else {
+              setTimeout(checkIntegration, 100);
+            }
+          };
+          
+          checkIntegration();
+        });
+      }
+      
+      // Complete importToEditor method
+      async importToEditor(dialog) {
+        if (!this.currentParsedNet) return;
+      
+        try {
+          await this.showProgress(dialog, 'Importing to editor...', 0);
+      
+          // Stop any auto-run simulation
+          if (this.app.autoRunInterval) {
+            this.app.stopAutoRun();
+          }
+      
+          await this.showProgress(dialog, 'Creating API instance...', 20);
+      
+          // Create new API instance based on data content
+          let newAPI;
+          if (this.currentParsedNet.dataVariables.length > 0 || 
+              this.currentParsedNet.transitions.some(t => t.isDataAware)) {
+            newAPI = new DataPetriNetAPI(
+              this.currentParsedNet.id,
+              this.currentParsedNet.name,
+              this.currentParsedNet.description
+            );
+          } else {
+            newAPI = new PetriNetAPI(
+              this.currentParsedNet.id,
+              this.currentParsedNet.name,
+              this.currentParsedNet.description
+            );
+          }
+      
+          await this.showProgress(dialog, 'Applying layout...', 40);
+      
+          // Get final layout settings and apply layout
+          const settings = this.getLayoutSettings(dialog);
+          const netWithLayout = await this.applyLayout(this.currentParsedNet, settings);
+      
+          await this.showProgress(dialog, 'Creating places...', 60);
+      
+          // Import places with proper positioning
+          netWithLayout.places.forEach(placeData => {
+            const place = new Place(
+              placeData.id,
+              placeData.position || { x: 100, y: 100 },
+              placeData.label,
+              placeData.tokens,
+              placeData.capacity
+            );
+            newAPI.petriNet.places.set(placeData.id, place);
+          });
+      
+          await this.showProgress(dialog, 'Creating transitions...', 70);
+      
+          // Import transitions with proper positioning and data-awareness detection
+          netWithLayout.transitions.forEach(transitionData => {
+            let transition;
+            
+            // Check if this should be a data-aware transition
+            const shouldBeDataAware = transitionData.isDataAware || 
+                                     transitionData.precondition || 
+                                     transitionData.postcondition ||
+                                     (newAPI instanceof DataPetriNetAPI);
+            
+            if (shouldBeDataAware && typeof DataAwareTransition !== 'undefined') {
+              transition = new DataAwareTransition(
+                transitionData.id,
+                transitionData.position || { x: 100, y: 100 },
+                transitionData.label,
+                transitionData.priority,
+                transitionData.delay,
+                transitionData.precondition,
+                transitionData.postcondition
+              );
+            } else {
+              transition = new Transition(
+                transitionData.id,
+                transitionData.position || { x: 100, y: 100 },
+                transitionData.label,
+                transitionData.priority,
+                transitionData.delay
+              );
+            }
+            newAPI.petriNet.transitions.set(transitionData.id, transition);
+          });
+      
+          await this.showProgress(dialog, 'Creating arcs...', 80);
+      
+          // Import arcs
+          netWithLayout.arcs.forEach(arcData => {
+            const arc = new Arc(
+              arcData.id,
+              arcData.source,
+              arcData.target,
+              arcData.weight,
+              arcData.type,
+              arcData.points,
+              arcData.label || arcData.weight.toString()
+            );
+            newAPI.petriNet.arcs.set(arcData.id, arc);
+          });
+      
+          await this.showProgress(dialog, 'Importing data variables...', 90);
+      
+          // Import data variables if present
+          if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
+            console.log("Importing data variables:", netWithLayout.dataVariables);
+            netWithLayout.dataVariables.forEach(varData => {
+              const variable = new DataVariable(
+                varData.id,
+                varData.name,
+                varData.type,
+                varData.currentValue,
+                varData.description
+              );
+              newAPI.petriNet.dataVariables.set(varData.id, variable);
+              console.log(`Imported data variable: ${varData.name} = ${varData.currentValue}`);
+            });
+          }
+      
+          await this.showProgress(dialog, 'Finalizing...', 95);
+      
+          // Replace the app's API
+          this.app.api = newAPI;
+          this.app.editor = newAPI.attachEditor(this.app.canvas);
+      
+          // Set up renderer based on API type
+          if (newAPI instanceof DataPetriNetAPI) {
+            this.app.editor.renderer = new DataPetriNetRenderer(this.app.canvas, newAPI.petriNet);
+          }
+      
+          // Restore app functionality
+          this.app.editor.app = this.app;
+          this.app.editor.setOnSelectCallback(this.app.handleElementSelected.bind(this.app));
+          this.app.editor.setOnChangeCallback(this.app.handleNetworkChanged.bind(this.app));
+          this.app.editor.setSnapToGrid(this.app.gridEnabled);
+          this.app.editor.setMode('select');
+          this.app.updateActiveButton('btn-select');
+      
+          // Render and update displays
+          this.app.editor.render();
+          this.app.updateTokensDisplay();
+          this.app.updateZoomDisplay();
+          this.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
+      
+          // Update data displays - use multiple approaches to ensure it works
+          if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
+            console.log("Attempting to update data variables UI...");
+            
+            // Approach 1: Try through app.dataPetriNetUI
+            if (this.app.dataPetriNetUI) {
+              console.log("Updating data variables UI through app.dataPetriNetUI");
+              this.app.dataPetriNetUI.updateDataVariablesDisplay();
+              this.app.dataPetriNetUI.updateDataValuesDisplay();
+            } else {
+              console.log("app.dataPetriNetUI not available");
+            }
+            
+            // Approach 2: Try through global integration object
+            if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI) {
+              console.log("Updating data variables UI through global integration");
+              window.dataPetriNetIntegration.dataPetriNetUI.updateDataVariablesDisplay();
+              window.dataPetriNetIntegration.dataPetriNetUI.updateDataValuesDisplay();
+            } else {
+              console.log("Global dataPetriNetIntegration not available");
+            }
+            
+            // Approach 3: Force update after a short delay to ensure everything is initialized
+            setTimeout(() => {
+              console.log("Attempting delayed update of data variables UI");
+              if (this.app.dataPetriNetUI) {
+                console.log("Delayed update of data variables UI through app");
+                this.app.dataPetriNetUI.updateDataVariablesDisplay();
+                this.app.dataPetriNetUI.updateDataValuesDisplay();
+              } else if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI) {
+                console.log("Delayed update through global integration");
+                window.dataPetriNetIntegration.dataPetriNetUI.updateDataVariablesDisplay();
+                window.dataPetriNetIntegration.dataPetriNetUI.updateDataValuesDisplay();
+              } else {
+                console.warn("No data UI integration available for update");
+              }
+              
+              // Additional debug info
+              console.log("Final data variables count:", newAPI.petriNet.dataVariables.size);
+              console.log("Final data variables:", Array.from(newAPI.petriNet.dataVariables.values()));
+            }, 100);
+            
+            // Approach 4: Even longer delay as a last resort
+            setTimeout(() => {
+              console.log("Final attempt at updating data variables UI");
+              if (this.app.dataPetriNetUI) {
+                this.app.dataPetriNetUI.updateDataVariablesDisplay();
+                this.app.dataPetriNetUI.updateDataValuesDisplay();
+                console.log("Final update successful through app");
+              } else if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI) {
+                window.dataPetriNetIntegration.dataPetriNetUI.updateDataVariablesDisplay();
+                window.dataPetriNetIntegration.dataPetriNetUI.updateDataValuesDisplay();
+                console.log("Final update successful through global");
+              }
+            }, 500);
+          }
+      
+          await this.showProgress(dialog, 'Complete!', 100);
+      
+          // Clean up
+          this.currentParsedNet = null;
+      
+          // Close dialog and show success
+          setTimeout(() => {
+            document.body.removeChild(dialog);
+            
+            // Show detailed success message with data variable info
+            let successMessage = 'PNML file imported successfully!';
+            if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
+              successMessage += `\n\nImported ${netWithLayout.dataVariables.length} data variables.`;
+            }
+            alert(successMessage);
+          }, 500);
+      
+        } catch (error) {
+          this.hideProgress(dialog);
+          console.error('Error importing PNML:', error);
+          alert('Error importing PNML file: ' + error.message);
+        }
+      }
   
     async showProgress(dialog, text, percentage) {
       const progressContainer = dialog.querySelector('#progress-container');
@@ -406,7 +668,7 @@ class PNMLImporter {
             position: this.getPosition(transition),
             priority: 1,
             delay: 0,
-            precondition: precondition.replace("'", ""),
+            precondition: precondition.replace(/'/g, ""),
             postcondition: postcondition,
             isDataAware: isDataAware
           };
@@ -437,15 +699,17 @@ class PNMLImporter {
             const varData = {
               id: variable.getAttribute('id') || this.generateUUID(),
               name: variable.querySelector("name").textContent || "Unnamed Variable",
-              type: this.getTextContent(variable.querySelector('type text')) || 'string',
+              type: variable.getAttribute("type") || 'string',
               currentValue: this.getTextContent(variable.querySelector('initialValue text')),
               description: this.getTextContent(variable.querySelector('description text')) || ''
             };
+            let minValue = variable.getAttribute('minValue');
+            let maxValue = variable.getAttribute('maxValue');
 
             // Convert value to appropriate type
             if (varData.type === 'number' || varData.type === 'java.lang.Double' || varData.type === 'java.lang.Integer') {
               varData.type = 'number';
-              varData.currentValue = parseFloat(varData.currentValue) || 0;
+              varData.currentValue = parseFloat(minValue) || 0;
             } else if (varData.type === 'boolean' || varData.type === 'java.lang.Boolean') {
               varData.type = 'boolean';
               varData.currentValue = varData.currentValue === 'true';
@@ -453,7 +717,7 @@ class PNMLImporter {
               varData.type = 'string';
               varData.currentValue = String(varData.currentValue || '');
             }
-            console.log(`Parsed variable: `, varData);
+            
             parsedNet.dataVariables.push(varData);
           });
         }

@@ -206,34 +206,36 @@ class DataPetriNetIntegration {
     });
   }
 
-  /**
-   * Initialize the UI components
-   * @returns {Promise} Promise that resolves when UI is initialized
-   */
-  async initializeUI() {
-    return new Promise((resolve) => {
-
-      if (this.dataPetriNetUI) {
-        console.log("Data Petri Net UI already initialized");
-        resolve();
-        return;
-      }
-      
-
-      this.cleanupExistingUIElements();
-      
-
-      this.dataPetriNetUI = new DataPetriNetUI(this.app);
-      
-
-      this.extendEventHandlers();
-      
-
-      this.extendAppFunctions();
-      
+/**
+ * Initialize the UI components
+ * @returns {Promise} Promise that resolves when UI is initialized
+ */
+async initializeUI() {
+  return new Promise((resolve) => {
+    // Check if already initialized
+    if (this.dataPetriNetUI) {
+      console.log("Data Petri Net UI already initialized");
       resolve();
-    });
-  }
+      return;
+    }
+    
+    // Clean up any existing UI elements
+    this.cleanupExistingUIElements();
+    
+    // Create the UI
+    this.dataPetriNetUI = new DataPetriNetUI(this.app);
+    
+    // CRITICAL FIX: Attach the UI to the app object so other components can access it
+    this.app.dataPetriNetUI = this.dataPetriNetUI;
+    console.log("DataPetriNetUI attached to app:", this.app.dataPetriNetUI);
+    
+    // Extend event handlers and app functions
+    this.extendEventHandlers();
+    this.extendAppFunctions();
+    
+    resolve();
+  });
+}
 
   /**
    * Clean up any existing UI elements that may be duplicates
