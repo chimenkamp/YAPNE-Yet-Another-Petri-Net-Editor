@@ -19,7 +19,6 @@ class PetriNetApp {
     this.propertiesPanel = null;
     this.tokensDisplay = null;
     this.zoomDisplay = null;
-    this.overlay = null;
 
 
     this.autoRunInterval = null;
@@ -62,12 +61,32 @@ class PetriNetApp {
 
     this.initEventHandlers();
 
+    // Add initial place to the editor
+    this.addInitialPlace();
 
     this.editor.render();
     this.updateTokensDisplay();
     this.updateZoomDisplay();
 
-    this.overlay = new ElementOverlay(this.editor, this.api);
+  }
+
+  /**
+   * Adds an initial place to the editor when it starts
+   */
+  addInitialPlace() {
+    // Calculate a good position for the initial place
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
+    
+    // Position the initial place at about 1/4 from left and 1/3 from top
+    const initialX = canvasWidth * 0.25;
+    const initialY = canvasHeight * 0.33;
+    
+    // Create the initial place with 1 token
+    const placeId = this.api.createPlace(initialX, initialY, "Start", 1);
+    
+    // Optionally select the initial place
+    // this.editor.selectElement(placeId, 'place');
   }
 
   /**
@@ -283,13 +302,9 @@ class PetriNetApp {
   handleElementSelected(id, type) {
     if (!id || !type) {
       this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
-
-      this.overlay.updateSelection(null, null);
       return;
     }
 
-
-    this.overlay.updateSelection(id, type);
 
     if (type === "place") {
       this.showPlaceProperties(id);
@@ -298,7 +313,6 @@ class PetriNetApp {
     } else if (type === "arc") {
       this.showArcProperties(id);
 
-      this.overlay.updateSelection(null, null);
     }
   }
 
@@ -443,7 +457,7 @@ class PetriNetApp {
     if (statusContainer) {
       statusContainer.innerHTML = `
             <div style="padding: 8px; background-color: ${
-              isEnabled ? "#d5f5e3" : "#f5e3e6"
+              isEnabled ? "#d5f5e3" : "#f5e6e6"
             }; border-radius: 4px;">
                 ${isEnabled ? "✅ Enabled" : "❌ Disabled"}
             </div>
@@ -714,6 +728,8 @@ class PetriNetApp {
     this.editor.setMode("select");
     this.updateActiveButton("btn-select");
 
+    // Add initial place after reset
+    this.addInitialPlace();
 
     this.editor.render();
     this.updateTokensDisplay();
