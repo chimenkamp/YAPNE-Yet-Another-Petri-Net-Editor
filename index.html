@@ -278,6 +278,7 @@
     <script src="src/petri-net-simulator.js"></script>
 
     <!-- Include Data Petri Net extensions -->
+    <script src="src/element-overlay.js"></script>
     <script src="src/extensions/dpn-expression-validation.js"></script>
     <script src="src/extensions/dpn-model.js"></script>
     <script src="src/extensions/dpn-api.js"></script>
@@ -286,7 +287,12 @@
     <script src="src/extensions/dpn-integration.js"></script>
 
     <script src="src/extensions/dpn-verification-ui.js"></script>
-    <script src="src/extensions/dpn-ltl-verification.js"></script>
+    
+    <!-- Include LTL extensions -->
+    <script src="src/extensions/LTL/expression-solver.js"></script>
+    <script src="src/extensions/LTL/ltl-integration-layer.js"></script>  
+    <script src="src/extensions/LTL/dpn-ltl-verification-enhanced.js"></script>
+    <script src="src/extensions/LTL/final-integration-script.js"></script>
 
     <script src="app.js"></script>
     <script>
@@ -456,6 +462,6 @@
     <script src="src/extensions/variable-tracking.js"></script>
 
     <!-- Include the Element Overlay extension -->
-    <script src="src/element-overlay.js"></script>
+   
 </body>
 </html>

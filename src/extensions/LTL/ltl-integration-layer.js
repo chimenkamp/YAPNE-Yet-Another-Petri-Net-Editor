@@ -5,7 +5,7 @@
  * and provides comprehensive LTL_f verification for Data-Aware Dynamic Systems
  */
 
-class LTLVerificationExtension {
+class LTLVerificationExtensionTWO {
     constructor(app) {
         this.app = app;
         this.ltlFormula = "";
@@ -21,6 +21,12 @@ class LTLVerificationExtension {
     initializeUI() {
         this.addLTLButtonToVerificationSection();
         this.createLTLModal();
+    }
+
+    initialize() {
+        // This method can be used to perform any additional initialization if needed
+
+        return true;
     }
 
     /**
@@ -2281,9 +2287,9 @@ class EnhancedLTLVerifier {
 document.addEventListener('DOMContentLoaded', () => {
     const initEnhancedLTLVerification = () => {
         if (window.petriApp && window.dataPetriNetIntegration) {
-            if (!window.enhancedLtlVerification) {
+            if (!window.enhancedLtlVerificationTWO) {
                 console.log("Initializing Enhanced LTL Verification extension");
-                window.enhancedLtlVerification = new LTLVerificationExtension(window.petriApp);
+                window.enhancedLtlVerificationTWO = new LTLVerificationExtensionTWO(window.petriApp);
             }
         } else {
             setTimeout(initEnhancedLTLVerification, 500);
