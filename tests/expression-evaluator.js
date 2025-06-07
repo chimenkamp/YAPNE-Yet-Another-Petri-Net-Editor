@@ -158,13 +158,13 @@ class ExpressionSolver {
     }
   }
   
-  const oldVars = { x: 10, y: 5 };
+  const oldVars = { ver: true, amount: 5 , interest: 0.12 };
   
 
   const solver = new ExpressionSolver(oldVars);
   
 
-  const expr = "x' > x + 5; x' < x + 100";
+  const expr = "(ver == true) && (amount > 5000) && (0.1 * amount < interest) && (interest < 0.15 * amount)";
   
 
   try {

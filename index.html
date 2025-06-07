@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/event-log.css">
     <link rel="stylesheet" href="styles/dpn-styles.css">
+    <link rel="stylesheet" href="styles/pnml-importer.css">
     <!-- <link rel="stylesheet" href="styles/random-generator.css"> -->
 </head> 
 <body>
@@ -195,7 +196,7 @@
                             <div class="section-content">
                                 <div class="button-group">
                                     <button id="btn-save">Save (JSON)</button>
-                                    <button id="btn-load">Load</button>
+                                    <button id="btn-load">Load (JSON)</button>
                                     <input type="file" id="file-input" class="hidden" accept=".json">
                                 </div>
                                 <div class="button-group">
@@ -460,8 +461,7 @@
     <script src="src/event-log-integration.js"></script>
     <!-- <script src="src/extensions/random-petri-net-generator.js"></script> -->
     <script src="src/extensions/variable-tracking.js"></script>
-
-    <!-- Include the Element Overlay extension -->
+    <script src="src/extensions/pnml-importer.js"></script>
    
 </body>
 </html>
