@@ -9,6 +9,113 @@
     <link rel="stylesheet" href="styles/dpn-styles.css">
     <link rel="stylesheet" href="styles/pnml-importer.css">
     <!-- <link rel="stylesheet" href="styles/random-generator.css"> -->
+    <style>
+        /* Additional styles for the ghost element feature */
+        .info-section {
+            background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+            border: 1px solid #81c784;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .info-section h4 {
+            margin: 0 0 8px 0;
+            color: #2e7d32;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        
+        .info-section p {
+            margin: 0;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #424242;
+        }
+        
+        .info-section kbd {
+            background-color: #ffffff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.2);
+            color: #333;
+            display: inline-block;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 11px;
+            font-weight: bold;
+            line-height: 1;
+            padding: 2px 4px;
+            white-space: nowrap;
+        }
+
+        /* Enhanced cursor states */
+        .canvas-container canvas.ghost-mode {
+            cursor: crosshair !important;
+        }
+
+        /* Updated pan instructions to include ghost feature */
+        .pan-instructions {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            position: absolute;
+            /* top: 50px;
+            right: 10px; */
+            z-index: 1000;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .pan-instructions.extended {
+            white-space: normal;
+            max-width: 250px;
+        }
+
+        /* Ghost feature hint overlay */
+        .ghost-hint {
+            position: absolute;
+            top: 80px;
+            right: 10px;
+            background: rgba(76, 175, 80, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            z-index: 1001;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            max-width: 200px;
+        }
+
+        .ghost-hint.show {
+            opacity: 1;
+        }
+
+        /* Enhanced toolbar tooltips */
+        .vertical-toolbar button {
+            position: relative;
+        }
+
+        .vertical-toolbar button:hover::after {
+            content: attr(title);
+            position: absolute;
+            left: 100%;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+            z-index: 1000;
+            margin-left: 8px;
+        }
+    </style>
 </head> 
 <body>
     <header>
@@ -22,7 +129,7 @@
             <div class="canvas-container">
                 <div class="vertical-toolbar">
                     <div class="toolbar-group vertical">
-                        <button id="btn-select" class="active" title="Select tool">✓</button>
+                        <button id="btn-select" class="active" title="Select tool - Hold Shift while selected element to create connected elements">✓</button>
                         <button id="btn-add-place" title="Add place">○</button>
                         <button id="btn-add-transition" title="Add transition">□</button>
                         <button id="btn-add-arc" title="Add arc">→</button>
@@ -47,6 +154,12 @@
                 <!-- Pan instructions overlay - will be updated with JS -->
                 <div class="pan-instructions" id="pan-instructions">
                     <span>Pan: Middle mouse button or Space+drag</span>
+                </div>
+
+                <!-- Ghost feature hint overlay -->
+                <div class="ghost-hint" id="ghost-hint">
+                    💡 <strong>Ghost Mode Active!</strong><br>
+                    Move mouse to position element, click to place
                 </div>
                 
                 <canvas id="petri-canvas" width="1090" height="800" class="resizable-content"></canvas>
@@ -385,6 +498,36 @@
                 const app = new window.PetriNetApp();
 
                 window.petriApp = app;
+
+                // Ghost element feature enhancements
+                const canvas = document.getElementById('petri-canvas');
+                const ghostHint = document.getElementById('ghost-hint');
+                
+                // Monitor for shift key and selection state
+                let isGhostModeActive = false;
+                
+                function updateGhostMode() {
+                    const isShiftPressed = app.editor && app.editor.isShiftPressed;
+                    const hasSelection = app.editor && app.editor.selectedElement && 
+                                       (app.editor.selectedElement.type === 'place' || app.editor.selectedElement.type === 'transition');
+                    
+                    const newGhostModeActive = isShiftPressed && hasSelection && app.editor.mode === 'select';
+                    
+                    if (newGhostModeActive !== isGhostModeActive) {
+                        isGhostModeActive = newGhostModeActive;
+                        
+                        if (isGhostModeActive) {
+                            canvas.classList.add('ghost-mode');
+                            ghostHint.classList.add('show');
+                        } else {
+                            canvas.classList.remove('ghost-mode');
+                            ghostHint.classList.remove('show');
+                        }
+                    }
+                }
+                
+                // Check ghost mode periodically
+                setInterval(updateGhostMode, 100);
                 
                 app.loadTemplateFile('examples/example-config.json').then((data) => {
                     const templateSelect = document.getElementById('template-select');

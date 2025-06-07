@@ -342,6 +342,10 @@ class PetriNetApp {
           place.capacity || 0
         }" min="0">
       </div>
+      <div class="info-section">
+        <h4>💡 Quick Tip</h4>
+        <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected transitions!</p>
+      </div>
     `;
 
 
@@ -405,6 +409,10 @@ class PetriNetApp {
    <div id="transition-status-container"></div>
    </div>
    <div class="form-group" id="fire-button-container"></div>
+   <div class="info-section">
+     <h4>💡 Quick Tip</h4>
+     <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected places!</p>
+   </div>
   `;
 
 

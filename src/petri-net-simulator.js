@@ -1,6 +1,6 @@
 /**
  * Petri Net Editor
- * A standalone JavaScript implementation of a Petri net editor with a sophisticated API.
+ * A standalone JavaScript implementation of a Petri net editor.
  */
 
 
@@ -408,7 +408,9 @@ class PetriNetRenderer {
       arcColor: '#000000',
       selectedColor: '#4682b4',
       textColor: '#000000',
-      backgroundColor: '#ffffff'
+      backgroundColor: '#ffffff',
+      ghostColor: 'rgba(0, 0, 0, 0.3)',
+      ghostFillColor: 'rgba(255, 255, 255, 0.5)'
     };
   }
 
@@ -589,6 +591,93 @@ class PetriNetRenderer {
         this.ctx.stroke();
       }
     }
+  }
+
+  drawGhostPlace(position, isGhost = true) {
+    const radius = 20;
+    const alpha = isGhost ? 0.5 : 1.0;
+    
+    this.ctx.save();
+    this.ctx.globalAlpha = alpha;
+    
+    this.ctx.beginPath();
+    this.ctx.arc(position.x, position.y, radius, 0, Math.PI * 2);
+    this.ctx.fillStyle = isGhost ? this.theme.ghostFillColor : this.theme.placeColor;
+    this.ctx.fill();
+    this.ctx.strokeStyle = isGhost ? this.theme.ghostColor : this.theme.placeStroke;
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+  }
+
+  drawGhostTransition(position, isGhost = true) {
+    const width = 20;
+    const height = 50;
+    const alpha = isGhost ? 0.5 : 1.0;
+    
+    this.ctx.save();
+    this.ctx.globalAlpha = alpha;
+    
+    this.ctx.beginPath();
+    this.ctx.rect(
+      position.x - width / 2,
+      position.y - height / 2,
+      width,
+      height
+    );
+    this.ctx.fillStyle = isGhost ? this.theme.ghostFillColor : this.theme.transitionColor;
+    this.ctx.fill();
+    this.ctx.strokeStyle = isGhost ? this.theme.ghostColor : this.theme.transitionStroke;
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+  }
+
+  drawGhostArc(start, end, isGhost = true) {
+    const alpha = isGhost ? 0.5 : 1.0;
+    
+    this.ctx.save();
+    this.ctx.globalAlpha = alpha;
+    
+    this.ctx.beginPath();
+    this.ctx.moveTo(start.x, start.y);
+    this.ctx.lineTo(end.x, end.y);
+    this.ctx.strokeStyle = isGhost ? this.theme.ghostColor : this.theme.arcColor;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.stroke();
+
+    // Draw arrowhead
+    const angle = this.calculateArcDirection(start, end);
+    this.drawGhostArrowhead(end, angle, isGhost);
+    
+    this.ctx.restore();
+  }
+
+  drawGhostArrowhead(position, angle, isGhost = true) {
+    const arrowSize = 10;
+    const arrowAngle = Math.PI / 6; // 30 degrees
+    const alpha = isGhost ? 0.5 : 1.0;
+
+    this.ctx.save();
+    this.ctx.globalAlpha = alpha;
+
+    this.ctx.beginPath();
+    this.ctx.moveTo(position.x, position.y);
+    this.ctx.lineTo(
+      position.x - arrowSize * Math.cos(angle - arrowAngle),
+      position.y - arrowSize * Math.sin(angle - arrowAngle)
+    );
+    this.ctx.lineTo(
+      position.x - arrowSize * Math.cos(angle + arrowAngle),
+      position.y - arrowSize * Math.sin(angle + arrowAngle)
+    );
+    this.ctx.closePath();
+    this.ctx.fillStyle = isGhost ? this.theme.ghostColor : this.theme.arcColor;
+    this.ctx.fill();
+
+    this.ctx.restore();
   }
 
   calculateArcEndpoints(source, target) {
@@ -782,6 +871,11 @@ class PetriNetEditor {
       onSelect: null
     };
 
+    // Ghost element feature
+    this.isShiftPressed = false;
+    this.ghostElement = null;
+    this.ghostPosition = null;
+
     const isMac = navigator.userAgent.includes('Mac');
     this.PAN_KEY_BUTTON_CODE = isMac ? 'MetaLeft' : 'AltLeft';
 
@@ -799,6 +893,11 @@ class PetriNetEditor {
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
 
+      // Handle ghost element placement
+      if (this.isShiftPressed && this.selectedElement && this.ghostElement && this.ghostPosition) {
+        this.placeGhostElement();
+        return;
+      }
 
       if (event.button === 1 || (event.button === 0 && this.isPanningKeyPressed)) {
         this.isPanning = true;
@@ -842,6 +941,13 @@ class PetriNetEditor {
     
 
       const worldPos = this.renderer.screenToWorld(x, y);
+
+      // Handle ghost element tracking
+      if (this.isShiftPressed && this.selectedElement && this.mode === 'select') {
+        this.updateGhostElement(worldPos);
+        this.render();
+        return;
+      }
     
       if (this.mode === 'select' && this.selectedElement) {
         this.handleDrag(worldPos.x, worldPos.y);
@@ -911,6 +1017,14 @@ class PetriNetEditor {
         this.isPanningKeyPressed = true;
         this.canvas.style.cursor = 'grab';
       }
+
+      // Handle Shift key for ghost element feature
+      if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+        this.isShiftPressed = true;
+        if (this.selectedElement && this.mode === 'select') {
+          this.canvas.style.cursor = 'crosshair';
+        }
+      }
     };
 
     const keyUpHandler = (event) => {
@@ -918,6 +1032,15 @@ class PetriNetEditor {
       if (event.code === this.PAN_KEY_BUTTON_CODE) {
         this.isPanningKeyPressed = false;
         this.canvas.style.cursor = 'default';
+      }
+
+      // Handle Shift key release
+      if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
+        this.isShiftPressed = false;
+        this.ghostElement = null;
+        this.ghostPosition = null;
+        this.canvas.style.cursor = 'default';
+        this.render();
       }
     };
 
@@ -936,6 +1059,92 @@ class PetriNetEditor {
     this.eventListeners.set('wheel', mouseWheelHandler);
     this.eventListeners.set('keydown', keyDownHandler);
     this.eventListeners.set('keyup', keyUpHandler);
+  }
+
+  updateGhostElement(worldPos) {
+    if (!this.selectedElement) return;
+
+    this.ghostPosition = { x: worldPos.x, y: worldPos.y };
+
+    // Apply grid snapping to ghost position if enabled
+    if (this.snapToGrid) {
+      this.ghostPosition.x = Math.round(this.ghostPosition.x / this.gridSize) * this.gridSize;
+      this.ghostPosition.y = Math.round(this.ghostPosition.y / this.gridSize) * this.gridSize;
+    }
+
+    // Determine ghost element type (opposite of selected)
+    if (this.selectedElement.type === 'place') {
+      this.ghostElement = {
+        type: 'transition',
+        position: this.ghostPosition
+      };
+    } else if (this.selectedElement.type === 'transition') {
+      this.ghostElement = {
+        type: 'place',
+        position: this.ghostPosition
+      };
+    }
+  }
+
+  placeGhostElement() {
+    if (!this.ghostElement || !this.ghostPosition || !this.selectedElement) return;
+
+    const ghostPos = { ...this.ghostPosition };
+    let newElementId;
+
+    // Create the new element based on ghost type
+    if (this.ghostElement.type === 'place') {
+      newElementId = this.generateUUID();
+      const newPlace = new Place(
+        newElementId, 
+        ghostPos, 
+        `P${this.petriNet.places.size + 1}`
+      );
+      this.petriNet.addPlace(newPlace);
+    } else if (this.ghostElement.type === 'transition') {
+      newElementId = this.generateUUID();
+      const newTransition = new Transition(
+        newElementId, 
+        ghostPos, 
+        `T${this.petriNet.transitions.size + 1}`
+      );
+      this.petriNet.addTransition(newTransition);
+    }
+
+    // Create arc between selected element and new element
+    if (newElementId) {
+      const arcId = this.generateUUID();
+      const arc = new Arc(
+        arcId,
+        this.selectedElement.id,
+        newElementId,
+        1, // default weight
+        "regular", // default type
+        [], // no control points
+        "1" // default label
+      );
+
+      if (this.petriNet.addArc(arc)) {
+        // Select the new element
+        this.selectedElement = { id: newElementId, type: this.ghostElement.type };
+        this.dragOffset = { x: 0, y: 0 };
+
+        // Clear ghost state
+        this.ghostElement = null;
+        this.ghostPosition = null;
+
+        // Update callbacks
+        if (this.callbacks.onSelect) {
+          this.callbacks.onSelect(newElementId, this.ghostElement?.type || this.selectedElement.type);
+        }
+
+        if (this.callbacks.onChange) {
+          this.callbacks.onChange();
+        }
+
+        this.render();
+      }
+    }
   }
 
   handleSelection(x, y) {
@@ -1017,6 +1226,8 @@ class PetriNetEditor {
 
     this.selectedElement = null;
     this.dragOffset = null;
+    this.ghostElement = null;
+    this.ghostPosition = null;
     if (this.callbacks.onSelect) {
       this.callbacks.onSelect(null, null);
     }
@@ -1244,9 +1455,44 @@ class PetriNetEditor {
     this.petriNet.updateEnabledTransitions();
     this.renderer.render();
     this.renderSelection();
+    this.renderGhost();
     if (this.app && this.app.overlay) {
       this.app.overlay.render();
     }
+  }
+
+  renderGhost() {
+    if (!this.isShiftPressed || !this.selectedElement || !this.ghostElement || !this.ghostPosition) {
+      return;
+    }
+
+    // Get the selected element for arc drawing
+    let selectedElementObj;
+    if (this.selectedElement.type === 'place') {
+      selectedElementObj = this.petriNet.places.get(this.selectedElement.id);
+    } else if (this.selectedElement.type === 'transition') {
+      selectedElementObj = this.petriNet.transitions.get(this.selectedElement.id);
+    }
+
+    if (!selectedElementObj) return;
+
+    this.renderer.ctx.save();
+    this.renderer.ctx.translate(this.renderer.panOffset.x, this.renderer.panOffset.y);
+    this.renderer.ctx.scale(this.renderer.zoomFactor, this.renderer.zoomFactor);
+
+    // Draw ghost element
+    if (this.ghostElement.type === 'place') {
+      this.renderer.drawGhostPlace(this.ghostPosition, true);
+    } else if (this.ghostElement.type === 'transition') {
+      this.renderer.drawGhostTransition(this.ghostPosition, true);
+    }
+
+    // Draw ghost arc
+    const start = { x: selectedElementObj.position.x, y: selectedElementObj.position.y };
+    const end = { x: this.ghostPosition.x, y: this.ghostPosition.y };
+    this.renderer.drawGhostArc(start, end, true);
+
+    this.renderer.ctx.restore();
   }
 
   renderSelection() {
@@ -1313,6 +1559,8 @@ class PetriNetEditor {
   setMode(mode) {
     this.mode = mode;
     this.arcDrawing = null;
+    this.ghostElement = null;
+    this.ghostPosition = null;
   }
 
   selectElement(id, type) {
@@ -1339,6 +1587,10 @@ class PetriNetEditor {
       this.dragOffset = null;
     }
 
+    // Clear ghost state when selecting programmatically
+    this.ghostElement = null;
+    this.ghostPosition = null;
+
     this.render();
 
     if (this.callbacks.onSelect) {
@@ -1361,6 +1613,8 @@ class PetriNetEditor {
     if (success) {
       this.selectedElement = null;
       this.dragOffset = null;
+      this.ghostElement = null;
+      this.ghostPosition = null;
       this.render();
 
       if (this.callbacks.onChange) {
