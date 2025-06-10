@@ -358,6 +358,8 @@ class PNMLImporter {
       // Complete importToEditor method
       async importToEditor(dialog) {
         if (!this.currentParsedNet) return;
+        
+        this.app.resetPetriNet();
       
         try {
           await this.showProgress(dialog, 'Importing to editor...', 0);

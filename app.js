@@ -427,7 +427,7 @@ class PetriNetApp {
    <div class="info-section">
      <h4>💡 Quick Tip</h4>
      <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected places!</p>
-     <p><strong>Quick Connect:</strong> Hold <kbd>C</kbd> to enter connection mode instantly!</p>
+     <p><strong>Quick Connect:</strong> Press <kbd>C</kbd> to enter connection mode instantly!</p>
    </div>
   `;
 
@@ -576,7 +576,7 @@ class PetriNetApp {
       </div>
       <div class="info-section">
         <h4>💡 Quick Tip</h4>
-        <p><strong>Quick Connect:</strong> Hold <kbd>C</kbd> to enter connection mode for creating more arcs!</p>
+        <p><strong>Quick Connect:</strong> Press <kbd>C</kbd> to enter connection mode for creating more arcs!</p>
       </div>
     `;
 
