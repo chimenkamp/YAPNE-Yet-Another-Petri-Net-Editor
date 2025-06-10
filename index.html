@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="styles/event-log.css">
     <link rel="stylesheet" href="styles/dpn-styles.css">
     <link rel="stylesheet" href="styles/pnml-importer.css">
-    <!-- <link rel="stylesheet" href="styles/random-generator.css"> -->
     <style>
         /* Additional styles for the ghost element feature */
         .info-section {
@@ -62,8 +61,6 @@
             border-radius: 6px;
             font-size: 12px;
             position: absolute;
-            /* top: 50px;
-            right: 10px; */
             z-index: 1000;
             pointer-events: none;
             white-space: nowrap;
@@ -115,6 +112,144 @@
             z-index: 1000;
             margin-left: 8px;
         }
+
+/* Nord Theme Help Dialog Styles */
+.help-dialog-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(46, 52, 64, 0.6);
+    z-index: 10000;
+    backdrop-filter: blur(3px);
+}
+
+.help-dialog {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ECEFF4;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(46, 52, 64, 0.4);
+    max-width: 600px;
+    max-height: 80vh;
+    width: 90%;
+    overflow: hidden;
+}
+
+.help-dialog-header {
+    background: linear-gradient(135deg, #88C0D0, #81A1C1);
+    color: #ECEFF4;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.help-dialog-header h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+.help-dialog-close {
+    background: none;
+    border: none;
+    color: #ECEFF4;
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+}
+
+.help-dialog-close:hover {
+    background-color: rgba(236, 239, 244, 0.2);
+}
+
+.help-dialog-content {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(80vh - 80px);
+}
+
+.help-section {
+    margin-bottom: 25px;
+}
+
+.help-section h3 {
+    color: #5E81AC;
+    font-size: 18px;
+    margin-bottom: 10px;
+    border-bottom: 2px solid #D8DEE9;
+    padding-bottom: 5px;
+}
+
+.help-controls-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px 15px;
+    margin-bottom: 15px;
+}
+
+.help-key {
+    background-color: #D8DEE9;
+    border: 1px solid #BFC7D5;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    font-weight: bold;
+    color: #2E3440;
+    min-width: 60px;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(46, 52, 64, 0.1);
+}
+
+.help-description {
+    color: #434C5E;
+    line-height: 1.4;
+}
+
+.help-tip {
+    background: #E5E9F0;
+    border-left: 4px solid #8FBCBB;
+    padding: 10px 15px;
+    margin: 15px 0;
+    border-radius: 0 6px 6px 0;
+    color:#2E3440;
+}
+
+.help-tip-icon {
+    color: #88C0D0;
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.help-button {
+    background: #81A1C1;
+    color: #ECEFF4;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s;
+    margin-top: 10px;
+}
+
+.help-button:hover {
+    background: #5E81AC;
+}
     </style>
 </head> 
 <body>
@@ -132,7 +267,7 @@
                         <button id="btn-select" class="active" title="Select tool - Hold Shift while selected element to create connected elements">✓</button>
                         <button id="btn-add-place" title="Add place">○</button>
                         <button id="btn-add-transition" title="Add transition">□</button>
-                        <button id="btn-add-arc" title="Add arc">→</button>
+                        <button id="btn-add-arc" title="Add arc - Hotkey: C">→</button>
                         <hr>
                         <button id="btn-delete" class="danger" title="Delete selected element">🗑️</button>
                         <button id="btn-clear" class="danger" title="Clear canvas">🧹</button>
@@ -322,6 +457,20 @@
                     
                     <!-- Help Tab -->
                     <div class="sidebar-pane" data-tab="help">
+                        <!-- Quick Help Button -->
+                        <div id="quick-help-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">❓</span>
+                                    <h3>Quick Help</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <button id="btn-open-help" class="help-button" style="width: 100%;">📖 Open Guide</button>
+                            </div>
+                        </div>
+                        
                         <!-- Navigation Help Section -->
                         <div id="navigation-help-section" class="sidebar-section">
                             <div class="section-header">
@@ -355,7 +504,7 @@
                                     <li><strong>Select:</strong> Click the ✓ button to select and move elements</li>
                                     <li><strong>Add Place:</strong> Click the ○ button to add places</li>
                                     <li><strong>Add Transition:</strong> Click the □ button to add transitions</li>
-                                    <li><strong>Add Arc:</strong> Click the → button to connect elements</li>
+                                    <li><strong>Add Arc:</strong> Click the → button or press <kbd>C</kbd> to connect elements</li>
                                     <li><strong>Delete:</strong> Select an element and click 🗑️ to delete</li>
                                     <li><strong>Auto Layout:</strong> Click 🪄 to automatically arrange elements</li>
                                 </ul>
@@ -376,6 +525,95 @@
                                 <p>BETA Version</p>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Dialog Overlay -->
+    <div id="help-dialog-overlay" class="help-dialog-overlay">
+        <div class="help-dialog">
+            <div class="help-dialog-header">
+                <h2>📖 Controls Guide</h2>
+                <button id="help-dialog-close" class="help-dialog-close">×</button>
+            </div>
+            <div class="help-dialog-content">
+                <div class="help-section">
+                    <h3>🔧 Editor Tools</h3>
+                    <div class="help-controls-grid">
+                        <span class="help-key">Click ✓</span>
+                        <span class="help-description">Select and move elements</span>
+                        <span class="help-key">Click ○</span>
+                        <span class="help-description">Add new places</span>
+                        <span class="help-key">Click □</span>
+                        <span class="help-description">Add new transitions</span>
+                        <span class="help-key">Click →</span>
+                        <span class="help-description">Connect elements with arcs</span>
+                        <span class="help-key">Click 🗑️</span>
+                        <span class="help-description">Delete selected element</span>
+                        <span class="help-key">Click 🪄</span>
+                        <span class="help-description">Auto-arrange all elements</span>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>⌨️ Keyboard Shortcuts</h3>
+                    <div class="help-controls-grid">
+                        <span class="help-key">C</span>
+                        <span class="help-description">Hold to enter connection mode, release to return to select mode</span>
+                        <span class="help-key">Shift + Move</span>
+                        <span class="help-description">Ghost mode: Create connected elements quickly</span>
+                        <span class="help-key">F / Ctrl+F</span>
+                        <span class="help-description">Toggle fullscreen mode</span>
+                        <span class="help-key">Escape</span>
+                        <span class="help-description">Exit fullscreen mode</span>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>🖱️ Mouse Controls</h3>
+                    <div class="help-controls-grid">
+                        <span class="help-key">Left Click</span>
+                        <span class="help-description">Select, place, or connect elements</span>
+                        <span class="help-key">Left Drag</span>
+                        <span class="help-description">Move selected elements</span>
+                        <span class="help-key">Middle Click</span>
+                        <span class="help-description">Pan the canvas</span>
+                        <span class="help-key">Scroll Wheel</span>
+                        <span class="help-description">Zoom in and out</span>
+                        <span class="help-key">Alt/Cmd + Drag</span>
+                        <span class="help-description">Pan the canvas</span>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>⚡ Advanced Features</h3>
+                    <div class="help-tip">
+                        <span class="help-tip-icon">💡</span>
+                        <strong>Ghost Mode:</strong> Select any place or transition, hold <kbd>Shift</kbd>, and move your mouse to quickly create connected elements. Click to place the new element with an automatic connection.
+                    </div>
+                    <div class="help-tip">
+                        <span class="help-tip-icon">🔗</span>
+                        <strong>Quick Connect:</strong> Press <kbd>C</kbd> to instantly switch to connection mode. Release <kbd>C</kbd> to return to your previous tool.
+                    </div>
+                    <div class="help-tip">
+                        <span class="help-tip-icon">📏</span>
+                        <strong>Grid Snapping:</strong> Use the grid button (📏) to enable snap-to-grid for precise element placement.
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>🎯 Simulation Controls</h3>
+                    <div class="help-controls-grid">
+                        <span class="help-key">Step</span>
+                        <span class="help-description">Fire one enabled transition</span>
+                        <span class="help-key">Auto Run</span>
+                        <span class="help-description">Continuously fire transitions automatically</span>
+                        <span class="help-key">Reset</span>
+                        <span class="help-description">Reset simulation to initial state</span>
+                        <span class="help-key">Fire Button</span>
+                        <span class="help-description">Fire a specific transition (appears when transition is selected)</span>
                     </div>
                 </div>
             </div>
@@ -459,6 +697,48 @@
                     });
                     localStorage.setItem('sidebarSections', JSON.stringify(collapsedSections));
                 }
+                
+                // Help Dialog functionality
+                const helpDialogOverlay = document.getElementById('help-dialog-overlay');
+                const helpDialogClose = document.getElementById('help-dialog-close');
+                const openHelpButton = document.getElementById('btn-open-help');
+
+                function openHelpDialog() {
+                    helpDialogOverlay.style.display = 'flex';
+                    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+                }
+
+                function closeHelpDialog() {
+                    helpDialogOverlay.style.display = 'none';
+                    document.body.style.overflow = ''; // Restore scrolling
+                }
+
+                // Open help dialog
+                if (openHelpButton) {
+                    openHelpButton.addEventListener('click', openHelpDialog);
+                }
+
+                // Close help dialog
+                if (helpDialogClose) {
+                    helpDialogClose.addEventListener('click', closeHelpDialog);
+                }
+
+                // Close help dialog when clicking overlay
+                if (helpDialogOverlay) {
+                    helpDialogOverlay.addEventListener('click', (e) => {
+                        if (e.target === helpDialogOverlay) {
+                            closeHelpDialog();
+                        }
+                    });
+                }
+
+                // Close help dialog with Escape key
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && helpDialogOverlay.style.display === 'flex') {
+                        closeHelpDialog();
+                    }
+                });
+
                 
                 // Restore previous states
                 if (window.localStorage) {

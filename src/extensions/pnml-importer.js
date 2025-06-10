@@ -234,6 +234,7 @@ class PNMLImporter {
       // Import button
       const importBtn = dialog.querySelector('#btn-apply-import');
       importBtn.addEventListener('click', () => {
+    
         this.importToEditor(dialog);
       });
     }
@@ -497,7 +498,8 @@ class PNMLImporter {
           this.app.updateTokensDisplay();
           this.app.updateZoomDisplay();
           this.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
-      
+        
+
           // Update data displays - use multiple approaches to ensure it works
           if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
             console.log("Attempting to update data variables UI...");
