@@ -52,6 +52,7 @@ class PetriNetApp {
 
     this.api.setZoomSensitivity(0.5);
 
+    // IMPORTANT: Set the app reference in the editor for C key functionality
     this.editor.app = this;
 
 
@@ -126,6 +127,19 @@ class PetriNetApp {
       });
     }
 
+    // Set the editor mode to 'addArc' when the c key is pressed and 'select if c key is released'
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'c' &&  this.editor && this.editor.mode !== 'addArc') {
+          e.preventDefault();
+          this.editor.setMode('addArc');
+          this.updateActiveButton("btn-add-arc");
+      } else if (e.key === 'c' && this.editor && this.editor.mode === 'addArc') {
+          e.preventDefault();
+          this.editor.setMode('select');
+          this.updateActiveButton("btn-select");
+      }
+      
+    });
 
     const btnDelete = document.getElementById("btn-delete");
     if (btnDelete) {
@@ -345,6 +359,7 @@ class PetriNetApp {
       <div class="info-section">
         <h4>💡 Quick Tip</h4>
         <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected transitions!</p>
+        <p><strong>Quick Connect:</strong> Press <kbd>C</kbd> to enter connection mode instantly!</p>
       </div>
     `;
 
@@ -412,6 +427,7 @@ class PetriNetApp {
    <div class="info-section">
      <h4>💡 Quick Tip</h4>
      <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected places!</p>
+     <p><strong>Quick Connect:</strong> Hold <kbd>C</kbd> to enter connection mode instantly!</p>
    </div>
   `;
 
@@ -557,6 +573,10 @@ class PetriNetApp {
         <input type="text" id="arc-label" value="${
           arc.label !== arc.weight.toString() ? arc.label : ""
         }">
+      </div>
+      <div class="info-section">
+        <h4>💡 Quick Tip</h4>
+        <p><strong>Quick Connect:</strong> Hold <kbd>C</kbd> to enter connection mode for creating more arcs!</p>
       </div>
     `;
 
@@ -705,6 +725,8 @@ class PetriNetApp {
     this.api = PetriNetAPI.importFromJSON(json);
     this.editor = this.api.attachEditor(this.canvas);
 
+    // IMPORTANT: Re-establish the app reference after reset
+    this.editor.app = this;
 
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
     this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
@@ -729,6 +751,8 @@ class PetriNetApp {
     this.api = new PetriNetAPI();
     this.editor = this.api.attachEditor(this.canvas);
 
+    // IMPORTANT: Re-establish the app reference after reset
+    this.editor.app = this;
 
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
     this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
@@ -809,6 +833,8 @@ class PetriNetApp {
         this.api = PetriNetAPI.importFromJSON(json);
         this.editor = this.api.attachEditor(this.canvas);
 
+        // IMPORTANT: Re-establish the app reference after loading
+        this.editor.app = this;
 
         this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
         this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
@@ -838,7 +864,7 @@ class PetriNetApp {
   exportToPNML() {
     const pnml = this.api.exportAsPNML();
     const blob = new Blob([pnml], { type: "application/xml" });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(url);
 
     const a = document.createElement("a");
     a.href = url;
