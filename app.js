@@ -130,11 +130,11 @@ class PetriNetApp {
     // Set the editor mode to 'addArc' when the c key is pressed and 'select if c key is released'
     document.addEventListener('keydown', (e) => {
       if (e.key === 'c' &&  this.editor && this.editor.mode !== 'addArc') {
-          e.preventDefault();
+          // e.preventDefault();
           this.editor.setMode('addArc');
           this.updateActiveButton("btn-add-arc");
       } else if (e.key === 'c' && this.editor && this.editor.mode === 'addArc') {
-          e.preventDefault();
+          // e.preventDefault();
           this.editor.setMode('select');
           this.updateActiveButton("btn-select");
       }

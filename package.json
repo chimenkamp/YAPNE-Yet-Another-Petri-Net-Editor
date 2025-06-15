@@ -1,0 +1,27 @@
+{
+  "name": "yapne---yet-another-petri-net-editor",
+  "version": "1.0.0",
+  "description": "⚠️ **Warning:** This software is in early development and may contain bugs.",
+  "homepage": "https://github.com/chimenkamp/YAPNE-Yet-Another-Petri-Net-Editor#readme",
+  "bugs": {
+    "url": "https://github.com/chimenkamp/YAPNE-Yet-Another-Petri-Net-Editor/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chimenkamp/YAPNE-Yet-Another-Petri-Net-Editor.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app.js",
+  "directories": {
+    "example": "examples",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "z3-solver": "^4.15.1"
+  }
+}

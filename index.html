@@ -641,16 +641,56 @@
     <script src="src/extensions/dpn-verification-ui.js"></script>
     
     <!-- Include LTL extensions -->
+    <script src="src/extensions/LTL/smt-solver.js"></script>
     <script src="src/extensions/LTL/expression-solver.js"></script>
     <script src="src/extensions/LTL/ltl-integration-layer.js"></script>  
     <script src="src/extensions/LTL/dpn-ltl-verification-enhanced.js"></script>
     <script src="src/extensions/LTL/final-integration-script.js"></script>
+    <script src="node_modules/z3-solver/build/z3-built.js"></script>
+    <script src="src/extensions/LTL/z3-smt-solver.js"></script>
 
     <script src="app.js"></script>
     <script>
-    
+        
         document.addEventListener('DOMContentLoaded', () => {
             try {
+
+
+                initZ3().then((z3) => {
+                        // 1. Create context
+                        const ctx = z3._Z3_mk_context();
+                        
+                        // 2. Create solver
+                        const solver = z3._Z3_mk_solver(ctx);
+                        z3._Z3_solver_inc_ref(ctx, solver);
+                        
+                        // 3. Create variables and constraints
+                        const intSort = z3._Z3_mk_int_sort(ctx);
+                        const xSymbol = z3._Z3_mk_string_symbol(ctx, "x");
+                        const x = z3._Z3_mk_const(ctx, xSymbol, intSort);
+                        
+                        // 4. Add constraints
+                        const constraint = z3._Z3_mk_gt(ctx, x, z3._Z3_mk_int(ctx, 0, intSort));
+                        z3._Z3_solver_assert(ctx, solver, constraint);
+                        
+                        // 5. SOLVE!
+                        const result = z3._Z3_solver_check(ctx, solver);
+                        console.log('Z3 Solver Result:', result);
+                        // 6. Check result: 1 = SAT, -1 = UNSAT, 0 = UNKNOWN
+                        if (result === 1) {
+                            const model = z3._Z3_solver_get_model(ctx, solver);
+                            // Extract solution...
+                        }
+                        
+                        // 7. Cleanup
+                        z3._Z3_solver_dec_ref(ctx, solver);
+                        z3._Z3_del_context(ctx);
+                    
+                }).catch((error) => {
+                    console.error('Error initializing Z3 SMT Solver:', error);
+                });
+
+
                 // Sidebar tab functionality
                 const tabs = document.querySelectorAll('.sidebar-tab');
                 tabs.forEach(tab => {
@@ -879,7 +919,7 @@
             }
         });
     </script>
-
+ 
     <script src="src/event-log-generator.js"></script>
     <script src="src/event-log-integration.js"></script>
     <!-- <script src="src/extensions/random-petri-net-generator.js"></script> -->

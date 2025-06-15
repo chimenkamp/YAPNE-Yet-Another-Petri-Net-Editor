@@ -439,12 +439,14 @@ class LTLVerificationExtensionTWO {
         
         try {
             const verifier = new EnhancedLTLVerifier(this.app.api.petriNet, this.ltlAST);
-            const result = await verifier.verify((progress, step) => {
+            await verifier.verify((progress, step) => {
                 this.updateLTLProgress(progress, step);
+            }).then((result) => {
+                progressContainer.style.display = 'none';
+                resultsContainer.innerHTML = this.createLTLResultsHTML(result);
+                console.log('LTL Verification Result:', result);
             });
             
-            progressContainer.style.display = 'none';
-            resultsContainer.innerHTML = this.createLTLResultsHTML(result);
             
         } catch (error) {
             console.error('LTL Verification error:', error);
@@ -588,9 +590,15 @@ class LTLVerificationExtensionTWO {
      * Format data valuation for display
      */
     formatDataValuation(valuation) {
+        if (typeof valuation !== 'object' || valuation === null) {
+            return String(valuation); // Fallback for unexpected types
+        }
         return Object.entries(valuation)
-            .map(([variable, value]) => `${variable}=${value}`)
-            .join(', ') || 'no data';
+            .map(([variable, value]) => {
+                const displayValue = typeof value === 'string' ? `"${value}"` : value;
+                return `${variable} = ${displayValue}`;
+            })
+            .join(', ') || '(no data)';
     }
 
     /**
@@ -1813,13 +1821,22 @@ class EnhancedLTLParser {
 }
 
 /**
- * Enhanced LTL Verifier with improved automaton construction and evaluation
+ * Enhanced LTL Verifier with symbolic state-space exploration.
+ * This verifier can handle Data Petri Nets with infinite data domains by
+ * representing sets of data valuations as logical formulas.
  */
 class EnhancedLTLVerifier {
+    /**
+     * Creates an instance of the symbolic LTL verifier.
+     * @param {DataPetriNet} petriNet The Data Petri Net to verify.
+     * @param {Object} ltlAST The Abstract Syntax Tree of the LTL formula.
+     */
     constructor(petriNet, ltlAST) {
         this.petriNet = petriNet;
-        this.ltlAST = ltlAST;
+        // The LTL formula should be negated for model checking, as we search for a counterexample.
+        this.ltlAST = { type: 'LTLNegation', operator: '!', expression: ltlAST };
         this.startTime = 0;
+        this.smtSolver = new SMTSolver();
         this.statistics = {
             statesExplored: 0,
             transitionsFired: 0,
@@ -1829,45 +1846,53 @@ class EnhancedLTLVerifier {
     }
 
     /**
-     * Main verification method
+     * Main verification method that orchestrates the symbolic model checking process.
+     * @param {function(number, string): void} progressCallback A function to report progress.
+     * @returns {Promise<Object>} A promise that resolves to the verification result.
      */
     async verify(progressCallback) {
         this.startTime = Date.now();
         
         try {
             progressCallback(10, "Analyzing LTL formula structure...");
-            await this.delay(100);
+            // await this.delay(50);
             
-            progressCallback(25, "Constructing Büchi automaton...");
-            await this.delay(200);
+            console.log("LTL AST:", JSON.stringify(this.ltlAST, null, 2));
             
-            // Create enhanced automaton
+            progressCallback(25, "Constructing Büchi automaton for the LTL formula...");
             const automaton = this.constructEnhancedBuchiAutomaton();
             this.statistics.automatonStates = automaton.states.size;
             
-            progressCallback(50, "Building product with Petri net...");
-            await this.delay(300);
-            
-            // Construct product
-            const product = this.constructProductAutomaton(automaton);
+            console.log("Büchi Automaton:", JSON.stringify(automaton, null, 2));
+
+            progressCallback(50, "Building symbolic product automaton with the Petri net...");
+            const product = this._constructSymbolicProductAutomaton(automaton);
             this.statistics.productStates = product.states.size;
             
-            progressCallback(75, "Checking for counterexamples...");
-            await this.delay(400);
+            console.log("Product Automaton:", JSON.stringify(product, null, 2));
             
-            // Check acceptance
-            const result = this.checkAcceptance(product);
+            progressCallback(75, "Checking for counterexamples in the product automaton...");
+            const result = this._checkAcceptance(product);
             
+            console.log("Verification Result:", JSON.stringify(result, null, 2));
+
             progressCallback(100, "Verification complete!");
-            await this.delay(100);
+            // await this.delay(50);
             
             const executionTime = Date.now() - this.startTime;
-            
+        
             return {
+                // If a counterexample to the negated formula is found, the original formula is violated.
                 satisfied: !result.hasCounterexample,
-                counterexample: result.hasCounterexample ? this.buildCounterexample(result.witness) : null,
+                counterexample: result.hasCounterexample ? this.buildCounterexample(result.witness, product) : null,
                 statistics: this.statistics,
-                executionTime
+                executionTime,
+                debugObject: {
+                    ltlAST: this.ltlAST,
+                    automaton:automaton,
+                    productAutomaton: product,
+                    result: result
+                }
             };
             
         } catch (error) {
@@ -1877,115 +1902,78 @@ class EnhancedLTLVerifier {
     }
 
     /**
-     * Construct enhanced Büchi automaton
+     * Constructs a Büchi automaton from the LTL formula.
+     * This is a simplified representation for demonstration.
+     * @returns {Object} A Büchi automaton.
      */
     constructEnhancedBuchiAutomaton() {
-        // This would implement a more sophisticated automaton construction
-        // For now, simplified version
-        const states = new Set(['q0', 'q1', 'q_accept']);
-        const initialStates = new Set(['q0']);
-        const acceptingStates = new Set(['q_accept']);
-        const transitions = new Map();
-        
-        // Add basic transitions
-        transitions.set('q0', [
-            { target: 'q1', condition: this.ltlAST },
-            { target: 'q0', condition: { type: 'TRUE' } }
-        ]);
-        transitions.set('q1', [
-            { target: 'q_accept', condition: { type: 'TRUE' } }
-        ]);
-        transitions.set('q_accept', [
-            { target: 'q_accept', condition: { type: 'TRUE' } }
-        ]);
-        
-        return {
-            states,
-            initialStates,
-            acceptingStates,
-            transitions
-        };
+        const converter = new LTLToBuchiConverter(this.ltlAST);
+        return converter.build();
     }
-
+    
     /**
-     * Construct product automaton
+     * Constructs the symbolic product automaton of the Petri net and the LTL automaton.
+     * @param {Object} automaton The Büchi automaton for the LTL formula.
+     * @returns {Object} The product automaton.
+     * @private
      */
-    constructProductAutomaton(automaton) {
+    _constructSymbolicProductAutomaton(automaton) {
         const productStates = new Set();
         const productTransitions = new Map();
         const productAcceptingStates = new Set();
-        
         const initialMarking = this.getInitialMarking();
-        const initialValuation = this.getInitialValuation();
-        
-        // Create initial states
+        const initialFormula = this._getInitialFormula();
+
+        // Seed initial product states
         for (const autoState of automaton.initialStates) {
-            const productState = {
-                marking: initialMarking,
-                valuation: initialValuation,
-                automatonState: autoState
-            };
-            const stateKey = this.serializeState(productState);
-            productStates.add(stateKey);
-            
+            const st = { marking: initialMarking, formula: initialFormula, automatonState: autoState };
+            const key = this.serializeState(st);
+            productStates.add(key);
             if (automaton.acceptingStates.has(autoState)) {
-                productAcceptingStates.add(stateKey);
+                productAcceptingStates.add(key);
             }
         }
-        
-        // Build reachable states
-        const queue = Array.from(productStates).map(key => this.deserializeState(key));
+
+        const queue = Array.from(productStates).map(k => this.deserializeState(k));
         const visited = new Set(productStates);
-        
+
         while (queue.length > 0) {
             const currentState = queue.shift();
-            const currentKey = this.serializeState(currentState);
             this.statistics.statesExplored++;
-            
-            // Get enabled transitions
-            const enabledTransitions = this.getEnabledTransitions(currentState);
-            
-            for (const transitionId of enabledTransitions) {
-                const nextState = this.fireTransitionInState(currentState, transitionId);
-                
-                if (nextState) {
-                    // Check automaton transitions
-                    const autoTransitions = automaton.transitions.get(currentState.automatonState) || [];
-                    
-                    for (const autoTransition of autoTransitions) {
-                        if (this.evaluateCondition(autoTransition.condition, nextState)) {
-                            const nextProductState = {
-                                marking: nextState.marking,
-                                valuation: nextState.valuation,
-                                automatonState: autoTransition.target
-                            };
-                            
-                            const nextKey = this.serializeState(nextProductState);
-                            
-                            if (!visited.has(nextKey)) {
-                                visited.add(nextKey);
-                                productStates.add(nextKey);
-                                queue.push(nextProductState);
-                                
-                                if (automaton.acceptingStates.has(autoTransition.target)) {
-                                    productAcceptingStates.add(nextKey);
-                                }
-                            }
-                            
-                            // Add transition
-                            if (!productTransitions.has(currentKey)) {
-                                productTransitions.set(currentKey, []);
-                            }
-                            productTransitions.get(currentKey).push({
-                                target: nextKey,
-                                transitionId
-                            });
+            const enabled = this._getEnabledTransitionsSymbolic(currentState);
+
+            for (const tId of enabled) {
+                const { nextMarking, nextFormula } = this._computeNextSymbolicState(currentState, tId);
+                // Skip if formula is unsatisfiable
+                if (nextFormula === 'false') continue;
+
+                const autoTrans = automaton.transitions.get(currentState.automatonState) || [];
+                for (const autoTr of autoTrans) {
+                    const condPred = this._ltlFormulaToPredicate(autoTr.condition);
+                    const rawComb = this._formulaAnd(nextFormula, condPred);
+                    const combFormula = this._simplifyFormula(rawComb);
+                    // Skip unsatisfiable combined formula
+                    if (combFormula === 'false') continue;
+
+                    const nxt = { marking: nextMarking, formula: combFormula, automatonState: autoTr.target };
+                    const nxtKey = this.serializeState(nxt);
+                    if (!visited.has(nxtKey)) {
+                        visited.add(nxtKey);
+                        productStates.add(nxtKey);
+                        queue.push(nxt);
+                        if (automaton.acceptingStates.has(autoTr.target)) {
+                            productAcceptingStates.add(nxtKey);
                         }
                     }
+                    const curKey = this.serializeState(currentState);
+                    if (!productTransitions.has(curKey)) {
+                        productTransitions.set(curKey, []);
+                    }
+                    productTransitions.get(curKey).push({ target: nxtKey, transitionId: tId });
                 }
             }
         }
-        
+
         return {
             states: productStates,
             transitions: productTransitions,
@@ -1993,183 +1981,495 @@ class EnhancedLTLVerifier {
             acceptingStates: productAcceptingStates
         };
     }
-
     /**
-     * Enhanced condition evaluation
+     * Computes the next symbolic state after firing a transition.
+     * @param {Object} currentState The current symbolic state.
+     * @param {string} transitionId The ID of the transition to fire.
+     * @returns {Object} An object containing the next marking and the next symbolic formula.
+     * @private
      */
-    evaluateCondition(condition, state) {
-        return this.evaluateFormulaInState(condition, state);
+    _computeNextSymbolicState(currentState, transitionId) {
+        const transition = this.petriNet.transitions.get(transitionId);
+        const newMarking = { ...currentState.marking };
+        // Apply input and output arcs (unchanged)
+        const inputArcs = Array.from(this.petriNet.arcs.values()).filter(arc => arc.target === transitionId);
+        const outputArcs = Array.from(this.petriNet.arcs.values()).filter(arc => arc.source === transitionId);
+        inputArcs.forEach(arc => {
+            const place = this.petriNet.places.get(arc.source);
+            if (place) newMarking[place.label] = (newMarking[place.label] || 0) - (arc.weight || 1);
+        });
+        outputArcs.forEach(arc => {
+            const place = this.petriNet.places.get(arc.target);
+            if (place) newMarking[place.label] = (newMarking[place.label] || 0) + (arc.weight || 1);
+        });
+
+        // Build formula with precondition
+        const precondition = transition.precondition || 'true';
+        const formulaWithPre = this._formulaAnd(currentState.formula, precondition);
+
+        // Apply postcondition symbolically if present
+        let nextFormula = transition.postcondition
+            ? this._applyPostconditionSymbolically(formulaWithPre, transition)
+            : formulaWithPre;
+
+        // Early simplification via SMT
+        nextFormula = this._simplifyFormula(nextFormula);
+
+        return { nextMarking: newMarking, nextFormula };
     }
 
     /**
-     * Enhanced formula evaluation in state
+     * Symbolically applies a transition's postcondition to a formula.
+     * @param {string} currentFormula The current formula.
+     * @param {Object} transition The transition being fired.
+     * @returns {string} The new symbolic formula after the transition.
+     * @private
      */
-    evaluateFormulaInState(formula, state) {
-        if (!formula) return true;
+    _applyPostconditionSymbolically(currentFormula, transition) {
+        const postcondition = transition.postcondition;
+        if (!postcondition || postcondition.trim() === '') {
+            return currentFormula;
+        }
+
+        // Get all known variable names from the net.
+        const variableNames = Array.from(this.petriNet.dataVariables.values()).map(v => v.name);
+        if (variableNames.length === 0) {
+            return currentFormula;
+        }
+
+        // 1. Rename all variables in the *previous* state's formula to their "_old" versions.
+        // This preserves the constraints on the state before this transition fired.
+        let oldFormula = currentFormula;
+        // Sort by length descending to avoid replacing 'x' inside 'x_old'
+        const sortedVarNames = [...variableNames].sort((a, b) => b.length - a.length);
+        for (const v of sortedVarNames) {
+            oldFormula = oldFormula.replace(new RegExp(`\\b${v}\\b`, 'g'), `${v}_old`);
+        }
+
+        // 2. Parse the postcondition string into individual update statements.
+        // e.g., "x' = x + 10; y' = y + 5"
+        const updates = postcondition.split(';').map(s => s.trim()).filter(Boolean);
+        const updateConstraints = [];
+        const updatedVars = new Set();
+
+        for (const update of updates) {
+            const match = update.match(/^([a-zA-Z_]\w*)'\s*=\s*(.*)/);
+            if (!match) continue; // Skip anything that isn't a "var' = ..." assignment
+
+            const [, varName, expression] = match;
+            updatedVars.add(varName);
+
+            // Create a logical equality constraint, e.g., "x == (x_old + 10)".
+            // The RHS expression refers to the state *before* the update, so all its
+            // variables must also be renamed to their "_old" versions.
+            let rhs = expression;
+            for (const v of sortedVarNames) {
+                rhs = rhs.replace(new RegExp(`\\b${v}\\b`, 'g'), `${v}_old`);
+            }
+            updateConstraints.push(`${varName} == (${rhs})`);
+        }
         
+        // 3. For any variable that was NOT updated, add a "frame condition" constraint
+        // stating its value does not change, e.g., "z == z_old".
+        const unchangedConstraints = variableNames
+            .filter(v => !updatedVars.has(v))
+            .map(v => `${v} == ${v}_old`);
+
+        // 4. Combine everything with ANDs into a single, clean formula.
+        const allConstraints = [
+            `(${oldFormula})`, 
+            ...updateConstraints, 
+            ...unchangedConstraints
+        ].filter(c => c && c !== '()').join(' && ');
+        
+        return allConstraints;
+    }
+    
+    /**
+     * Simplifies a formula. Placeholder for an SMT solver's quantifier elimination. For performance reasons, this should be implemented using an SMT solver.
+     * @param {string} formula The formula to simplify.
+     * @returns {string} The simplified formula.
+     * @private
+     */
+    _simplifyFormula(formula) {
+        const trimmed = (formula || 'true').trim();
+        if (trimmed === '' || trimmed === 'true') {
+            return 'true';
+        }
+        if (trimmed === 'false') {
+            return 'false';
+        }
+        // Use SMT solver to eliminate unsatisfiable formulas
+        if (!this.smtSolver.isSatisfiable(trimmed)) {
+            return 'false';
+        }
+        // TODO: Add tautology detection if needed
+        return trimmed;
+    }
+    /**
+     * Checks if a formula is satisfiable.
+     * @param {string} formula The formula to check.
+     * @returns {boolean} True if the formula is satisfiable.
+     * @private
+     */
+    _isSatisfiable(formula) {
+        return this.smtSolver.isSatisfiable(formula);
+    }
+    
+    /**
+     * Combines two formulas with a logical AND.
+     * @param {string} f1 The first formula.
+     * @param {string} f2 The second formula.
+     * @returns {string} The combined formula.
+     * @private
+     */
+    _formulaAnd(f1, f2) {
+        if (f1 === 'true') return f2;
+        if (f2 === 'true') return f1;
+        if (f1 === 'false' || f2 === 'false') return 'false';
+        return `(${f1}) && (${f2})`;
+    }
+
+    /**
+     * Converts an LTL AST fragment into a string predicate.
+     * @param {Object} formula The LTL formula AST node.
+     * @returns {string} A string representing the logical predicate.
+     * @private
+     */
+    _ltlFormulaToPredicate(formula) {
+        if (!formula) return 'true';
         switch (formula.type) {
-            case 'TRUE':
-                return true;
-                
-            case 'LTLAtom':
-                return this.evaluateAtom(formula, state);
-                
-            case 'LTLReference':
-                // Check if place is marked
-                return (state.marking[formula.name] || 0) > 0;
-                
-            case 'LTLConjunction':
-                return this.evaluateFormulaInState(formula.left, state) && 
-                       this.evaluateFormulaInState(formula.right, state);
-                       
-            case 'LTLDisjunction':
-                return this.evaluateFormulaInState(formula.left, state) || 
-                       this.evaluateFormulaInState(formula.right, state);
-                       
-            case 'LTLNegation':
-                return !this.evaluateFormulaInState(formula.expression, state);
-                
-            case 'LTLImplication':
-                const left = this.evaluateFormulaInState(formula.left, state);
-                const right = this.evaluateFormulaInState(formula.right, state);
-                return !left || right;
-                
-            default:
-                return false;
+            case 'TRUE': return 'true';
+            case 'LTLAtom': return formula.value;
+            case 'LTLReference': return `(${formula.name} > 0)`;
+            case 'LTLConjunction': return this._formulaAnd(this._ltlFormulaToPredicate(formula.left), this._ltlFormulaToPredicate(formula.right));
+            case 'LTLDisjunction': return `(${this._ltlFormulaToPredicate(formula.left)}) || (${this._ltlFormulaToPredicate(formula.right)})`;
+            case 'LTLNegation': return `!(${this._ltlFormulaToPredicate(formula.expression)})`;
+            case 'LTLImplication': return `!(${this._ltlFormulaToPredicate(formula.left)}) || (${this._ltlFormulaToPredicate(formula.right)})`;
+            default: return 'true';
         }
     }
 
     /**
-     * Enhanced atom evaluation with constraint support
+     * Gets the initial formula representing the initial data state.
+     * @returns {string} The initial formula.
+     * @private
      */
-    evaluateAtom(atom, state) {
-        const content = atom.value;
-        
-        // Check if it's a constraint
-        const constraintMatch = content.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*([<>=!]+)\s*(.+)$/);
-        
-        if (constraintMatch) {
-            const [, variable, operator, valueStr] = constraintMatch;
-            const currentValue = state.valuation[variable];
-            
-            if (currentValue === undefined) {
-                console.warn(`Variable ${variable} not found in valuation`);
-                return false;
-            }
-            
-            // Parse target value
-            let targetValue;
-            if (/^".*"$/.test(valueStr)) {
-                targetValue = valueStr.slice(1, -1); // Remove quotes
-            } else if (!isNaN(valueStr)) {
-                targetValue = parseFloat(valueStr);
-            } else {
-                targetValue = valueStr;
-            }
-            
-            return this.evaluateConstraint(currentValue, operator, targetValue);
-        } else {
-            // Simple variable or place name
-            if (state.valuation.hasOwnProperty(content)) {
-                return Boolean(state.valuation[content]);
-            } else if (state.marking.hasOwnProperty(content)) {
-                return (state.marking[content] || 0) > 0;
-            }
-            return false;
-        }
-    }
-
-    /**
-     * Enhanced constraint evaluation
-     */
-    evaluateConstraint(value, operator, target) {
-        const numValue = typeof value === 'number' ? value : parseFloat(value);
-        const numTarget = typeof target === 'number' ? target : parseFloat(target);
-        
-        if (!isNaN(numValue) && !isNaN(numTarget)) {
-            switch (operator) {
-                case '>': return numValue > numTarget;
-                case '<': return numValue < numTarget;
-                case '>=': return numValue >= numTarget;
-                case '<=': return numValue <= numTarget;
-                case '==': case '=': return Math.abs(numValue - numTarget) < 1e-10;
-                case '!=': return Math.abs(numValue - numTarget) >= 1e-10;
-                default: return false;
-            }
-        } else {
-            switch (operator) {
-                case '==': case '=': return value == target;
-                case '!=': return value != target;
-                default: return false;
-            }
-        }
-    }
-
-    /**
-     * Check acceptance conditions
-     */
-    checkAcceptance(product) {
-        // Look for reachable accepting states
-        for (const state of product.acceptingStates) {
-            if (this.isReachableFromInitial(product, state)) {
-                return {
-                    hasCounterexample: true,
-                    witness: [state] // Simplified witness
-                };
-            }
-        }
-        
-        return {
-            hasCounterexample: false,
-            witness: null
-        };
-    }
-
-    /**
-     * Check if state is reachable from initial states
-     */
-    isReachableFromInitial(product, targetState) {
-        const queue = Array.from(product.initialStates);
-        const visited = new Set(queue);
-        
-        while (queue.length > 0) {
-            const currentState = queue.shift();
-            
-            if (currentState === targetState) {
-                return true;
-            }
-            
-            const transitions = product.transitions.get(currentState) || [];
-            for (const transition of transitions) {
-                if (!visited.has(transition.target)) {
-                    visited.add(transition.target);
-                    queue.push(transition.target);
+    _getInitialFormula() {
+        const initialConstraints = [];
+        if (this.petriNet.dataVariables) {
+            for (const [, variable] of this.petriNet.dataVariables) {
+                if (variable.currentValue !== null) {
+                    initialConstraints.push(`${variable.name} == ${JSON.stringify(variable.currentValue)}`);
                 }
             }
         }
-        
-        return false;
+        return initialConstraints.join(' && ') || 'true';
     }
 
     /**
-     * Build counterexample trace
+     * Checks for accepting states in the product automaton.
+     * @param {Object} product The product automaton.
+     * @returns {Object} An object indicating if a counterexample was found.
+     * @private
      */
-    buildCounterexample(witness) {
-        if (!witness) return null;
-        
-        return witness.map((stateKey, index) => {
-            const state = this.deserializeState(stateKey);
-            return {
-                step: index,
-                action: index === 0 ? 'Initial state' : `Step ${index}`,
-                marking: state.marking,
-                dataValuation: state.valuation
-            };
+    _checkAcceptance(product) {
+        // Find all Strongly Connected Components (SCCs) in the product graph
+        const sccs = this._findSCCs(product);
+
+        // Map each state to the index of the SCC it belongs to
+        const stateToSccIndex = new Map();
+        sccs.forEach((scc, index) => {
+            scc.forEach(stateKey => stateToSccIndex.set(stateKey, index));
         });
+
+        for (const scc of sccs) {
+            // An SCC is part of a counterexample if it's non-trivial (a cycle) or self-looping,
+            // contains an accepting state, and is reachable from an initial state.
+            if (scc.size > 1 || (scc.size === 1 && this._hasSelfLoop(product, scc.values().next().value))) {
+                
+                let sccIsAccepting = false;
+                for (const stateKey of scc) {
+                    if (product.acceptingStates.has(stateKey)) {
+                        sccIsAccepting = true;
+                        break;
+                    }
+                }
+
+                if (sccIsAccepting) {
+                    // Check if this accepting SCC is reachable from any initial state
+                    const pathToScc = this._findPathToSCC(product, scc);
+                    if (pathToScc) {
+                        // Found a reachable, accepting cycle. This is a counterexample.
+                        const cycle = this._findCycleInSCC(product, scc, pathToScc.path[pathToScc.path.length - 1].targetStateKey);
+                        return {
+                            hasCounterexample: true,
+                            witness: pathToScc.path.concat(cycle) // Combine path to cycle and the cycle itself
+                        };
+                    }
+                }
+            }
+        }
+
+        return { hasCounterexample: false, witness: null };
     }
 
-    // Utility methods (similar to original but enhanced)
-    
+   /**
+     * Finds a path from an initial state to a target state using Breadth-First Search.
+     * @param {Object} product The product automaton.
+     * @param {string} targetStateKey The key of the target state.
+     * @returns {Array|null} The path as a sequence of transitions, or null if no path is found.
+     * @private
+     */
+    _findPathToState(product, targetStateKey) {
+        const queue = Array.from(product.initialStates).map(key => ({ key, path: [] }));
+        const visited = new Set(product.initialStates);
+
+        while (queue.length > 0) {
+            const { key, path } = queue.shift();
+
+            if (key === targetStateKey) {
+                return path; // Path found
+            }
+
+            const transitions = product.transitions.get(key) || [];
+            for (const { target, transitionId } of transitions) {
+                if (!visited.has(target)) {
+                    visited.add(target);
+                    const newPath = [...path, { transitionId, targetStateKey: target }];
+                    queue.push({ key: target, path: newPath });
+                }
+            }
+        }
+        return null; // No path found
+    }
+
+    /**
+     * Get enabled transitions in a symbolic state.
+     * @param {Object} state The current symbolic state.
+     * @returns {Array<string>} A list of enabled transition IDs.
+     * @private
+     */
+    _getEnabledTransitionsSymbolic(state) {
+        const enabled = [];
+        for (const [id, transition] of this.petriNet.transitions) {
+            let isEnabled = true;
+            const inputArcs = Array.from(this.petriNet.arcs.values()).filter(arc => arc.target === id);
+            for (const arc of inputArcs) {
+                const place = this.petriNet.places.get(arc.source);
+                if (!place || (state.marking[place.label] || 0) < arc.weight) {
+                    isEnabled = false;
+                    break;
+                }
+            }
+            if (isEnabled && typeof transition.precondition === 'string' && transition.precondition.trim() !== '') {
+                const formulaWithPrecondition = this._formulaAnd(state.formula, transition.precondition);
+                if (!this._isSatisfiable(formulaWithPrecondition)) {
+                    isEnabled = false;
+                }
+            }
+            if (isEnabled) {
+                enabled.push(id);
+            }
+        }
+        return enabled;
+    }
+
+    _findSCCs(product) {
+        const sccs = [];
+        const stack = [];
+        const onStack = new Map();
+        const ids = new Map();
+        const low = new Map();
+        let idCounter = 0;
+
+        const dfs = (at) => {
+            stack.push(at);
+            onStack.set(at, true);
+            ids.set(at, idCounter);
+            low.set(at, idCounter);
+            idCounter++;
+
+            const transitions = product.transitions.get(at) || [];
+            for (const { target } of transitions) {
+                if (!ids.has(target)) {
+                    dfs(target);
+                }
+                if (onStack.get(target)) {
+                    low.set(at, Math.min(low.get(at), low.get(target)));
+                }
+            }
+
+            if (ids.get(at) === low.get(at)) {
+                const scc = new Set();
+                while (stack.length > 0) {
+                    const node = stack.pop();
+                    onStack.set(node, false);
+                    low.set(node, ids.get(at));
+                    scc.add(node);
+                    if (node === at) break;
+                }
+                sccs.push(scc);
+            }
+        };
+
+        for (const stateKey of product.states) {
+            if (!ids.has(stateKey)) {
+                dfs(stateKey);
+            }
+        }
+        return sccs;
+    }
+
+    /**
+     * Finds a path from an initial state to a given SCC.
+     * @param {Object} product The product automaton.
+     * @param {Set<string>} targetScc The SCC to find a path to.
+     * @returns {Object|null} The path object or null if not reachable.
+     * @private
+     */
+    _findPathToSCC(product, targetScc) {
+        const queue = Array.from(product.initialStates).map(key => ({ key, path: [] }));
+        const visited = new Set(product.initialStates);
+
+        while (queue.length > 0) {
+            const { key, path } = queue.shift();
+
+            if (targetScc.has(key)) {
+                return { path }; // Path found
+            }
+
+            const transitions = product.transitions.get(key) || [];
+            for (const { target, transitionId } of transitions) {
+                if (!visited.has(target)) {
+                    visited.add(target);
+                    const newPath = [...path, { transitionId, targetStateKey: target }];
+                    queue.push({ key: target, path: newPath });
+                }
+            }
+        }
+        return null; // No path found
+    }
+
+    /**
+     * Finds a cycle within a given SCC starting from an entry point.
+     * @param {Object} product The product automaton.
+     * @param {Set<string>} scc The SCC to find a cycle in.
+     * @param {string} startNode The entry point to the SCC.
+     * @returns {Array} The path representing the cycle.
+     * @private
+     */
+    _findCycleInSCC(product, scc, startNode) {
+        const queue = [{ key: startNode, path: [] }];
+        const visited = new Set([startNode]);
+
+        while(queue.length > 0) {
+            const { key, path } = queue.shift();
+            const transitions = (product.transitions.get(key) || []).filter(t => scc.has(t.target));
+
+            for(const {target, transitionId} of transitions) {
+                const newPath = [...path, { transitionId, targetStateKey: target }];
+                if(target === startNode) {
+                    return newPath; // Cycle found
+                }
+                if(!visited.has(target)) {
+                    visited.add(target);
+                    queue.push({ key: target, path: newPath });
+                }
+            }
+        }
+        return []; // Should not happen if SCC is valid
+    }
+
+    /**
+     * Checks if a single-node SCC has a self-loop.
+     * @private
+     */
+    _hasSelfLoop(product, stateKey) {
+        const transitions = product.transitions.get(stateKey) || [];
+        return transitions.some(t => t.target === stateKey);
+    }
+    /**
+     * Build counterexample trace.
+     * @param {string} finalStateKey The key of the final state in the witness path.
+     * @param {Object} product The product automaton.
+     * @returns {Array<Object>|null} The counterexample trace or null.
+     */
+    buildCounterexample(path) {
+        if (!path) return null;
+
+        const trace = [];
+        let currentMarking = this.getInitialMarking();
+        let currentValuation = this.getInitialValuation();
+
+        // Add the initial state to the trace
+        trace.push({
+            action: 'Initial State',
+            marking: { ...currentMarking },
+            dataValuation: { ...currentValuation }
+        });
+
+        // Replay the path of transitions to generate concrete states
+        for (const step of path) {
+            const transitionId = step.transitionId;
+            const transition = this.petriNet.transitions.get(transitionId);
+            if (!transition) continue;
+
+            // 1. Update Petri net marking
+            const inputArcs = Array.from(this.petriNet.arcs.values()).filter(arc => arc.target === transitionId);
+            const outputArcs = Array.from(this.petriNet.arcs.values()).filter(arc => arc.source === transitionId);
+
+            inputArcs.forEach(arc => {
+                const place = this.petriNet.places.get(arc.source);
+                if (place) currentMarking[place.label] = (currentMarking[place.label] || 0) - (arc.weight || 1);
+            });
+            outputArcs.forEach(arc => {
+                const place = this.petriNet.places.get(arc.target);
+                if (place) currentMarking[place.label] = (currentMarking[place.label] || 0) + (arc.weight || 1);
+            });
+
+            // 2. CORRECTED: Update data valuation by evaluating assignments
+            if (transition.postcondition) {
+                try {
+                    const nextValuation = { ...currentValuation };
+                    const statements = transition.postcondition.split(';').map(s => s.trim()).filter(Boolean);
+
+                    for (const statement of statements) {
+                        const assignMatch = statement.match(/^([a-zA-Z_]\w*)'\s*=\s*(.+)$/);
+                        if (assignMatch) {
+                            const [, varName, expression] = assignMatch;
+                            if (varName in nextValuation) {
+                                // Create a function to evaluate the expression in the context of the current valuation
+                                const varNames = Object.keys(currentValuation);
+                                const varValues = Object.values(currentValuation);
+                                const evaluator = new Function(...varNames, `return ${expression};`);
+                                // Update the variable in the next valuation
+                                nextValuation[varName] = evaluator(...varValues);
+                            }
+                        }
+                    }
+                    currentValuation = nextValuation;
+
+                } catch (e) {
+                    console.error(`Could not evaluate postcondition for ${transition.label}: ${e.message}`);
+                }
+            }
+
+            // Add the new concrete state to the trace
+            trace.push({
+                action: `Fire: ${transition.label || transition.id}`,
+                marking: { ...currentMarking },
+                dataValuation: { ...currentValuation }
+            });
+        }
+
+        return trace;
+    }
+
+    /**
+     * Get initial marking of the Petri net.
+     * @returns {Object} The initial marking.
+     */
     getInitialMarking() {
         const marking = {};
         for (const [id, place] of this.petriNet.places) {
@@ -2178,111 +2478,587 @@ class EnhancedLTLVerifier {
         return marking;
     }
 
+
+    /**
+     * Get the initial data valuation from the Petri net model.
+     * This method safely retrieves data from the DataPetriNet instance.
+     * @returns {Object} The initial mapping of variable names to their values.
+     */
     getInitialValuation() {
-        const valuation = {};
-        if (this.petriNet.dataVariables) {
-            for (const [id, variable] of this.petriNet.dataVariables) {
-                valuation[variable.name] = variable.getValue ? variable.getValue() : (variable.value || 0);
-            }
+        if (this.petriNet && typeof this.petriNet.getDataValuation === 'function') {
+            return this.petriNet.getDataValuation();
         }
-        return valuation;
+        // Fallback for safety, in case a non-data net is being verified
+        console.warn("The verifier could not find a getDataValuation function on the Petri net. Assuming no data variables.");
+        return {};
     }
 
-    getEnabledTransitions(state) {
-        const enabled = [];
-        
-        for (const [id, transition] of this.petriNet.transitions) {
-            if (this.isTransitionEnabledInState(id, state)) {
-                enabled.push(id);
-            }
-        }
-        
-        return enabled;
-    }
-
-    isTransitionEnabledInState(transitionId, state) {
-        // Check token prerequisites
-        const inputArcs = Array.from(this.petriNet.arcs.values())
-            .filter(arc => arc.target === transitionId);
-        
-        for (const arc of inputArcs) {
-            const place = this.petriNet.places.get(arc.source);
-            if (!place) continue;
-            const tokens = state.marking[place.label] || 0;
-            if (tokens < (arc.weight || 1)) {
-                return false;
-            }
-        }
-        
-        // Check data precondition
-        const transition = this.petriNet.transitions.get(transitionId);
-        if (transition && typeof transition.evaluatePrecondition === 'function') {
-            return transition.evaluatePrecondition(state.valuation);
-        }
-        
-        return true;
-    }
-
-    fireTransitionInState(state, transitionId) {
-        if (!this.isTransitionEnabledInState(transitionId, state)) {
-            return null;
-        }
-        
-        const newMarking = { ...state.marking };
-        const newValuation = { ...state.valuation };
-        
-        // Update marking
-        const inputArcs = Array.from(this.petriNet.arcs.values())
-            .filter(arc => arc.target === transitionId);
-        const outputArcs = Array.from(this.petriNet.arcs.values())
-            .filter(arc => arc.source === transitionId);
-        
-        for (const arc of inputArcs) {
-            const place = this.petriNet.places.get(arc.source);
-            if (place) {
-                newMarking[place.label] = (newMarking[place.label] || 0) - (arc.weight || 1);
-            }
-        }
-        
-        for (const arc of outputArcs) {
-            const place = this.petriNet.places.get(arc.target);
-            if (place) {
-                newMarking[place.label] = (newMarking[place.label] || 0) + (arc.weight || 1);
-            }
-        }
-        
-        // Update data valuation
-        const transition = this.petriNet.transitions.get(transitionId);
-        if (transition && typeof transition.evaluatePostcondition === 'function') {
-            const updates = transition.evaluatePostcondition(state.valuation);
-            Object.assign(newValuation, updates);
-        }
-        
-        this.statistics.transitionsFired++;
-        
-        return {
-            marking: newMarking,
-            valuation: newValuation
-        };
-    }
-
+    /**
+     * Serialize a state object to a string key.
+     * @param {Object} state The state to serialize.
+     * @returns {string} The serialized state key.
+     */
     serializeState(state) {
+        const sortedMarking = Object.entries(state.marking).sort();
         return JSON.stringify({
-            marking: state.marking,
-            valuation: state.valuation,
+            marking: sortedMarking,
+            formula: state.formula,
             automatonState: state.automatonState
         });
     }
 
+    /**
+     * Deserialize a state key back to a state object.
+     * @param {string} stateKey The key to deserialize.
+     * @returns {Object} The state object.
+     */
     deserializeState(stateKey) {
-        return JSON.parse(stateKey);
+        const data = JSON.parse(stateKey);
+        data.marking = Object.fromEntries(data.marking);
+        return data;
     }
 
+    /**
+     * Utility method to add delays for UI feedback.
+     * @param {number} ms Milliseconds to delay.
+     * @returns {Promise<void>}
+     */
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
 
+class LTLToBuchiConverter {
+    constructor(ast) {
+         // --- Add these new members ---
+        this.formulaKeyMap = new Map();
+        this.nextFormulaId = 0;
+        
+        // --- Essential Members ---
+        this.originalAST = ast;
+        // --- Essential Members ---
+        this.originalAST = ast; // Keep the original for reference
+        this.memo = new Map(); // Memoization for formula processing
+        this.states = new Map(); // Map from state name (key) to state object
+        this.formulasToProcess = []; // Queue for the translation algorithm
+        
+        // --- GBA Acceptance Members ---
+        this.acceptanceConditions = [];
+        this.acceptanceConditionIndex = new Map();
+    }
+
+    // --- Public Main Method ---
+
+    /**
+     * Builds the Büchi Automaton and formats it to the required API.
+     * @returns {object} The resulting automaton with {states, initialStates, acceptingStates, transitions}.
+     */
+    build() {
+        // --- PHASE 1: Rewriting ---
+        let nnfAst = this._toNNF(this.originalAST);
+        let rewrittenAst = this._rewrite(nnfAst);
+        
+        this._collectAcceptanceConditions(rewrittenAst);
+
+        // --- PHASE 2: Translation ---
+        this._translate(rewrittenAst);
+        let internalAutomaton = this._getInternalAutomatonRepresentation();
+
+        // --- PHASE 3: Simplification ---
+        internalAutomaton = this._simplifyAutomaton(internalAutomaton);
+
+        // --- Final Formatting to Match Required API ---
+        const finalTransitions = {};
+        for (const [stateName, stateObject] of internalAutomaton.states.entries()) {
+            finalTransitions[stateName] = stateObject.transitions;
+        }
+
+        const acceptingStates = new Set();
+        for (const state of internalAutomaton.states.values()) {
+            if (state.acceptance.size > 0) {
+                acceptingStates.add(state.name);
+            }
+        }
+
+        return {
+            states: new Set(internalAutomaton.states.keys()),
+            initialStates: new Set(internalAutomaton.initialStates),
+            acceptingStates: new Set(acceptingStates),
+            transitions: new Map(Object.entries(finalTransitions))
+        };
+    }
+
+    // --- Phase 1: Rewriting ---
+
+    _rewrite(node) {
+        if (!node) return null;
+
+        // Recursively rewrite children first
+        if (node.left) node.left = this._rewrite(node.left);
+        if (node.right) node.right = this._rewrite(node.right);
+        if (node.expression) node.expression = this._rewrite(node.expression);
+        
+        // Rule: (X φ) U (X ψ)  ≡  X(φ U ψ)
+        if (node.type === 'LTLStrongUntil' && node.left?.type === 'LTLNext' && node.right?.type === 'LTLNext') {
+            return {
+                type: 'LTLNext',
+                expression: { type: 'LTLStrongUntil', left: node.left.expression, right: node.right.expression }
+            };
+        }
+        
+        // Rule: F G F φ ≡ G F φ
+        if (node.type === 'LTLEventually' && node.expression?.type === 'LTLGlobally' && node.expression.expression?.type === 'LTLEventually') {
+            return {
+                type: 'LTLGlobally',
+                expression: node.expression.expression
+            }
+        }
+
+        return node;
+    }
+
+    // --- Phase 2: Translation ---
+
+    _translate(ast) {
+        this._findOrCreateState(new Set([ast]));
+
+        while (this.formulasToProcess.length > 0) {
+            const formulaSet = this.formulasToProcess.shift();
+            this._processFormulaSet(formulaSet);
+        }
+    }
+
+    _processFormulaSet(formulaSet) {
+        const stateName = this._getStateName(formulaSet);
+        const state = this.states.get(stateName);
+        if (state.processed) return;
+        
+        state.processed = true;
+
+        const cover = this._getCover(formulaSet);
+
+        for (const term of cover) {
+            const nextFormulas = new Set();
+            const condition = new Set();
+            
+            for (const literal of term) {
+                if (literal.type === 'LTLNext') {
+                    nextFormulas.add(literal.expression);
+                } else {
+                    condition.add(literal);
+                }
+            }
+            
+            const nextStateName = this._findOrCreateState(nextFormulas);
+            state.transitions.push({ target: nextStateName, condition: this._simplifyCondition(condition) });
+        }
+    }
+
+    _findOrCreateState(formulaSet) {
+        const name = this._getStateName(formulaSet);
+        if (!this.states.has(name)) {
+            const acceptance = this._getAcceptanceSet(formulaSet);
+            this.states.set(name, {
+                name: name,
+                formulas: formulaSet,
+                transitions: [],
+                processed: false,
+                acceptance: acceptance,
+            });
+            this.formulasToProcess.push(formulaSet);
+        }
+        return name;
+    }
+
+    _getCover(formulaSet) {
+        if (formulaSet.size === 0) return [new Set([{ type: 'LTLTrue' }])];
+        
+        const formulaArray = [...formulaSet];
+        const first = formulaArray[0];
+        const rest = new Set(formulaArray.slice(1));
+
+        const expansion = this._expand(first);
+        const restCover = this._getCover(rest);
+        
+        let combinedCover = [];
+        for (const term of expansion) {
+            for (const restTerm of restCover) {
+                const newTerm = new Set([...term, ...restTerm]);
+                if (this._isConsistent(newTerm)) {
+                    combinedCover.push(newTerm);
+                }
+            }
+        }
+        
+        return this._simplifyCover(combinedCover);
+    }
+    
+    _expand(f) {
+        const key = this._formulaToKey(f);
+        if (this.memo.has(key)) return this.memo.get(key);
+
+        let result;
+        switch (f.type) {
+            case 'LTLDisjunction':
+                result = [new Set([f.left]), new Set([f.right])];
+                break;
+            case 'LTLConjunction':
+                result = [new Set([f.left, f.right])];
+                break;
+            // Rule: ψ₁ U ψ₂ = ψ₂ ∨ (ψ₁ ∧ X(ψ₁ U ψ₂))
+            case 'LTLStrongUntil':
+                result = [
+                    new Set([f.right]),
+                    new Set([f.left, { type: 'LTLNext', expression: f }])
+                ];
+                break;
+            // Rule: ψ₁ R ψ₂ = ψ₂ ∧ (ψ₁ ∨ X(ψ₁ R ψ₂))
+            case 'LTLWeakRelease':
+                 result = [
+                    new Set([f.right, f.left]),
+                    new Set([f.right, { type: 'LTLNext', expression: f }])
+                 ];
+                 break;
+            default: // Literals
+                result = [new Set([f])];
+        }
+        this.memo.set(key, result);
+        return result;
+    }
+    
+    // --- Phase 3: Simplification ---
+    
+    _simplifyAutomaton(automaton) {
+        let changed = true;
+        let iterations = 0;
+        const MAX_ITERATIONS = 500;
+
+        while (changed && iterations < MAX_ITERATIONS) {
+            changed = false;
+            iterations++;
+
+            const sccs = this._findSCCs(automaton);
+            // const pruned = this._pruneFairSets(automaton, sccs);
+            // if (pruned) changed = true;
+        }
+
+        return automaton;
+    }
+    
+    _pruneFairSets(automaton, sccs) {
+        let changed = false;
+        const fairSCCs = new Set();
+        const sccOfState = new Map();
+
+        sccs.forEach((scc, i) => {
+            for (const stateName of scc) {
+                sccOfState.set(stateName, i);
+            }
+        });
+        
+        // An SCC is fair if it is non-trivial and it intersects all fair sets 
+        sccs.forEach((scc, i) => {
+            if (automaton.acceptanceConditions.length === 0) return;
+            
+            let isFair = true;
+            for (let accIndex = 0; accIndex < automaton.acceptanceConditions.length; accIndex++) {
+                const intersects = scc.some(stateName => automaton.states.get(stateName).acceptance.has(accIndex));
+                if (!intersects) {
+                    isFair = false;
+                    break;
+                }
+            }
+            if (isFair) {
+                fairSCCs.add(i);
+            }
+        });
+
+        // States not in a fair SCC can be removed from the accepting sets 
+        for (const state of automaton.states.values()) {
+            const sccIndex = sccOfState.get(state.name);
+            if (!fairSCCs.has(sccIndex)) {
+                if (state.acceptance.size > 0) {
+                    state.acceptance.clear();
+                    changed = true;
+                }
+            }
+        }
+        
+        return changed;
+    }
+    
+    _findSCCs(automaton) {
+        const sccs = [];
+        const stack = [];
+        const onStack = new Map();
+        const ids = new Map();
+        const low = new Map();
+        let id = 0;
+
+        for (const stateName of automaton.states.keys()) {
+            if (!ids.has(stateName)) {
+                dfs(stateName);
+            }
+        }
+
+        function dfs(at) {
+            stack.push(at);
+            onStack.set(at, true);
+            ids.set(at, id);
+            low.set(at, id);
+            id++;
+
+            const state = automaton.states.get(at);
+            for (const { target } of state.transitions) {
+                if (!ids.has(target)) {
+                    dfs(target);
+                }
+                if (onStack.get(target)) {
+                    low.set(at, Math.min(low.get(at), low.get(target)));
+                }
+            }
+
+            if (ids.get(at) === low.get(at)) {
+                const scc = new Set();
+                while (stack.length > 0) {
+                    const node = stack.pop();
+                    onStack.set(node, false);
+                    low.set(node, ids.get(at));
+                    scc.add(node);
+                    if (node === at) break;
+                }
+                sccs.push(scc);
+            }
+        }
+
+        return sccs;
+    }
+
+    // --- Helper & Utility Methods ---
+
+    _collectAcceptanceConditions(node) {
+        if (!node) return;
+        const key = this._formulaToKey(node);
+        if (this.acceptanceConditionIndex.has(key)) return;
+
+        if (node.type === 'LTLStrongUntil') {
+            const index = this.acceptanceConditions.length;
+            this.acceptanceConditions.push(node);
+            this.acceptanceConditionIndex.set(key, index);
+        }
+
+        if (node.left) this._collectAcceptanceConditions(node.left);
+        if (node.right) this._collectAcceptanceConditions(node.right);
+        if (node.expression) this._collectAcceptanceConditions(node.expression);
+    }
+    
+    _getAcceptanceSet(formulaSet) {
+        const satisfied = new Set();
+        // The acceptance condition contains all the states s such that the label of s does not imply ψ₁Uψ₂ or the label of s implies ψ₂ 
+        for (let i = 0; i < this.acceptanceConditions.length; i++) {
+            const untilFormula = this.acceptanceConditions[i];
+            const rightHandSide = untilFormula.right;
+
+            if (!this._setHas(formulaSet, untilFormula) || this._setHas(formulaSet, rightHandSide)) {
+                satisfied.add(i);
+            }
+        }
+        return satisfied;
+    }
+
+    _simplifyCondition(conditionSet) {
+        return [...conditionSet].map(f => this._formulaToPretty(f)).join(' ∧ ');
+    }
+
+    _isConsistent(term) {
+        const formulas = new Set();
+        for (const f of term) {
+            const key = this._formulaToKey(f);
+            // Check for contradiction like {p, !p}
+            const notKey = this._formulaToKey(this._toNNF({ type: 'LTLNegation', expression: f }));
+            if (formulas.has(notKey)) return false;
+            formulas.add(key);
+        }
+        return true;
+    }
+    
+    _simplifyCover(cover) {
+        const simplified = [];
+        for (let i = 0; i < cover.length; i++) {
+            let isSubsumed = false;
+            for (let j = 0; j < cover.length; j++) {
+                if (i !== j && this._isSubset(cover[j], cover[i])) {
+                    isSubsumed = true;
+                    break;
+                }
+            }
+            if (!isSubsumed) {
+                simplified.push(cover[i]);
+            }
+        }
+        return simplified;
+    }
+    
+    _getInternalAutomatonRepresentation() {
+         const initialStates = new Set();
+         // The initial state corresponds to the cover of the main formula 
+         const initialStateFormulas = new Set([this._rewrite(this._toNNF(this.originalAST))]);
+         initialStates.add(this._getStateName(initialStateFormulas));
+
+        return {
+            states: this.states,
+            initialStates: initialStates,
+            acceptanceConditions: this.acceptanceConditions,
+        };
+    }
+    
+    _isSubset(s1, s2) {
+        if (s1.size > s2.size) return false;
+        for (const item of s1) if (!this._setHas(s2, item)) return false;
+        return true;
+    }
+    
+    _setHas(set, formula) {
+        const key = this._formulaToKey(formula);
+        return this._setHasKey(set, key);
+    }
+    
+    _setHasKey(set, key) {
+        for (const item of set) if (this._formulaToKey(item) === key) return true;
+        return false;
+    }
+
+    _formulaToKey(f) {
+        if (!f) return 'null';
+    
+        // Recursively get keys for children first
+        const leftKey = f.left ? this._formulaToKey(f.left) : null;
+        const rightKey = f.right ? this._formulaToKey(f.right) : null;
+        const exprKey = f.expression ? this._formulaToKey(f.expression) : null;
+        
+        // Create a canonical string representation based on children's keys
+        const canonicalRepresentation = JSON.stringify({
+            type: f.type,
+            op: f.operator,
+            l: leftKey,
+            r: rightKey,
+            e: exprKey,
+            n: f.name,
+            v: f.value
+        });
+    
+        // Check if we've seen this exact formula structure before
+        if (this.formulaKeyMap.has(canonicalRepresentation)) {
+            return this.formulaKeyMap.get(canonicalRepresentation);
+        }
+    
+        // If not, assign it a new unique ID and store it
+        const newId = `f_${this.nextFormulaId++}`;
+        this.formulaKeyMap.set(canonicalRepresentation, newId);
+        
+        // Also attach the ID to the formula object itself for potential debugging
+        f.formulaId = newId;
+    
+        return newId;
+    }
+
+    _getStateName(formulaSet) {
+        if (formulaSet.size === 0) return 'q_true'; 
+        // A unique name for each state based on its formulas
+        return "q" + [...formulaSet].map(f => this._formulaToKey(f)).sort().join(';').hashCode();
+    }
+    
+    _formulaToPretty(f) {
+        if (!f) return 'null';
+        switch(f.type) {
+            case 'LTLTrue': return 'true';
+            case 'LTLFalse': return 'false';
+            case 'LTLAtom': return f.value;
+            case 'LTLReference': return f.name;
+            case 'LTLNegation': return `!(${this._formulaToPretty(f.expression)})`;
+            default: return this._formulaToKey(f).substring(0, 20) + '...';
+        }
+    }
+    
+
+    _toNNF(node) {
+        switch(node.type) {
+            case 'LTLNegation': {
+                const expr = node.expression;
+                switch(expr.type) {
+                    case 'LTLNegation':
+                        return this._toNNF(expr.expression);
+                    case 'LTLConjunction':
+                        return {
+                            type: 'LTLDisjunction',
+                            operator: '||',
+                            left: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.left }),
+                            right: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.right })
+                        };
+                    case 'LTLDisjunction':
+                        return {
+                            type: 'LTLConjunction',
+                            operator: '&&',
+                            left: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.left }),
+                            right: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.right })
+                        };
+                    case 'LTLNext':
+                        return { type: 'LTLNext', operator: 'X', expression: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.expression }) };
+                    case 'LTLGlobally':
+                        return { type: 'LTLEventually', operator: 'F', expression: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.expression }) };
+                    case 'LTLEventually':
+                        return { type: 'LTLGlobally', operator: 'G', expression: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.expression }) };
+                    case 'LTLUntil':
+                        return {
+                            type: 'LTLEventuallyRelease',
+                            operator: 'R',
+                            left: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.left }),
+                            right: this._toNNF({ type: 'LTLNegation', operator: '!', expression: expr.right })
+                        };
+                    default:
+                        return node; // atomic negation
+                }
+            }
+            case 'LTLConjunction':
+            case 'LTLDisjunction':
+                return {
+                    ...node,
+                    left: this._toNNF(node.left),
+                    right: this._toNNF(node.right)
+                };
+            case 'LTLNext':
+            case 'LTLGlobally':
+            case 'LTLEventually':
+                return { ...node, expression: this._toNNF(node.expression) };
+            case 'LTLUntil':
+            case 'LTLEventuallyRelease':
+                return {
+                    ...node,
+                    left: this._toNNF(node.left),
+                    right: this._toNNF(node.right)
+                };
+            default:
+                return node;
+        }
+    }
+    buildBuchiAutomaton(ltlAST) {
+        const nnfAST = this._toNNF(ltlAST);
+        // existing conversion logic, now feeding nnfAST
+        return this.converter.convert(nnfAST);
+    }
+}
+
+// Helper function to create a hash code for unique state naming.
+String.prototype.hashCode = function() {
+    let hash = 0, i, chr;
+    if (this.length === 0) return hash;
+    for (i = 0; i < this.length; i++) {
+        chr = this.charCodeAt(i);
+        hash = ((hash << 5) - hash) + chr;
+        hash |= 0; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+};
 // Auto-initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const initEnhancedLTLVerification = () => {
@@ -2298,3 +3074,5 @@ document.addEventListener('DOMContentLoaded', () => {
     
     setTimeout(initEnhancedLTLVerification, 1500);
 });
+
+

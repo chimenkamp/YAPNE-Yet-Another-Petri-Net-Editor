@@ -1,0 +1,46 @@
+Date : 2025-06-12 07:55:00
+Directory : /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src
+Total : 18 files,  11438 codes, 2088 comments, 3006 blanks, all 16532 lines
+
+Languages
++------------+------------+------------+------------+------------+------------+
+| language   | files      | code       | comment    | blank      | total      |
++------------+------------+------------+------------+------------+------------+
+| JavaScript |         18 |     11,438 |      2,088 |      3,006 |     16,532 |
++------------+------------+------------+------------+------------+------------+
+
+Directories
++---------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                                                                        | files      | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                                                           |         18 |     11,438 |      2,088 |      3,006 |     16,532 |
+| . (Files)                                                                                                                                   |          4 |      2,951 |        228 |        937 |      4,116 |
+| extensions                                                                                                                                  |         14 |      8,487 |      1,860 |      2,069 |     12,416 |
+| extensions (Files)                                                                                                                          |         10 |      5,280 |      1,045 |      1,445 |      7,770 |
+| extensions/LTL                                                                                                                              |          4 |      3,207 |        815 |        624 |      4,646 |
++---------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++---------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| filename                                                                                                                                    | language   | code       | comment    | blank      | total      |
++---------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/element-overlay.js                              | JavaScript |        173 |         36 |         53 |        262 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/event-log-generator.js                          | JavaScript |        487 |        117 |        179 |        783 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/event-log-integration.js                        | JavaScript |        539 |         10 |        135 |        684 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/LTL/dpn-ltl-verification-enhanced.js | JavaScript |        289 |        148 |         70 |        507 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/LTL/expression-solver.js             | JavaScript |        260 |        121 |         51 |        432 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/LTL/final-integration-script.js      | JavaScript |        489 |        196 |        114 |        799 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/LTL/ltl-integration-layer.js         | JavaScript |      2,169 |        350 |        389 |      2,908 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-api.js                           | JavaScript |        226 |         90 |         91 |        407 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-expression-validation.js         | JavaScript |         88 |         58 |         14 |        160 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-integration.js                   | JavaScript |        256 |         37 |        108 |        401 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-model.js                         | JavaScript |        438 |        140 |        140 |        718 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-renderer.js                      | JavaScript |        130 |         39 |         36 |        205 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-ui.js                            | JavaScript |        652 |        157 |        115 |        924 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/dpn-verification-ui.js               | JavaScript |        713 |        142 |        150 |      1,005 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/pnml-importer.js                     | JavaScript |      1,310 |        150 |        261 |      1,721 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/random-petri-net-generator.js        | JavaScript |      1,191 |        156 |        460 |      1,807 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/extensions/variable-tracking.js                 | JavaScript |        276 |         76 |         70 |        422 |
+| /Users/christianimenkamp/Documents/Git-Repositorys/YAPNE---Yet-Another-Petri-Net-Editor/src/petri-net-simulator.js                          | JavaScript |      1,752 |         65 |        570 |      2,387 |
+| Total                                                                                                                                       |            |     11,438 |      2,088 |      3,006 |     16,532 |
++---------------------------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
