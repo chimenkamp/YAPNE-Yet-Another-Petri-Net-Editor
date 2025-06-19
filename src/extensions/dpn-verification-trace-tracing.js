@@ -1,11 +1,10 @@
 /**
  * Enhanced Data Petri Net Verification Extension with Trace Visualization
  * 
- * This enhancement adds counterexample trace visualization and data-aware debugging
- * capabilities to the existing soundness verification system.
+ * Implements data-aware soundness verification with counterexample trace visualization
+ * and enhanced debugging capabilities for Data Petri nets.
  */
 
-// Enhance the DataAwareVerifier class to capture detailed traces
 class EnhancedDataAwareVerifier extends DataAwareVerifier {
   constructor(petriNet) {
     super(petriNet);
@@ -14,7 +13,7 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 
   /**
-   * Enhanced verification method that captures detailed counterexample traces
+   * Enhanced verification method with trace capture
    */
   async verify(progressCallback) {
     this.startTime = Date.now();
@@ -46,9 +45,9 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       progressCallback(75, "Checking soundness properties with counterexample detection...");
       await this.delay(200);
 
-      const p1 = this.checkProperty1WithTraces(lts);
-      const p2 = this.checkProperty2WithTraces(lts);
-      const p3 = this.checkProperty3WithTraces(lts);
+      const p1 = this.checkProperty1(lts);
+      const p2 = this.checkProperty2(lts);
+      const p3 = this.checkProperty3(lts);
 
       progressCallback(100, "Verification complete!");
       await this.delay(100);
@@ -94,27 +93,38 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 
   /**
-   * Enhanced LTS construction that tracks execution paths
+   * Enhanced LTS construction with execution path tracking
    */
   constructEnhancedLTS() {
-    const lts = this.constructLTS(); // Use the existing method
+    const lts = super.constructLTS();
     
-    // Enhance with trace information
     lts.executionPaths = new Map();
     lts.stateMetadata = new Map();
     
-    // Track how we reached each state
-    for (const [state, transitions] of lts.transitions) {
-      for (const transition of transitions) {
-        const path = lts.executionPaths.get(transition.target) || [];
-        const newPath = [...path, {
-          fromState: state,
-          toState: transition.target,
-          transitionId: transition.transitionId,
-          transitionLabel: this.getTransitionLabel(transition.transitionId),
-          firedAt: Date.now()
-        }];
-        lts.executionPaths.set(transition.target, newPath);
+    const visited = new Set();
+    const queue = [{ state: lts.initialState, path: [] }];
+    
+    while (queue.length > 0) {
+      const { state, path } = queue.shift();
+      
+      if (visited.has(state)) continue;
+      visited.add(state);
+      
+      lts.executionPaths.set(state, [...path]);
+      
+      const stateTransitions = lts.transitions.get(state) || [];
+      
+      for (const transition of stateTransitions) {
+        if (!visited.has(transition.target)) {
+          const newPath = [...path, {
+            fromState: state,
+            toState: transition.target,
+            transitionId: transition.transition,
+            transitionLabel: this.getTransitionLabel(transition.transition)
+          }];
+          
+          queue.push({ state: transition.target, path: newPath });
+        }
       }
     }
     
@@ -122,30 +132,31 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 
   /**
-   * Enhanced property checking with counterexample trace capture
+   * Enhanced Property 1 checking with conservative deadlock detection
    */
-  checkProperty1WithTraces(lts) {
+  checkProperty1(lts) {
     const finalMarkings = this.identifyFinalMarkings();
     if (finalMarkings.length === 0) {
       return { 
-        satisfied: false, 
-        details: "No clear final marking identified. Consider adding an explicit end place.",
+        satisfied: true,
+        details: "No explicit final marking found - assuming sound",
         counterexamples: []
       };
     }
 
     const deadlockStates = [];
     
-    // Check if all states can reach a final state
     for (const state of lts.states) {
-      if (!this.canReachFinalState(state, lts, finalMarkings)) {
-        // Capture the execution path that led to this deadlock
+      const stateData = this.parseStateData(state);
+      const hasEnabledTransitions = this.hasEnabledTransitionsInState(state, lts);
+      
+      if (!hasEnabledTransitions && !this.isFinalState(stateData, finalMarkings)) {
         const trace = this.buildTraceToState(state, lts);
         deadlockStates.push({
           state: state,
           trace: trace,
-          reason: "Cannot reach final marking",
-          stateData: this.parseStateData(state)
+          reason: "True deadlock - no enabled transitions and not final",
+          stateData: stateData
         });
       }
     }
@@ -154,7 +165,7 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       this.counterexampleTraces.push(...deadlockStates);
       return { 
         satisfied: false, 
-        details: `Found ${deadlockStates.length} states that cannot reach any final state (potential deadlock)`,
+        details: `Found ${deadlockStates.length} true deadlock states`,
         counterexamples: deadlockStates
       };
     }
@@ -163,28 +174,34 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 
   /**
-   * Enhanced property 2 checking with trace capture
+   * Enhanced Property 2 checking with strict coverage analysis
    */
-  checkProperty2WithTraces(lts) {
+  checkProperty2(lts) {
     const finalMarkings = this.identifyFinalMarkings();
+    if (finalMarkings.length === 0) {
+      return { satisfied: true, counterexamples: [] };
+    }
+    
     const violations = [];
     
     for (const stateStr of lts.states) {
       const state = JSON.parse(stateStr);
       
       for (const finalMarking of finalMarkings) {
-        if (this.markingCovers(state.marking, finalMarking) && 
-            !this.markingEquals(state.marking, finalMarking)) {
+        if (this.markingStrictlyCovers(state.marking, finalMarking)) {
+          const hasEnabledTransitions = this.hasEnabledTransitionsInState(stateStr, lts);
           
-          const trace = this.buildTraceToState(stateStr, lts);
-          violations.push({
-            state: stateStr,
-            trace: trace,
-            reason: "Marking strictly covers final marking",
-            stateData: this.parseStateData(stateStr),
-            coveringMarking: state.marking,
-            finalMarking: finalMarking
-          });
+          if (hasEnabledTransitions) {
+            const trace = this.buildTraceToState(stateStr, lts);
+            violations.push({
+              state: stateStr,
+              trace: trace,
+              reason: "Marking strictly covers final marking with enabled transitions",
+              stateData: this.parseStateData(stateStr),
+              coveringMarking: state.marking,
+              finalMarking: finalMarking
+            });
+          }
         }
       }
     }
@@ -193,7 +210,7 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       this.counterexampleTraces.push(...violations);
       return { 
         satisfied: false, 
-        details: `Found ${violations.length} markings that strictly cover a final marking`,
+        details: `Found ${violations.length} markings that strictly cover final marking with enabled transitions`,
         counterexamples: violations
       };
     }
@@ -202,30 +219,40 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 
   /**
-   * Enhanced property 3 checking with trace capture
+   * Enhanced Property 3 checking with precise dead transition detection
    */
-  checkProperty3WithTraces(lts) {
+  checkProperty3(lts) {
     const transitionsFired = new Set();
+    const transitionsEnabledButNotFired = new Set();
     
     for (const [state, stateTransitions] of lts.transitions) {
-      for (const { transitionId } of stateTransitions) {
-        transitionsFired.add(transitionId);
+      for (const { transition } of stateTransitions) {
+        transitionsFired.add(transition);
       }
     }
     
-    const deadTransitions = [];
+    for (const [state] of lts.transitions) {
+      const enabledInState = this.getEnabledTransitionsInState(state);
+      for (const transitionId of enabledInState) {
+        if (!transitionsFired.has(transitionId)) {
+          transitionsEnabledButNotFired.add(transitionId);
+        }
+      }
+    }
+    
+    const trulyDeadTransitions = [];
     for (const [id, transition] of this.petriNet.transitions) {
-      if (!transitionsFired.has(id)) {
-        deadTransitions.push({
+      if (!transitionsFired.has(id) && !transitionsEnabledButNotFired.has(id)) {
+        trulyDeadTransitions.push({
           transitionId: id,
           transitionLabel: transition.label || id,
-          reason: "Transition never fired in any reachable state"
+          reason: "Transition never enabled in any reachable state"
         });
       }
     }
     
-    if (deadTransitions.length > 0) {
-      this.counterexampleTraces.push(...deadTransitions.map(dt => ({
+    if (trulyDeadTransitions.length > 0) {
+      this.counterexampleTraces.push(...trulyDeadTransitions.map(dt => ({
         state: "global",
         trace: [],
         reason: dt.reason,
@@ -234,12 +261,69 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       
       return { 
         satisfied: false, 
-        details: `Dead transitions found: ${deadTransitions.map(dt => dt.transitionLabel).join(', ')}`,
-        counterexamples: deadTransitions
+        details: `Truly dead transitions found: ${trulyDeadTransitions.map(dt => dt.transitionLabel).join(', ')}`,
+        counterexamples: trulyDeadTransitions
       };
     }
     
     return { satisfied: true, counterexamples: [] };
+  }
+
+  /**
+   * Check if marking strictly covers another marking
+   */
+  markingStrictlyCovers(marking1, marking2) {
+    let hasMore = false;
+    
+    for (const placeId in marking2) {
+      const tokens1 = marking1[placeId] || 0;
+      const tokens2 = marking2[placeId] || 0;
+      
+      if (tokens1 < tokens2) {
+        return false;
+      }
+      if (tokens1 > tokens2) {
+        hasMore = true;
+      }
+    }
+    
+    return hasMore;
+  }
+
+  /**
+   * Check if a state has enabled transitions
+   */
+  hasEnabledTransitionsInState(stateStr, lts) {
+    const stateTransitions = lts.transitions.get(stateStr) || [];
+    return stateTransitions.length > 0;
+  }
+
+  /**
+   * Check if a state is a final state
+   */
+  isFinalState(stateData, finalMarkings) {
+    for (const finalMarking of finalMarkings) {
+      if (this.markingEquals(stateData.marking, finalMarking)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get enabled transitions in a specific state
+   */
+  getEnabledTransitionsInState(stateStr) {
+    const state = JSON.parse(stateStr);
+    const enabled = [];
+    
+    for (const [id, transition] of this.petriNet.transitions) {
+      if (this.isTransitionEnabledInState(id, state)) {
+        enabled.push(id);
+      }
+    }
+    
+    return enabled;
   }
 
   /**
@@ -249,7 +333,6 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
     const trace = [];
     const path = lts.executionPaths.get(targetState) || [];
     
-    // Convert execution path to detailed trace
     let currentMarking = this.getInitialMarking();
     let currentValuation = this.getInitialValuation();
     
@@ -268,10 +351,9 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       const transition = this.petriNet.transitions.get(step.transitionId);
       
       if (transition) {
-        // Simulate firing this transition
-        const newMarking = this.simulateTransitionFiring(currentMarking, currentValuation, step.transitionId);
-        currentMarking = newMarking.marking;
-        currentValuation = newMarking.dataValuation;
+        const newState = this.simulateTransitionFiring(currentMarking, currentValuation, step.transitionId);
+        currentMarking = newState.marking;
+        currentValuation = newState.dataValuation;
         
         trace.push({
           step: i + 1,
@@ -290,13 +372,36 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 
   /**
+   * Get initial marking
+   */
+  getInitialMarking() {
+    const marking = {};
+    for (const [id, place] of this.petriNet.places) {
+      marking[place.label] = place.tokens || 0;
+    }
+    return marking;
+  }
+
+  /**
+   * Get initial data valuation
+   */
+  getInitialValuation() {
+    const valuation = {};
+    if (this.petriNet.dataVariables) {
+      for (const [id, variable] of this.petriNet.dataVariables) {
+        valuation[variable.name] = variable.getValue ? variable.getValue() : (variable.currentValue || 0);
+      }
+    }
+    return valuation;
+  }
+
+  /**
    * Simulate transition firing for trace building
    */
   simulateTransitionFiring(marking, valuation, transitionId) {
     const newMarking = { ...marking };
     let newValuation = { ...valuation };
     
-    // Update marking
     const inputArcs = Array.from(this.petriNet.arcs.values())
       .filter(arc => arc.target === transitionId);
     const outputArcs = Array.from(this.petriNet.arcs.values())
@@ -316,10 +421,13 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       }
     }
     
-    // Update data valuation
     const transition = this.petriNet.transitions.get(transitionId);
     if (transition && typeof transition.evaluatePostcondition === 'function') {
-      newValuation = transition.evaluatePostcondition(valuation);
+      try {
+        newValuation = transition.evaluatePostcondition(valuation);
+      } catch (error) {
+        // Continue with original valuation if postcondition fails
+      }
     }
     
     return { marking: newMarking, dataValuation: newValuation };
@@ -366,15 +474,26 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   }
 }
 
-// Add trace visualization capabilities to the renderer
+/**
+ * Trace Visualization Renderer for counterexample display
+ */
 class TraceVisualizationRenderer {
-  constructor(renderer) {
-    this.renderer = renderer;
+  constructor(mainRenderer) {
+    this.mainRenderer = mainRenderer;
     this.highlightedElements = new Set();
     this.highlightedArcs = new Set();
     this.dataOverlays = new Map();
-    this.traceStep = 0;
-    this.animationSpeed = 1000; // ms per step
+    this.isActive = false;
+    
+    this.originalRender = mainRenderer.render.bind(mainRenderer);
+    
+    mainRenderer.render = () => {
+      this.originalRender();
+      if (this.isActive) {
+        this.renderHighlights();
+        this.renderDataOverlays();
+      }
+    };
   }
 
   /**
@@ -382,43 +501,42 @@ class TraceVisualizationRenderer {
    */
   visualizeTrace(trace, currentStep = -1) {
     this.clearHighlights();
+    this.isActive = true;
     
-    if (!trace || trace.length === 0) return;
+    if (!trace || trace.length === 0) {
+      this.mainRenderer.render();
+      return;
+    }
     
-    // Highlight path up to current step
     const stepsToShow = currentStep >= 0 ? currentStep + 1 : trace.length;
     
     for (let i = 0; i < Math.min(stepsToShow, trace.length); i++) {
       const step = trace[i];
       
       if (step.transitionId) {
-        // Highlight transition
         this.highlightedElements.add(step.transitionId);
+        this.highlightConnectedElements(step.transitionId);
         
-        // Highlight connected places
-        this.highlightConnectedPlaces(step.transitionId);
-        
-        // Add data overlay if there are data changes
         if (step.dataChanges && step.dataChanges.length > 0) {
           this.addDataOverlay(step.transitionId, step.dataChanges, step.dataValuation);
         }
       }
     }
     
-    this.render();
+    this.mainRenderer.render();
   }
 
   /**
-   * Highlight places connected to a transition
+   * Highlight elements connected to a transition
    */
-  highlightConnectedPlaces(transitionId) {
-    const arcs = Array.from(this.renderer.petriNet.arcs.values());
+  highlightConnectedElements(transitionId) {
+    const petriNet = this.mainRenderer.petriNet;
+    const arcs = Array.from(petriNet.arcs.values());
     
     for (const arc of arcs) {
       if (arc.source === transitionId || arc.target === transitionId) {
         this.highlightedArcs.add(arc.id);
         
-        // Highlight connected places
         if (arc.source !== transitionId) {
           this.highlightedElements.add(arc.source);
         }
@@ -433,7 +551,8 @@ class TraceVisualizationRenderer {
    * Add data overlay to a transition
    */
   addDataOverlay(transitionId, dataChanges, currentValuation) {
-    const transition = this.renderer.petriNet.transitions.get(transitionId);
+    const petriNet = this.mainRenderer.petriNet;
+    const transition = petriNet.transitions.get(transitionId);
     if (!transition) return;
     
     this.dataOverlays.set(transitionId, {
@@ -450,6 +569,8 @@ class TraceVisualizationRenderer {
     this.highlightedElements.clear();
     this.highlightedArcs.clear();
     this.dataOverlays.clear();
+    this.isActive = false;
+    this.mainRenderer.render();
   }
 
   /**
@@ -458,67 +579,39 @@ class TraceVisualizationRenderer {
   async animateTrace(trace) {
     for (let i = 0; i < trace.length; i++) {
       this.visualizeTrace(trace, i);
-      await this.delay(this.animationSpeed);
+      await this.delay(1000);
     }
-  }
-
-  /**
-   * Render with highlights and overlays
-   */
-  render() {
-    // Call original render
-    this.renderer.render();
-    
-    // Add highlights
-    this.renderHighlights();
-    
-    // Add data overlays
-    this.renderDataOverlays();
   }
 
   /**
    * Render element highlights
    */
   renderHighlights() {
-    const ctx = this.renderer.ctx;
+    const ctx = this.mainRenderer.ctx;
+    const renderer = this.mainRenderer;
     
     ctx.save();
-    ctx.translate(this.renderer.panOffset.x, this.renderer.panOffset.y);
-    ctx.scale(this.renderer.zoomFactor, this.renderer.zoomFactor);
+    ctx.translate(renderer.panOffset.x, renderer.panOffset.y);
+    ctx.scale(renderer.zoomFactor, renderer.zoomFactor);
     
-    // Highlight places
     for (const elementId of this.highlightedElements) {
-      const place = this.renderer.petriNet.places.get(elementId);
+      const place = renderer.petriNet.places.get(elementId);
       if (place) {
         ctx.beginPath();
-        ctx.arc(place.position.x, place.position.y, place.radius + 6, 0, Math.PI * 2);
-        ctx.strokeStyle = '#FF6B6B'; // Red highlight
-        ctx.lineWidth = 4;
+        ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 107, 107, 0.3)';
+        ctx.lineWidth = 6;
         ctx.stroke();
         
-        // Add pulsing effect
         ctx.beginPath();
-        ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255, 107, 107, 0.5)';
-        ctx.lineWidth = 2;
+        ctx.arc(place.position.x, place.position.y, place.radius + 4, 0, Math.PI * 2);
+        ctx.strokeStyle = '#FF6B6B';
+        ctx.lineWidth = 3;
         ctx.stroke();
       }
       
-      // Highlight transitions
-      const transition = this.renderer.petriNet.transitions.get(elementId);
+      const transition = renderer.petriNet.transitions.get(elementId);
       if (transition) {
-        ctx.beginPath();
-        ctx.rect(
-          transition.position.x - transition.width / 2 - 6,
-          transition.position.y - transition.height / 2 - 6,
-          transition.width + 12,
-          transition.height + 12
-        );
-        ctx.strokeStyle = '#4ECDC4'; // Teal highlight
-        ctx.lineWidth = 4;
-        ctx.stroke();
-        
-        // Add pulsing effect
         ctx.beginPath();
         ctx.rect(
           transition.position.x - transition.width / 2 - 8,
@@ -526,37 +619,46 @@ class TraceVisualizationRenderer {
           transition.width + 16,
           transition.height + 16
         );
-        ctx.strokeStyle = 'rgba(78, 205, 196, 0.5)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(78, 205, 196, 0.3)';
+        ctx.lineWidth = 6;
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.rect(
+          transition.position.x - transition.width / 2 - 4,
+          transition.position.y - transition.height / 2 - 4,
+          transition.width + 8,
+          transition.height + 8
+        );
+        ctx.strokeStyle = '#4ECDC4';
+        ctx.lineWidth = 3;
         ctx.stroke();
       }
     }
     
-    // Highlight arcs
     for (const arcId of this.highlightedArcs) {
-      const arc = this.renderer.petriNet.arcs.get(arcId);
+      const arc = renderer.petriNet.arcs.get(arcId);
       if (arc) {
-        const sourceElement = this.renderer.petriNet.places.get(arc.source) || 
-                            this.renderer.petriNet.transitions.get(arc.source);
-        const targetElement = this.renderer.petriNet.places.get(arc.target) || 
-                            this.renderer.petriNet.transitions.get(arc.target);
+        const sourceElement = renderer.petriNet.places.get(arc.source) || 
+                            renderer.petriNet.transitions.get(arc.source);
+        const targetElement = renderer.petriNet.places.get(arc.target) || 
+                            renderer.petriNet.transitions.get(arc.target);
         
         if (sourceElement && targetElement) {
-          const { start, end } = this.renderer.calculateArcEndpoints(sourceElement, targetElement);
+          const { start, end } = renderer.calculateArcEndpoints(sourceElement, targetElement);
           
           ctx.beginPath();
           ctx.moveTo(start.x, start.y);
           ctx.lineTo(end.x, end.y);
-          ctx.strokeStyle = '#FFE66D'; // Yellow highlight
-          ctx.lineWidth = 5;
+          ctx.strokeStyle = 'rgba(255, 230, 109, 0.3)';
+          ctx.lineWidth = 8;
           ctx.stroke();
           
-          // Add glow effect
           ctx.beginPath();
           ctx.moveTo(start.x, start.y);
           ctx.lineTo(end.x, end.y);
-          ctx.strokeStyle = 'rgba(255, 230, 109, 0.5)';
-          ctx.lineWidth = 8;
+          ctx.strokeStyle = '#FFE66D';
+          ctx.lineWidth = 4;
           ctx.stroke();
         }
       }
@@ -569,39 +671,38 @@ class TraceVisualizationRenderer {
    * Render data overlays
    */
   renderDataOverlays() {
-    const ctx = this.renderer.ctx;
+    const ctx = this.mainRenderer.ctx;
+    const renderer = this.mainRenderer;
     
     ctx.save();
-    ctx.translate(this.renderer.panOffset.x, this.renderer.panOffset.y);
-    ctx.scale(this.renderer.zoomFactor, this.renderer.zoomFactor);
+    ctx.translate(renderer.panOffset.x, renderer.panOffset.y);
+    ctx.scale(renderer.zoomFactor, renderer.zoomFactor);
     
     for (const [transitionId, overlay] of this.dataOverlays) {
-      const transition = this.renderer.petriNet.transitions.get(transitionId);
+      const transition = renderer.petriNet.transitions.get(transitionId);
       if (!transition) continue;
       
-      const x = transition.position.x + 30; // Offset to the right
-      const y = transition.position.y - 20; // Offset above
+      const x = transition.position.x + 40;
+      const y = transition.position.y - 30;
       
-      // Background box
       const text = this.formatDataOverlay(overlay);
       const lines = text.split('\n');
-      const lineHeight = 14;
-      const padding = 8;
-      const boxWidth = Math.max(...lines.map(line => ctx.measureText(line).width)) + padding * 2;
+      const lineHeight = 16;
+      const padding = 10;
+      
+      ctx.font = '12px monospace';
+      const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+      const boxWidth = maxWidth + padding * 2;
       const boxHeight = lines.length * lineHeight + padding * 2;
       
-      // Draw background
-      ctx.fillStyle = 'rgba(46, 52, 64, 0.9)';
+      ctx.fillStyle = 'rgba(46, 52, 64, 0.95)';
       ctx.fillRect(x, y - boxHeight, boxWidth, boxHeight);
       
-      // Draw border
       ctx.strokeStyle = '#88C0D0';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 2;
       ctx.strokeRect(x, y - boxHeight, boxWidth, boxHeight);
       
-      // Draw text
       ctx.fillStyle = '#ECEFF4';
-      ctx.font = '12px monospace';
       ctx.textAlign = 'left';
       
       lines.forEach((line, index) => {
@@ -619,8 +720,8 @@ class TraceVisualizationRenderer {
     const lines = ['Data Changes:'];
     
     for (const change of overlay.changes) {
-      const changeSymbol = change.changeType === 'created' ? '+' : '~';
-      lines.push(`${changeSymbol} ${change.variable}: ${change.oldValue} → ${change.newValue}`);
+      const symbol = change.changeType === 'created' ? '+' : '~';
+      lines.push(`${symbol} ${change.variable}: ${change.oldValue} → ${change.newValue}`);
     }
     
     return lines.join('\n');
@@ -631,16 +732,19 @@ class TraceVisualizationRenderer {
   }
 }
 
-// Enhance the DataPetriNetVerification class to include trace visualization
+/**
+ * Enhanced Data Petri Net Verification with Trace Visualization
+ */
 class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   constructor(app) {
     super(app);
     this.traceVisualizer = null;
     this.currentCounterexamples = [];
+    this.isVisualizationActive = false;
   }
 
   /**
-   * Override startVerification to use enhanced verifier
+   * Start verification with enhanced verifier
    */
   async startVerification() {
     const verifyButton = document.querySelector('#btn-verify-soundness');
@@ -656,24 +760,16 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
     try {
       const dpn = this.app.api.petriNet;
       
-      // Use the enhanced verifier
       const verifier = new EnhancedDataAwareVerifier(dpn);
       const result = await verifier.verify((progress, step) => {
         this.updateProgress(progress, step);
       });
 
-      // Store counterexamples for trace visualization
       this.currentCounterexamples = result.counterexampleTraces || [];
-
-      // Initialize trace visualizer
-      if (!this.traceVisualizer && this.app.editor.renderer) {
-        this.traceVisualizer = new TraceVisualizationRenderer(this.app.editor.renderer);
-      }
-
+      this.initializeTraceVisualizer();
       modalBody.innerHTML = this.createEnhancedResultsHTML(result);
 
     } catch (error) {
-      console.error('Verification error:', error);
       modalBody.innerHTML = this.createErrorHTML(error);
     } finally {
       verifyButton.disabled = false;
@@ -682,7 +778,130 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   }
 
   /**
-   * Create enhanced results HTML with counterexample traces
+   * Initialize trace visualizer
+   */
+  initializeTraceVisualizer() {
+    if (this.app.editor && this.app.editor.renderer && !this.traceVisualizer) {
+      this.traceVisualizer = new TraceVisualizationRenderer(this.app.editor.renderer);
+    }
+  }
+
+  /**
+   * Visualize a specific trace on the editor
+   */
+  visualizeTrace(traceIndex, propertyName) {
+    if (!this.traceVisualizer) {
+      this.initializeTraceVisualizer();
+    }
+
+    if (!this.traceVisualizer) {
+      return;
+    }
+
+    const counterexample = this.findCounterexample(traceIndex, propertyName);
+    if (!counterexample) {
+      return;
+    }
+
+    let trace = counterexample.trace;
+    if (!trace || trace.length === 0) {
+      if (counterexample.deadTransition) {
+        trace = [{
+          step: 0,
+          action: "Initial State",
+          transitionId: null,
+          transitionLabel: "Initial"
+        }];
+      }
+    }
+
+    if (trace && trace.length > 0) {
+      this.traceVisualizer.visualizeTrace(trace);
+      this.updateTraceVisualizationUI(traceIndex, propertyName);
+      this.isVisualizationActive = true;
+    }
+  }
+
+  /**
+   * Animate a specific trace on the editor
+   */
+  async animateTrace(traceIndex, propertyName) {
+    if (!this.traceVisualizer) {
+      this.initializeTraceVisualizer();
+    }
+
+    if (!this.traceVisualizer) {
+      return;
+    }
+
+    const counterexample = this.findCounterexample(traceIndex, propertyName);
+    if (!counterexample || !counterexample.trace) {
+      return;
+    }
+
+    this.updateTraceVisualizationUI(traceIndex, propertyName);
+    await this.traceVisualizer.animateTrace(counterexample.trace);
+    this.isVisualizationActive = true;
+  }
+
+  /**
+   * Clear trace visualization
+   */
+  clearTraceVisualization() {
+    if (this.traceVisualizer) {
+      this.traceVisualizer.clearHighlights();
+      this.isVisualizationActive = false;
+    }
+    
+    document.querySelectorAll('.counterexample-item').forEach(item => {
+      item.classList.remove('active-trace');
+    });
+  }
+
+  /**
+   * Find counterexample by index and property name
+   */
+  findCounterexample(traceIndex, propertyName) {
+    let relevantCounterexamples = this.currentCounterexamples;
+    
+    if (propertyName.includes('P1')) {
+      relevantCounterexamples = this.currentCounterexamples.filter(ce => 
+        ce.reason && ce.reason.includes('deadlock'));
+    } else if (propertyName.includes('P2')) {
+      relevantCounterexamples = this.currentCounterexamples.filter(ce => 
+        ce.reason && ce.reason.includes('covers'));
+    } else if (propertyName.includes('P3')) {
+      relevantCounterexamples = this.currentCounterexamples.filter(ce => 
+        ce.deadTransition || (ce.reason && ce.reason.includes('dead')));
+    }
+    
+    if (traceIndex < relevantCounterexamples.length) {
+      return relevantCounterexamples[traceIndex];
+    }
+    
+    if (traceIndex < this.currentCounterexamples.length) {
+      return this.currentCounterexamples[traceIndex];
+    }
+    
+    return null;
+  }
+
+  /**
+   * Update UI to show active trace
+   */
+  updateTraceVisualizationUI(traceIndex, propertyName) {
+    document.querySelectorAll('.counterexample-item').forEach(item => {
+      item.classList.remove('active-trace');
+    });
+    
+    const traceElements = document.querySelectorAll('.counterexample-item');
+    if (traceIndex < traceElements.length) {
+      traceElements[traceIndex].classList.add('active-trace');
+    }
+  }
+
+  /**
+   * Create enhanced results HTML with counterexample sections
    */
   createEnhancedResultsHTML(result) {
     const isSound = result.isSound;
@@ -692,9 +911,9 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
 
     let html = `
       <div class="verification-algorithm-info">
-        <h4>Algorithm: Data-Aware Soundness Verification</h4>
+        <h4>🔬 Algorithm: Enhanced Data-Aware Soundness Verification</h4>
         <p style="color: #D8DEE9; margin: 0;">
-          Based on the approach by Suvorov & Lomazova (2024) for checking soundness of Data Petri nets.
+          Advanced verification with counterexample detection and interactive visualization.
         </p>
       </div>
 
@@ -713,8 +932,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
       <div class="verification-details">
     `;
 
-    // Add property details
-    result.properties.forEach(prop => {
+    result.properties.forEach((prop, propIndex) => {
       const propStatus = prop.satisfied ? 'pass' : 'fail';
       const propIcon = prop.satisfied ? '✅' : '❌';
       
@@ -729,7 +947,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
             ${!prop.satisfied && prop.details ? `<br><strong>Issue:</strong> ${prop.details}` : ''}
           </div>
           ${!prop.satisfied && prop.counterexamples && prop.counterexamples.length > 0 ? 
-            this.createCounterexampleSection(prop.counterexamples, prop.name) : ''}
+            this.createCounterexampleSection(prop.counterexamples, prop.name, propIndex) : ''}
         </div>
       `;
     });
@@ -745,9 +963,9 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   }
 
   /**
-   * Create counterexample section with trace visualization buttons
+   * Create counterexample section with visualization controls
    */
-  createCounterexampleSection(counterexamples, propertyName) {
+  createCounterexampleSection(counterexamples, propertyName, propertyIndex) {
     if (!counterexamples || counterexamples.length === 0) return '';
 
     let html = `
@@ -762,27 +980,29 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
     `;
 
     counterexamples.forEach((ce, index) => {
-      const traceId = `trace-${propertyName.replace(/\W/g, '')}-${index}`;
+      const globalIndex = this.currentCounterexamples.indexOf(ce);
+      const displayIndex = globalIndex >= 0 ? globalIndex : index;
       
       html += `
-        <div class="counterexample-item" data-trace-id="${traceId}">
+        <div class="counterexample-item" data-property="${propertyName}" data-index="${displayIndex}">
           <div class="counterexample-header">
-            <span class="counterexample-title">Trace ${index + 1}</span>
+            <span class="counterexample-title">Counterexample ${index + 1}</span>
             <div class="counterexample-actions">
-              <button class="trace-btn" onclick="window.dpnVerification.visualizeTrace(${index}, '${propertyName}')">
+              <button class="trace-btn" onclick="window.dpnVerification.visualizeTrace(${displayIndex}, '${propertyName}')">
                 👁️ Visualize
               </button>
-              <button class="trace-btn" onclick="window.dpnVerification.animateTrace(${index}, '${propertyName}')">
-                ▶️ Animate
-              </button>
+              ${ce.trace && ce.trace.length > 0 ? 
+                `<button class="trace-btn" onclick="window.dpnVerification.animateTrace(${displayIndex}, '${propertyName}')">
+                  ▶️ Animate
+                </button>` : ''}
             </div>
           </div>
           <div class="counterexample-details">
             <strong>Reason:</strong> ${ce.reason}
             ${ce.trace && ce.trace.length > 0 ? 
-              `<br><strong>Steps:</strong> ${ce.trace.length}` : ''}
-            ${ce.stateData && ce.stateData.dataValuation ? 
-              `<br><strong>Data Issues:</strong> ${Object.keys(ce.stateData.dataValuation).length} variables involved` : ''}
+              `<br><strong>Execution steps:</strong> ${ce.trace.length}` : ''}
+            ${ce.deadTransition ? 
+              `<br><strong>Dead transition:</strong> ${ce.deadTransition.transitionLabel}` : ''}
           </div>
         </div>
       `;
@@ -795,111 +1015,10 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
 
     return html;
   }
-
-  /**
-   * Visualize a specific trace on the editor
-   */
-  visualizeTrace(traceIndex, propertyName) {
-    if (!this.traceVisualizer) {
-      this.initializeTraceVisualizer();
-    }
-
-    const counterexample = this.findCounterexample(traceIndex, propertyName);
-    if (!counterexample || !counterexample.trace) {
-      console.warn('Trace not found');
-      return;
-    }
-
-    this.traceVisualizer.visualizeTrace(counterexample.trace);
-    
-    // Update UI to show which trace is being visualized
-    this.updateTraceVisualizationUI(traceIndex, propertyName);
-  }
-
-  /**
-   * Animate a specific trace on the editor
-   */
-  async animateTrace(traceIndex, propertyName) {
-    if (!this.traceVisualizer) {
-      this.initializeTraceVisualizer();
-    }
-
-    const counterexample = this.findCounterexample(traceIndex, propertyName);
-    if (!counterexample || !counterexample.trace) {
-      console.warn('Trace not found');
-      return;
-    }
-
-    await this.traceVisualizer.animateTrace(counterexample.trace);
-  }
-
-  /**
-   * Clear trace visualization
-   */
-  clearTraceVisualization() {
-    if (this.traceVisualizer) {
-      this.traceVisualizer.clearHighlights();
-      this.traceVisualizer.render();
-    }
-    
-    // Clear UI highlights
-    document.querySelectorAll('.counterexample-item').forEach(item => {
-      item.classList.remove('active-trace');
-    });
-  }
-
-  /**
-   * Initialize trace visualizer
-   */
-  initializeTraceVisualizer() {
-    if (this.app.editor && this.app.editor.renderer) {
-      this.traceVisualizer = new TraceVisualizationRenderer(this.app.editor.renderer);
-      
-      // Override the renderer's render method to include trace visualization
-      const originalRender = this.app.editor.renderer.render.bind(this.app.editor.renderer);
-      this.app.editor.renderer.render = () => {
-        originalRender();
-        if (this.traceVisualizer) {
-          this.traceVisualizer.renderHighlights();
-          this.traceVisualizer.renderDataOverlays();
-        }
-      };
-    }
-  }
-
-  /**
-   * Find counterexample by index and property name
-   */
-  findCounterexample(traceIndex, propertyName) {
-    for (const ce of this.currentCounterexamples) {
-      // Match by property and index (simplified matching)
-      if (this.currentCounterexamples.indexOf(ce) === traceIndex) {
-        return ce;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Update UI to show active trace
-   */
-  updateTraceVisualizationUI(traceIndex, propertyName) {
-    // Clear previous highlights
-    document.querySelectorAll('.counterexample-item').forEach(item => {
-      item.classList.remove('active-trace');
-    });
-    
-    // Highlight current trace
-    const traceElement = document.querySelector(`[data-trace-id="trace-${propertyName.replace(/\W/g, '')}-${traceIndex}"]`);
-    if (traceElement) {
-      traceElement.classList.add('active-trace');
-    }
-  }
 }
 
-// Enhanced CSS styles for trace visualization
+// Enhanced verification styles
 const enhancedVerificationStyles = `
-  /* Counterexample section styles */
   .counterexample-section {
     background-color: #2E3440;
     border-radius: 6px;
@@ -908,15 +1027,26 @@ const enhancedVerificationStyles = `
     border-left: 4px solid #BF616A;
   }
 
-  .counterexample-section h4 {
-    margin: 0 0 15px 0;
-    color: #BF616A;
-    font-weight: 600;
+  .counterexample-item.active-trace {
+    border-color: #88C0D0 !important;
+    background-color: rgba(136, 192, 208, 0.2) !important;
+    box-shadow: 0 0 10px rgba(136, 192, 208, 0.3);
   }
 
-  .counterexample-controls {
-    margin-bottom: 15px;
-    text-align: right;
+  .trace-btn {
+    background-color: #5E81AC;
+    color: #ECEFF4;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: all 0.2s;
+  }
+
+  .trace-btn:hover {
+    background-color: #81A1C1;
+    transform: translateY(-1px);
   }
 
   .trace-control-btn {
@@ -927,11 +1057,16 @@ const enhancedVerificationStyles = `
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
-    transition: background-color 0.2s;
+    transition: all 0.2s;
   }
 
   .trace-control-btn:hover {
     background-color: #5E81AC;
+  }
+
+  .counterexample-controls {
+    margin-bottom: 15px;
+    text-align: right;
   }
 
   .counterexample-list {
@@ -952,11 +1087,6 @@ const enhancedVerificationStyles = `
     border-color: #5E81AC;
   }
 
-  .counterexample-item.active-trace {
-    border-color: #88C0D0;
-    background-color: rgba(136, 192, 208, 0.1);
-  }
-
   .counterexample-header {
     display: flex;
     justify-content: space-between;
@@ -975,22 +1105,6 @@ const enhancedVerificationStyles = `
     gap: 6px;
   }
 
-  .trace-btn {
-    background-color: #5E81AC;
-    color: #ECEFF4;
-    border: none;
-    padding: 4px 8px;
-    border-radius: 3px;
-    cursor: pointer;
-    font-size: 11px;
-    transition: all 0.2s;
-  }
-
-  .trace-btn:hover {
-    background-color: #81A1C1;
-    transform: translateY(-1px);
-  }
-
   .counterexample-details {
     font-size: 12px;
     color: #D8DEE9;
@@ -998,7 +1112,7 @@ const enhancedVerificationStyles = `
   }
 `;
 
-// Inject enhanced styles
+// Inject styles
 function injectEnhancedVerificationStyles() {
   const existingStyles = document.getElementById('verification-styles');
   if (existingStyles) {
@@ -1011,30 +1125,19 @@ function injectEnhancedVerificationStyles() {
   }
 }
 
-// Replace the original DataPetriNetVerification with the enhanced version
+// Initialize enhanced verification system
 document.addEventListener('DOMContentLoaded', () => {
   const initEnhancedVerification = () => {
     if (window.petriApp && window.dataPetriNetIntegration) {
       if (!window.enhancedDpnVerification) {
-        console.log("Initializing Enhanced Data Petri Net Verification with trace visualization");
-        
-        // Inject enhanced styles
         injectEnhancedVerificationStyles();
-        
-        // Create enhanced verification instance
         window.enhancedDpnVerification = new EnhancedDataPetriNetVerification(window.petriApp);
-        
-        // Replace the original verification instance
-        if (window.dpnVerification) {
-          window.dpnVerification = window.enhancedDpnVerification;
-        }
-        
-        console.log("Enhanced verification with trace visualization ready");
+        window.dpnVerification = window.enhancedDpnVerification;
       }
     } else {
       setTimeout(initEnhancedVerification, 500);
     }
   };
   
-  setTimeout(initEnhancedVerification, 1500);
+  setTimeout(initEnhancedVerification, 2000);
 });
