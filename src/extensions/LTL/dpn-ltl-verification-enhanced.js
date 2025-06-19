@@ -66,7 +66,7 @@ class EnhancedLTLVerificationIntegration {
     checkDependencies() {
         const required = [
             'LTLIntegrationManager',
-            'LTLVerificationExtensionTWO', 
+            'LTLVerificationExtension', 
             'LTLExpressionSolver',
             'DataAwareLTLEvaluator'
         ];
@@ -392,8 +392,8 @@ class EnhancedLTLVerificationIntegration {
  */
 function initializeEnhancedLTLVerification() {
     // Create global integration instance
-    if (!window.enhancedLtlVerificationTWO) {
-        window.enhancedLtlVerificationTWO = new EnhancedLTLVerificationIntegrationTWO();
+    if (!window.enhancedLtlVerification) {
+        window.enhancedLtlVerification = new EnhancedLTLVerificationIntegration();
     }
 
     // Wait for the Petri net application to be ready
@@ -401,7 +401,7 @@ function initializeEnhancedLTLVerification() {
         if (window.petriApp && window.dataPetriNetIntegration) {
             console.log('Initializing Enhanced LTL Verification System...');
             
-            const success = await window.enhancedLtlVerificationTWO.initialize(window.petriApp);
+            const success = await window.enhancedLtlVerification.initialize(window.petriApp);
             
             if (success) {
                 console.log('✅ Enhanced LTL Verification System ready');
@@ -465,7 +465,7 @@ window.LTLVerificationUtils = {
      * @returns {Object} System status
      */
     getStatus() {
-        // return window.enhancedLtlVerificationTWO ? 
+        // return window.enhancedLtlVerification ? 
         //     window.LTLVerificationUtils.getStatus() : 
         //     { initialized: false };
         return true
@@ -476,7 +476,7 @@ window.LTLVerificationUtils = {
      * @param {boolean} enabled - Debug status
      */
     setDebugMode(enabled) {
-        // if (window.enhancedLtlVerificationTWO) {
+        // if (window.enhancedLtlVerification) {
         //     window.LTLVerificationUtils.setDebugMode(enabled);
         // }
     },
@@ -488,11 +488,11 @@ window.LTLVerificationUtils = {
      * @returns {Promise<Object>} Verification result
      */
     async verifyFormula(formula, options = {}) {
-        if (!window.enhancedLtlVerificationTWO || !window.enhancedLtlVerificationTWO.isInitialized) {
+        if (!window.enhancedLtlVerification || !window.enhancedLtlVerification.isInitialized) {
             throw new Error('Enhanced LTL Verification System not ready');
         }
         
-        return window.enhancedLtlVerificationTWO.verifyFormula(formula, options);
+        return window.enhancedLtlVerification.verifyFormula(formula, options);
     }
 };
 

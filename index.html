@@ -1,930 +1,1050 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>YAPNE - Yet Another Petri Net Editor</title>
-    <link rel="stylesheet" href="styles/layout.css">
-    <link rel="stylesheet" href="styles/event-log.css">
-    <link rel="stylesheet" href="styles/dpn-styles.css">
-    <link rel="stylesheet" href="styles/pnml-importer.css">
+    <link rel="stylesheet" href="styles/layout.css" />
+    <link rel="stylesheet" href="styles/event-log.css" />
+    <link rel="stylesheet" href="styles/dpn-styles.css" />
+    <link rel="stylesheet" href="styles/pnml-importer.css" />
     <style>
-        /* Additional styles for the ghost element feature */
-        .info-section {
-            background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
-            border: 1px solid #81c784;
-            border-radius: 8px;
-            padding: 12px;
-            margin-top: 15px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .info-section h4 {
-            margin: 0 0 8px 0;
-            color: #2e7d32;
-            font-size: 14px;
-            font-weight: 600;
-        }
-        
-        .info-section p {
-            margin: 0;
-            font-size: 12px;
-            line-height: 1.4;
-            color: #424242;
-        }
-        
-        .info-section kbd {
-            background-color: #ffffff;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-shadow: 0 1px 1px rgba(0,0,0,0.2);
-            color: #333;
-            display: inline-block;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
-            font-weight: bold;
-            line-height: 1;
-            padding: 2px 4px;
-            white-space: nowrap;
-        }
+      /* Additional styles for the ghost element feature */
+      .info-section {
+        background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+        border: 1px solid #81c784;
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 15px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
 
-        /* Enhanced cursor states */
-        .canvas-container canvas.ghost-mode {
-            cursor: crosshair !important;
-        }
+      .info-section h4 {
+        margin: 0 0 8px 0;
+        color: #2e7d32;
+        font-size: 14px;
+        font-weight: 600;
+      }
 
-        /* Updated pan instructions to include ghost feature */
-        .pan-instructions {
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            position: absolute;
-            z-index: 1000;
-            pointer-events: none;
-            white-space: nowrap;
-        }
+      .info-section p {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #424242;
+      }
 
-        .pan-instructions.extended {
-            white-space: normal;
-            max-width: 250px;
-        }
+      .info-section kbd {
+        background-color: #ffffff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+        color: #333;
+        display: inline-block;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 11px;
+        font-weight: bold;
+        line-height: 1;
+        padding: 2px 4px;
+        white-space: nowrap;
+      }
 
-        /* Ghost feature hint overlay */
-        .ghost-hint {
-            position: absolute;
-            top: 80px;
-            right: 10px;
-            background: rgba(76, 175, 80, 0.9);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            z-index: 1001;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            max-width: 200px;
-        }
+      /* Enhanced cursor states */
+      .canvas-container canvas.ghost-mode {
+        cursor: crosshair !important;
+      }
 
-        .ghost-hint.show {
-            opacity: 1;
-        }
+      /* Updated pan instructions to include ghost feature */
+      .pan-instructions {
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        position: absolute;
+        z-index: 1000;
+        pointer-events: none;
+        white-space: nowrap;
+      }
 
-        /* Enhanced toolbar tooltips */
-        .vertical-toolbar button {
-            position: relative;
-        }
+      .pan-instructions.extended {
+        white-space: normal;
+        max-width: 250px;
+      }
 
-        .vertical-toolbar button:hover::after {
-            content: attr(title);
-            position: absolute;
-            left: 100%;
-            top: 50%;
-            transform: translateY(-50%);
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            white-space: nowrap;
-            z-index: 1000;
-            margin-left: 8px;
-        }
+      /* Ghost feature hint overlay */
+      .ghost-hint {
+        position: absolute;
+        top: 80px;
+        right: 10px;
+        background: rgba(76, 175, 80, 0.9);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        z-index: 1001;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        max-width: 200px;
+      }
 
-/* Nord Theme Help Dialog Styles */
-.help-dialog-overlay {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(46, 52, 64, 0.6);
-    z-index: 10000;
-    backdrop-filter: blur(3px);
-}
+      .ghost-hint.show {
+        opacity: 1;
+      }
 
-.help-dialog {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: #ECEFF4;
-    border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(46, 52, 64, 0.4);
-    max-width: 600px;
-    max-height: 80vh;
-    width: 90%;
-    overflow: hidden;
-}
+      /* Enhanced toolbar tooltips */
+      .vertical-toolbar button {
+        position: relative;
+      }
 
-.help-dialog-header {
-    background: linear-gradient(135deg, #88C0D0, #81A1C1);
-    color: #ECEFF4;
-    padding: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
+      .vertical-toolbar button:hover::after {
+        content: attr(title);
+        position: absolute;
+        left: 100%;
+        top: 50%;
+        transform: translateY(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        white-space: nowrap;
+        z-index: 1000;
+        margin-left: 8px;
+      }
 
-.help-dialog-header h2 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 600;
-}
+      /* Nord Theme Help Dialog Styles */
+      .help-dialog-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(46, 52, 64, 0.6);
+        z-index: 10000;
+        backdrop-filter: blur(3px);
+      }
 
-.help-dialog-close {
-    background: none;
-    border: none;
-    color: #ECEFF4;
-    font-size: 24px;
-    cursor: pointer;
-    padding: 0;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background-color 0.2s;
-}
+      .help-dialog {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #eceff4;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(46, 52, 64, 0.4);
+        max-width: 600px;
+        max-height: 80vh;
+        width: 90%;
+        overflow: hidden;
+      }
 
-.help-dialog-close:hover {
-    background-color: rgba(236, 239, 244, 0.2);
-}
+      .help-dialog-header {
+        background: linear-gradient(135deg, #88c0d0, #81a1c1);
+        color: #eceff4;
+        padding: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
 
-.help-dialog-content {
-    padding: 20px;
-    overflow-y: auto;
-    max-height: calc(80vh - 80px);
-}
+      .help-dialog-header h2 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 600;
+      }
 
-.help-section {
-    margin-bottom: 25px;
-}
+      .help-dialog-close {
+        background: none;
+        border: none;
+        color: #eceff4;
+        font-size: 24px;
+        cursor: pointer;
+        padding: 0;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s;
+      }
 
-.help-section h3 {
-    color: #5E81AC;
-    font-size: 18px;
-    margin-bottom: 10px;
-    border-bottom: 2px solid #D8DEE9;
-    padding-bottom: 5px;
-}
+      .help-dialog-close:hover {
+        background-color: rgba(236, 239, 244, 0.2);
+      }
 
-.help-controls-grid {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 10px 15px;
-    margin-bottom: 15px;
-}
+      .help-dialog-content {
+        padding: 20px;
+        overflow-y: auto;
+        max-height: calc(80vh - 80px);
+      }
 
-.help-key {
-    background-color: #D8DEE9;
-    border: 1px solid #BFC7D5;
-    border-radius: 4px;
-    padding: 4px 8px;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 12px;
-    font-weight: bold;
-    color: #2E3440;
-    min-width: 60px;
-    text-align: center;
-    box-shadow: 0 1px 2px rgba(46, 52, 64, 0.1);
-}
+      .help-section {
+        margin-bottom: 25px;
+      }
 
-.help-description {
-    color: #434C5E;
-    line-height: 1.4;
-}
+      .help-section h3 {
+        color: #5e81ac;
+        font-size: 18px;
+        margin-bottom: 10px;
+        border-bottom: 2px solid #d8dee9;
+        padding-bottom: 5px;
+      }
 
-.help-tip {
-    background: #E5E9F0;
-    border-left: 4px solid #8FBCBB;
-    padding: 10px 15px;
-    margin: 15px 0;
-    border-radius: 0 6px 6px 0;
-    color:#2E3440;
-}
+      .help-controls-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px 15px;
+        margin-bottom: 15px;
+      }
 
-.help-tip-icon {
-    color: #88C0D0;
-    font-weight: bold;
-    margin-right: 5px;
-}
+      .help-key {
+        background-color: #d8dee9;
+        border: 1px solid #bfc7d5;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 12px;
+        font-weight: bold;
+        color: #2e3440;
+        min-width: 60px;
+        text-align: center;
+        box-shadow: 0 1px 2px rgba(46, 52, 64, 0.1);
+      }
 
-.help-button {
-    background: #81A1C1;
-    color: #ECEFF4;
-    border: none;
-    padding: 8px 12px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background-color 0.2s;
-    margin-top: 10px;
-}
+      .help-description {
+        color: #434c5e;
+        line-height: 1.4;
+      }
 
-.help-button:hover {
-    background: #5E81AC;
-}
+      .help-tip {
+        background: #e5e9f0;
+        border-left: 4px solid #8fbcbb;
+        padding: 10px 15px;
+        margin: 15px 0;
+        border-radius: 0 6px 6px 0;
+        color: #2e3440;
+      }
+
+      .help-tip-icon {
+        color: #88c0d0;
+        font-weight: bold;
+        margin-right: 5px;
+      }
+
+      .help-button {
+        background: #81a1c1;
+        color: #eceff4;
+        border: none;
+        padding: 8px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.2s;
+        margin-top: 10px;
+      }
+
+      .help-button:hover {
+        background: #5e81ac;
+      }
     </style>
-</head> 
-<body>
+  </head>
+  <body>
     <header>
-        <div class="container">
-            <h1 class="header-title">YAPNE - Yet Another Petri Net Editor (BETA - Version)</h1>
-        </div>
+      <div class="container">
+        <h1 class="header-title">
+          YAPNE - Yet Another Petri Net Editor (BETA - Version)
+        </h1>
+      </div>
     </header>
 
     <div class="container">
-        <div class="editor-container">
-            <div class="canvas-container">
-                <div class="vertical-toolbar">
-                    <div class="toolbar-group vertical">
-                        <button id="btn-select" class="active" title="Select tool - Hold Shift while selected element to create connected elements">✓</button>
-                        <button id="btn-add-place" title="Add place">○</button>
-                        <button id="btn-add-transition" title="Add transition">□</button>
-                        <button id="btn-add-arc" title="Add arc - Hotkey: C">→</button>
-                        <hr>
-                        <button id="btn-delete" class="danger" title="Delete selected element">🗑️</button>
-                        <button id="btn-clear" class="danger" title="Clear canvas">🧹</button>
-                        <hr>
-                        <button id="btn-auto-layout" class="blue" title="Auto-Layout">🪄</button>
-                        <button id="btn-grid" title="Toggle snap to grid">📏</button>
-                    </div>
-                </div>
-                
-                <!-- New Zoom Controls on Canvas -->
-                <div class="zoom-controls">
-                    <button id="btn-zoom-in" title="Zoom In">+</button>
-                    <span id="zoom-display">100%</span>
-                    <button id="btn-zoom-out" title="Zoom Out">-</button>
-                    <button id="btn-reset-view" title="Reset View">↺</button>
-                    <button id="btn-fullscreen" title="Toggle Full Screen">⛶</button>
-                </div>
-                
-                <!-- Pan instructions overlay - will be updated with JS -->
-                <div class="pan-instructions" id="pan-instructions">
-                    <span>Pan: Middle mouse button or Space+drag</span>
-                </div>
-
-                <!-- Ghost feature hint overlay -->
-                <div class="ghost-hint" id="ghost-hint">
-                    💡 <strong>Ghost Mode Active!</strong><br>
-                    Move mouse to position element, click to place
-                </div>
-                
-                <canvas id="petri-canvas" width="1090" height="800" class="resizable-content"></canvas>
+      <div class="editor-container">
+        <div class="canvas-container">
+          <div class="vertical-toolbar">
+            <div class="toolbar-group vertical">
+              <button
+                id="btn-select"
+                class="active"
+                title="Select tool - Hold Shift while selected element to create connected elements"
+              >
+                ✓
+              </button>
+              <button id="btn-add-place" title="Add place">○</button>
+              <button id="btn-add-transition" title="Add transition">□</button>
+              <button id="btn-add-arc" title="Add arc - Hotkey: C">→</button>
+              <hr />
+              <button
+                id="btn-delete"
+                class="danger"
+                title="Delete selected element"
+              >
+                🗑️
+              </button>
+              <button id="btn-clear" class="danger" title="Clear canvas">
+                🧹
+              </button>
+              <hr />
+              <button id="btn-auto-layout" class="blue" title="Auto-Layout">
+                🪄
+              </button>
+              <button id="btn-grid" title="Toggle snap to grid">📏</button>
             </div>
+          </div>
 
-            <!-- BEGIN REDESIGNED SIDEBAR -->
-            <div class="sidebar">
-                <!-- Tab Navigation -->
-                <div class="sidebar-tabs">
-                    <button class="sidebar-tab active" data-tab="model">Model</button>
-                    <button class="sidebar-tab" data-tab="simulation">Simulation</button>
-                    <button class="sidebar-tab" data-tab="file">File</button>
-                    <button class="sidebar-tab" data-tab="help">Help</button>
-                </div>
-                
-                <!-- Tab Content -->
-                <div class="sidebar-content">
-                    <!-- Model Tab -->
-                    <div class="sidebar-pane active" data-tab="model">
-                        <!-- Properties Section -->
-                        <div id="properties-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">⚙️</span>
-                                    <h3>Properties</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content" id="properties-content">
-                                <p>No element selected.</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Data Variables Section -->
-                        <div id="data-variables-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">🔢</span>
-                                    <h3>Data Variables</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content" id="data-variables-content-conatiner"> 
+          <!-- New Zoom Controls on Canvas -->
+          <div class="zoom-controls">
+            <button id="btn-zoom-in" title="Zoom In">+</button>
+            <span id="zoom-display">100%</span>
+            <button id="btn-zoom-out" title="Zoom Out">-</button>
+            <button id="btn-reset-view" title="Reset View">↺</button>
+            <button id="btn-fullscreen" title="Toggle Full Screen">⛶</button>
+          </div>
 
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Simulation Tab -->
-                    <div class="sidebar-pane" data-tab="simulation">
-                        <!-- Simulation Controls Section -->
-                        <div id="simulation-controls-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">▶️</span>
-                                    <h3>Controls</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <div class="button-group">
-                                    <button id="btn-step" class="success" title="Fire a single transition">Step</button>
-                                    <button id="btn-auto-run" class="success" title="Auto-fire transitions">Auto Run</button>
-                                    <button id="btn-reset" title="Reset simulation">Reset</button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Token Marking Section -->
-                        <div id="tokens-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">⚫</span>
-                                    <h3>Token Marking</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content tokens-display" id="tokens-display">
-                                <!-- Will be filled dynamically -->
-                                <p>No places in the Petri net.</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Data Values Section -->
-                        <div id="data-values-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">📊</span>
-                                    <h3>Data Values</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content" id="data-values-content">
-                                <!-- Will be filled dynamically -->
-                                <p>No data variables defined.</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Variable History Section -->
-                        <div id="variable-history-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">📝</span>
-                                    <h3>Variable History</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <div class="section-content" id="variable-history-content">
-                                    <p>History tracking is disabled.</p>
-                                </div>
-                                <div class="section-actions">
-                                    <button id="btn-toggle-history">Start Tracking</button>
-                                    <button id="btn-clear-history">Clear</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- File Tab -->
-                    <div class="sidebar-pane" data-tab="file">
-                        <!-- Example Section -->
-                        <div id="templates-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">📋</span>
-                                    <h3>Examples</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <select id="template-select">
-                                    <option value="">Select an example...</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <!-- File Operations Section -->
-                        <div id="file-operations-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">📁</span>
-                                    <h3>File Operations</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <div class="button-group">
-                                    <button id="btn-save">Save (JSON)</button>
-                                    <button id="btn-load">Load (JSON)</button>
-                                    <input type="file" id="file-input" class="hidden" accept=".json">
-                                </div>
-                                <div class="button-group">
-                                    <button id="btn-export-pnml">Export PNML</button>
-                                    <button id="btn-event-log" class="blue">Generate Event Log</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Help Tab -->
-                    <div class="sidebar-pane" data-tab="help">
-                        <!-- Quick Help Button -->
-                        <div id="quick-help-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">❓</span>
-                                    <h3>Quick Help</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <button id="btn-open-help" class="help-button" style="width: 100%;">📖 Open Guide</button>
-                            </div>
-                        </div>
-                        
-                        <!-- Navigation Help Section -->
-                        <div id="navigation-help-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">🔍</span>
-                                    <h3>Navigation</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <ul class="help-list" id="navigation-help-list">
-                                    <li><strong>Pan:</strong> Middle mouse button or Space+drag</li>
-                                    <li><strong>Zoom:</strong> Mouse wheel or use zoom controls</li>
-                                    <li><strong>Reset View:</strong> Click ↺ button to reset pan/zoom</li>
-                                    <li><strong>Full Screen:</strong> Click ⛶ button to toggle full screen mode</li>
-                                </ul>
-                            </div>
-                        </div>
-                        
-                        <!-- Tools Help Section -->
-                        <div id="tools-help-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">🛠️</span>
-                                    <h3>Editor Tools</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <ul class="help-list">
-                                    <li><strong>Select:</strong> Click the ✓ button to select and move elements</li>
-                                    <li><strong>Add Place:</strong> Click the ○ button to add places</li>
-                                    <li><strong>Add Transition:</strong> Click the □ button to add transitions</li>
-                                    <li><strong>Add Arc:</strong> Click the → button or press <kbd>C</kbd> to connect elements</li>
-                                    <li><strong>Delete:</strong> Select an element and click 🗑️ to delete</li>
-                                    <li><strong>Auto Layout:</strong> Click 🪄 to automatically arrange elements</li>
-                                </ul>
-                            </div>
-                        </div>
-                        
-                        <!-- About Section -->
-                        <div id="about-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">ℹ️</span>
-                                    <h3>About</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <p>YAPNE - Yet Another Petri Net Editor</p>
-                                <p>BETA Version</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+          <!-- Pan instructions overlay - will be updated with JS -->
+          <div class="pan-instructions" id="pan-instructions">
+            <span>Pan: Middle mouse button or Space+drag</span>
+          </div>
+
+          <!-- Ghost feature hint overlay -->
+          <div class="ghost-hint" id="ghost-hint">
+            💡 <strong>Ghost Mode Active!</strong><br />
+            Move mouse to position element, click to place
+          </div>
+
+          <canvas
+            id="petri-canvas"
+            width="1090"
+            height="800"
+            class="resizable-content"
+          ></canvas>
         </div>
+
+        <!-- BEGIN REDESIGNED SIDEBAR -->
+        <div class="sidebar">
+          <!-- Tab Navigation -->
+          <div class="sidebar-tabs">
+            <button class="sidebar-tab active" data-tab="model">Model</button>
+            <button class="sidebar-tab" data-tab="simulation">
+              Simulation
+            </button>
+            <button class="sidebar-tab" data-tab="file">File</button>
+            <button class="sidebar-tab" data-tab="help">Help</button>
+          </div>
+
+          <!-- Tab Content -->
+          <div class="sidebar-content">
+            <!-- Model Tab -->
+            <div class="sidebar-pane active" data-tab="model">
+              <!-- Properties Section -->
+              <div id="properties-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">⚙️</span>
+                    <h3>Properties</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content" id="properties-content">
+                  <p>No element selected.</p>
+                </div>
+              </div>
+
+              <!-- Data Variables Section -->
+              <div id="data-variables-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">🔢</span>
+                    <h3>Data Variables</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div
+                  class="section-content"
+                  id="data-variables-content-conatiner"
+                ></div>
+              </div>
+            </div>
+
+            <!-- Simulation Tab -->
+            <div class="sidebar-pane" data-tab="simulation">
+              <!-- Simulation Controls Section -->
+              <div id="simulation-controls-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">▶️</span>
+                    <h3>Controls</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <div class="button-group">
+                    <button
+                      id="btn-step"
+                      class="success"
+                      title="Fire a single transition"
+                    >
+                      Step
+                    </button>
+                    <button
+                      id="btn-auto-run"
+                      class="success"
+                      title="Auto-fire transitions"
+                    >
+                      Auto Run
+                    </button>
+                    <button id="btn-reset" title="Reset simulation">
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Token Marking Section -->
+              <div id="tokens-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">⚫</span>
+                    <h3>Token Marking</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content tokens-display" id="tokens-display">
+                  <!-- Will be filled dynamically -->
+                  <p>No places in the Petri net.</p>
+                </div>
+              </div>
+
+              <!-- Data Values Section -->
+              <div id="data-values-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">📊</span>
+                    <h3>Data Values</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content" id="data-values-content">
+                  <!-- Will be filled dynamically -->
+                  <p>No data variables defined.</p>
+                </div>
+              </div>
+
+              <!-- Variable History Section -->
+              <div id="variable-history-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">📝</span>
+                    <h3>Variable History</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <div class="section-content" id="variable-history-content">
+                    <p>History tracking is disabled.</p>
+                  </div>
+                  <div class="section-actions">
+                    <button id="btn-toggle-history">Start Tracking</button>
+                    <button id="btn-clear-history">Clear</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- File Tab -->
+            <div class="sidebar-pane" data-tab="file">
+              <!-- Example Section -->
+              <div id="templates-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">📋</span>
+                    <h3>Examples</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <select id="template-select">
+                    <option value="">Select an example...</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- File Operations Section -->
+              <div id="file-operations-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">📁</span>
+                    <h3>File Operations</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <div class="button-group">
+                    <button id="btn-save">Save (JSON)</button>
+                    <button id="btn-load">Load (JSON)</button>
+                    <input
+                      type="file"
+                      id="file-input"
+                      class="hidden"
+                      accept=".json"
+                    />
+                  </div>
+                  <div class="button-group">
+                    <button id="btn-export-pnml">Export PNML</button>
+                    <button id="btn-event-log" class="blue">
+                      Generate Event Log
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Help Tab -->
+            <div class="sidebar-pane" data-tab="help">
+              <!-- Quick Help Button -->
+              <div id="quick-help-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">❓</span>
+                    <h3>Quick Help</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <button
+                    id="btn-open-help"
+                    class="help-button"
+                    style="width: 100%"
+                  >
+                    📖 Open Guide
+                  </button>
+                </div>
+              </div>
+
+              <!-- Navigation Help Section -->
+              <div id="navigation-help-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">🔍</span>
+                    <h3>Navigation</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <ul class="help-list" id="navigation-help-list">
+                    <li>
+                      <strong>Pan:</strong> Middle mouse button or Space+drag
+                    </li>
+                    <li>
+                      <strong>Zoom:</strong> Mouse wheel or use zoom controls
+                    </li>
+                    <li>
+                      <strong>Reset View:</strong> Click ↺ button to reset
+                      pan/zoom
+                    </li>
+                    <li>
+                      <strong>Full Screen:</strong> Click ⛶ button to toggle
+                      full screen mode
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Tools Help Section -->
+              <div id="tools-help-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">🛠️</span>
+                    <h3>Editor Tools</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <ul class="help-list">
+                    <li>
+                      <strong>Select:</strong> Click the ✓ button to select and
+                      move elements
+                    </li>
+                    <li>
+                      <strong>Add Place:</strong> Click the ○ button to add
+                      places
+                    </li>
+                    <li>
+                      <strong>Add Transition:</strong> Click the □ button to add
+                      transitions
+                    </li>
+                    <li>
+                      <strong>Add Arc:</strong> Click the → button or press
+                      <kbd>C</kbd> to connect elements
+                    </li>
+                    <li>
+                      <strong>Delete:</strong> Select an element and click 🗑️ to
+                      delete
+                    </li>
+                    <li>
+                      <strong>Auto Layout:</strong> Click 🪄 to automatically
+                      arrange elements
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- About Section -->
+              <div id="about-section" class="sidebar-section">
+                <div class="section-header">
+                  <div class="section-title">
+                    <span class="section-icon">ℹ️</span>
+                    <h3>About</h3>
+                  </div>
+                  <button class="section-toggle">▼</button>
+                </div>
+                <div class="section-content">
+                  <p>YAPNE - Yet Another Petri Net Editor</p>
+                  <p>BETA Version</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Help Dialog Overlay -->
     <div id="help-dialog-overlay" class="help-dialog-overlay">
-        <div class="help-dialog">
-            <div class="help-dialog-header">
-                <h2>📖 Controls Guide</h2>
-                <button id="help-dialog-close" class="help-dialog-close">×</button>
-            </div>
-            <div class="help-dialog-content">
-                <div class="help-section">
-                    <h3>🔧 Editor Tools</h3>
-                    <div class="help-controls-grid">
-                        <span class="help-key">Click ✓</span>
-                        <span class="help-description">Select and move elements</span>
-                        <span class="help-key">Click ○</span>
-                        <span class="help-description">Add new places</span>
-                        <span class="help-key">Click □</span>
-                        <span class="help-description">Add new transitions</span>
-                        <span class="help-key">Click →</span>
-                        <span class="help-description">Connect elements with arcs</span>
-                        <span class="help-key">Click 🗑️</span>
-                        <span class="help-description">Delete selected element</span>
-                        <span class="help-key">Click 🪄</span>
-                        <span class="help-description">Auto-arrange all elements</span>
-                    </div>
-                </div>
-
-                <div class="help-section">
-                    <h3>⌨️ Keyboard Shortcuts</h3>
-                    <div class="help-controls-grid">
-                        <span class="help-key">C</span>
-                        <span class="help-description">Hold to enter connection mode, release to return to select mode</span>
-                        <span class="help-key">Shift + Move</span>
-                        <span class="help-description">Ghost mode: Create connected elements quickly</span>
-                        <span class="help-key">F / Ctrl+F</span>
-                        <span class="help-description">Toggle fullscreen mode</span>
-                        <span class="help-key">Escape</span>
-                        <span class="help-description">Exit fullscreen mode</span>
-                    </div>
-                </div>
-
-                <div class="help-section">
-                    <h3>🖱️ Mouse Controls</h3>
-                    <div class="help-controls-grid">
-                        <span class="help-key">Left Click</span>
-                        <span class="help-description">Select, place, or connect elements</span>
-                        <span class="help-key">Left Drag</span>
-                        <span class="help-description">Move selected elements</span>
-                        <span class="help-key">Middle Click</span>
-                        <span class="help-description">Pan the canvas</span>
-                        <span class="help-key">Scroll Wheel</span>
-                        <span class="help-description">Zoom in and out</span>
-                        <span class="help-key">Alt/Cmd + Drag</span>
-                        <span class="help-description">Pan the canvas</span>
-                    </div>
-                </div>
-
-                <div class="help-section">
-                    <h3>⚡ Advanced Features</h3>
-                    <div class="help-tip">
-                        <span class="help-tip-icon">💡</span>
-                        <strong>Ghost Mode:</strong> Select any place or transition, hold <kbd>Shift</kbd>, and move your mouse to quickly create connected elements. Click to place the new element with an automatic connection.
-                    </div>
-                    <div class="help-tip">
-                        <span class="help-tip-icon">🔗</span>
-                        <strong>Quick Connect:</strong> Press <kbd>C</kbd> to instantly switch to connection mode. Release <kbd>C</kbd> to return to your previous tool.
-                    </div>
-                    <div class="help-tip">
-                        <span class="help-tip-icon">📏</span>
-                        <strong>Grid Snapping:</strong> Use the grid button (📏) to enable snap-to-grid for precise element placement.
-                    </div>
-                </div>
-
-                <div class="help-section">
-                    <h3>🎯 Simulation Controls</h3>
-                    <div class="help-controls-grid">
-                        <span class="help-key">Step</span>
-                        <span class="help-description">Fire one enabled transition</span>
-                        <span class="help-key">Auto Run</span>
-                        <span class="help-description">Continuously fire transitions automatically</span>
-                        <span class="help-key">Reset</span>
-                        <span class="help-description">Reset simulation to initial state</span>
-                        <span class="help-key">Fire Button</span>
-                        <span class="help-description">Fire a specific transition (appears when transition is selected)</span>
-                    </div>
-                </div>
-            </div>
+      <div class="help-dialog">
+        <div class="help-dialog-header">
+          <h2>📖 Controls Guide</h2>
+          <button id="help-dialog-close" class="help-dialog-close">×</button>
         </div>
+        <div class="help-dialog-content">
+          <div class="help-section">
+            <h3>🔧 Editor Tools</h3>
+            <div class="help-controls-grid">
+              <span class="help-key">Click ✓</span>
+              <span class="help-description">Select and move elements</span>
+              <span class="help-key">Click ○</span>
+              <span class="help-description">Add new places</span>
+              <span class="help-key">Click □</span>
+              <span class="help-description">Add new transitions</span>
+              <span class="help-key">Click →</span>
+              <span class="help-description">Connect elements with arcs</span>
+              <span class="help-key">Click 🗑️</span>
+              <span class="help-description">Delete selected element</span>
+              <span class="help-key">Click 🪄</span>
+              <span class="help-description">Auto-arrange all elements</span>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h3>⌨️ Keyboard Shortcuts</h3>
+            <div class="help-controls-grid">
+              <span class="help-key">C</span>
+              <span class="help-description"
+                >Hold to enter connection mode, release to return to select
+                mode</span
+              >
+              <span class="help-key">Shift + Move</span>
+              <span class="help-description"
+                >Ghost mode: Create connected elements quickly</span
+              >
+              <span class="help-key">F / Ctrl+F</span>
+              <span class="help-description">Toggle fullscreen mode</span>
+              <span class="help-key">Escape</span>
+              <span class="help-description">Exit fullscreen mode</span>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h3>🖱️ Mouse Controls</h3>
+            <div class="help-controls-grid">
+              <span class="help-key">Left Click</span>
+              <span class="help-description"
+                >Select, place, or connect elements</span
+              >
+              <span class="help-key">Left Drag</span>
+              <span class="help-description">Move selected elements</span>
+              <span class="help-key">Middle Click</span>
+              <span class="help-description">Pan the canvas</span>
+              <span class="help-key">Scroll Wheel</span>
+              <span class="help-description">Zoom in and out</span>
+              <span class="help-key">Alt/Cmd + Drag</span>
+              <span class="help-description">Pan the canvas</span>
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h3>⚡ Advanced Features</h3>
+            <div class="help-tip">
+              <span class="help-tip-icon">💡</span>
+              <strong>Ghost Mode:</strong> Select any place or transition, hold
+              <kbd>Shift</kbd>, and move your mouse to quickly create connected
+              elements. Click to place the new element with an automatic
+              connection.
+            </div>
+            <div class="help-tip">
+              <span class="help-tip-icon">🔗</span>
+              <strong>Quick Connect:</strong> Press <kbd>C</kbd> to instantly
+              switch to connection mode. Release <kbd>C</kbd> to return to your
+              previous tool.
+            </div>
+            <div class="help-tip">
+              <span class="help-tip-icon">📏</span>
+              <strong>Grid Snapping:</strong> Use the grid button (📏) to enable
+              snap-to-grid for precise element placement.
+            </div>
+          </div>
+
+          <div class="help-section">
+            <h3>🎯 Simulation Controls</h3>
+            <div class="help-controls-grid">
+              <span class="help-key">Step</span>
+              <span class="help-description">Fire one enabled transition</span>
+              <span class="help-key">Auto Run</span>
+              <span class="help-description"
+                >Continuously fire transitions automatically</span
+              >
+              <span class="help-key">Reset</span>
+              <span class="help-description"
+                >Reset simulation to initial state</span
+              >
+              <span class="help-key">Fire Button</span>
+              <span class="help-description"
+                >Fire a specific transition (appears when transition is
+                selected)</span
+              >
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <footer>
-        <div class="container">
-        
-        </div>
+      <div class="container"></div>
     </footer>
 
-    <!-- Include the Petri Net library -->
+    <!-- Core Petri Net library -->
     <script src="src/petri-net-simulator.js"></script>
 
-    <!-- Include Data Petri Net extensions -->
-    <!-- <script src="src/element-overlay.js"></script> -->
+    <!-- Z3 SMT Solver (MUST come before any Z3-dependent components) -->
+    <script src="node_modules/z3-solver/build/z3-built.js"></script>
+
+    <!-- Z3-based SMT and Expression Solvers (replace old versions) -->
+    <script src="src/extensions/LTL/z3-smt-solver.js"></script>
+    <script src="src/extensions/LTL/z3-expression-solver.js"></script>
+    <script src="src/extensions/LTL/z3-integration-helper.js"></script>
+
+    <!-- Data Petri Net extensions (updated to use Z3) -->
     <script src="src/extensions/dpn-expression-validation.js"></script>
     <script src="src/extensions/dpn-model.js"></script>
     <script src="src/extensions/dpn-api.js"></script>
     <script src="src/extensions/dpn-renderer.js"></script>
     <script src="src/extensions/dpn-ui.js"></script>
     <script src="src/extensions/dpn-integration.js"></script>
-
     <script src="src/extensions/dpn-verification-ui.js"></script>
-    
-    <!-- Include LTL extensions -->
-    <script src="src/extensions/LTL/smt-solver.js"></script>
-    <script src="src/extensions/LTL/expression-solver.js"></script>
-    <script src="src/extensions/LTL/ltl-integration-layer.js"></script>  
+
+    <!-- LTL extensions (updated to use Z3) -->
+    <script src="src/extensions/LTL/ltl-integration-layer.js"></script>
     <script src="src/extensions/LTL/dpn-ltl-verification-enhanced.js"></script>
     <script src="src/extensions/LTL/final-integration-script.js"></script>
-    <script src="node_modules/z3-solver/build/z3-built.js"></script>
-    <script src="src/extensions/LTL/z3-smt-solver.js"></script>
+
+    <!-- Main application -->
+    <script src="app.js"></script>
+
+    <!-- Additional extensions -->
+    <script src="src/event-log-generator.js"></script>
+    <script src="src/event-log-integration.js"></script>
+    <script src="src/extensions/variable-tracking.js"></script>
+    <script src="src/extensions/pnml-importer.js"></script>
 
     <script src="app.js"></script>
     <script>
-        
-        document.addEventListener('DOMContentLoaded', () => {
-            try {
+      document.addEventListener("DOMContentLoaded", () => {
+        try {
+          initZ3().then((z) => {
+            console.log(Object.keys(z));
+          });
+          // Wait for Z3 to be ready before initializing the main app
+          const initializeApp = () => {
+            // Your existing sidebar tab functionality
+            const tabs = document.querySelectorAll(".sidebar-tab");
+            tabs.forEach((tab) => {
+              tab.addEventListener("click", () => {
+                tabs.forEach((t) => t.classList.remove("active"));
+                tab.classList.add("active");
 
+                const panes = document.querySelectorAll(".sidebar-pane");
+                panes.forEach((pane) => pane.classList.remove("active"));
 
-                initZ3().then((z3) => {
-                        // 1. Create context
-                        const ctx = z3._Z3_mk_context();
-                        
-                        // 2. Create solver
-                        const solver = z3._Z3_mk_solver(ctx);
-                        z3._Z3_solver_inc_ref(ctx, solver);
-                        
-                        // 3. Create variables and constraints
-                        const intSort = z3._Z3_mk_int_sort(ctx);
-                        const xSymbol = z3._Z3_mk_string_symbol(ctx, "x");
-                        const x = z3._Z3_mk_const(ctx, xSymbol, intSort);
-                        
-                        // 4. Add constraints
-                        const constraint = z3._Z3_mk_gt(ctx, x, z3._Z3_mk_int(ctx, 0, intSort));
-                        z3._Z3_solver_assert(ctx, solver, constraint);
-                        
-                        // 5. SOLVE!
-                        const result = z3._Z3_solver_check(ctx, solver);
-                        console.log('Z3 Solver Result:', result);
-                        // 6. Check result: 1 = SAT, -1 = UNSAT, 0 = UNKNOWN
-                        if (result === 1) {
-                            const model = z3._Z3_solver_get_model(ctx, solver);
-                            // Extract solution...
-                        }
-                        
-                        // 7. Cleanup
-                        z3._Z3_solver_dec_ref(ctx, solver);
-                        z3._Z3_del_context(ctx);
-                    
-                }).catch((error) => {
-                    console.error('Error initializing Z3 SMT Solver:', error);
-                });
+                const targetPane = document.querySelector(
+                  `.sidebar-pane[data-tab="${tab.dataset.tab}"]`
+                );
+                if (targetPane) targetPane.classList.add("active");
 
-
-                // Sidebar tab functionality
-                const tabs = document.querySelectorAll('.sidebar-tab');
-                tabs.forEach(tab => {
-                    tab.addEventListener('click', () => {
-                        // Deactivate all tabs
-                        tabs.forEach(t => t.classList.remove('active'));
-                        // Activate clicked tab
-                        tab.classList.add('active');
-                        
-                        // Hide all panes
-                        const panes = document.querySelectorAll('.sidebar-pane');
-                        panes.forEach(pane => pane.classList.remove('active'));
-                        
-                        // Show corresponding pane
-                        const targetPane = document.querySelector(`.sidebar-pane[data-tab="${tab.dataset.tab}"]`);
-                        if (targetPane) targetPane.classList.add('active');
-                        
-                        // Save active tab in localStorage
-                        if (window.localStorage) {
-                            localStorage.setItem('activeTab', tab.dataset.tab);
-                        }
-                    });
-                });
-                
-                // Section collapse functionality
-                const sectionHeaders = document.querySelectorAll('.section-header');
-                sectionHeaders.forEach(header => {
-                    header.addEventListener('click', () => {
-                        const section = header.closest('.sidebar-section');
-                        section.classList.toggle('section-collapsed');
-                        
-                        // Save collapsed state
-                        if (window.localStorage) {
-                            saveCollapsedSections();
-                        }
-                    });
-                });
-                
-                // Function to save collapsed section states
-                function saveCollapsedSections() {
-                    const collapsedSections = [];
-                    document.querySelectorAll('.sidebar-section.section-collapsed').forEach(section => {
-                        if (section.id) collapsedSections.push(section.id);
-                    });
-                    localStorage.setItem('sidebarSections', JSON.stringify(collapsedSections));
-                }
-                
-                // Help Dialog functionality
-                const helpDialogOverlay = document.getElementById('help-dialog-overlay');
-                const helpDialogClose = document.getElementById('help-dialog-close');
-                const openHelpButton = document.getElementById('btn-open-help');
-
-                function openHelpDialog() {
-                    helpDialogOverlay.style.display = 'flex';
-                    document.body.style.overflow = 'hidden'; // Prevent background scrolling
-                }
-
-                function closeHelpDialog() {
-                    helpDialogOverlay.style.display = 'none';
-                    document.body.style.overflow = ''; // Restore scrolling
-                }
-
-                // Open help dialog
-                if (openHelpButton) {
-                    openHelpButton.addEventListener('click', openHelpDialog);
-                }
-
-                // Close help dialog
-                if (helpDialogClose) {
-                    helpDialogClose.addEventListener('click', closeHelpDialog);
-                }
-
-                // Close help dialog when clicking overlay
-                if (helpDialogOverlay) {
-                    helpDialogOverlay.addEventListener('click', (e) => {
-                        if (e.target === helpDialogOverlay) {
-                            closeHelpDialog();
-                        }
-                    });
-                }
-
-                // Close help dialog with Escape key
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && helpDialogOverlay.style.display === 'flex') {
-                        closeHelpDialog();
-                    }
-                });
-
-                
-                // Restore previous states
                 if (window.localStorage) {
-                    // Restore active tab
-                    const savedTab = localStorage.getItem('activeTab');
-                    if (savedTab) {
-                        const tab = document.querySelector(`.sidebar-tab[data-tab="${savedTab}"]`);
-                        if (tab) tab.click();
-                    }
-                    
-                    // Restore collapsed sections
-                    const savedState = localStorage.getItem('sidebarSections');
-                    if (savedState) {
-                        try {
-                            const collapsedSections = JSON.parse(savedState);
-                            document.querySelectorAll('.sidebar-section').forEach(section => {
-                                if (section.id && collapsedSections.includes(section.id)) {
-                                    section.classList.add('section-collapsed');
-                                }
-                            });
-                        } catch (e) {
-                            console.error('Error restoring sidebar state', e);
-                        }
-                    }
+                  localStorage.setItem("activeTab", tab.dataset.tab);
                 }
+              });
+            });
 
-                const isMac = navigator.userAgent.includes('Mac');
-                const modifierKey = isMac ? 'Command' : 'Alt';
-                
-                const panInstructions = document.getElementById('pan-instructions');
-                panInstructions.innerHTML = `<span>Pan: Middle mouse button or ${modifierKey}+drag</span>`;
-                
-                const navigationHelpList = document.getElementById('navigation-help-list');
-                const panHelpItem = navigationHelpList.querySelector('li:first-child');
-                panHelpItem.innerHTML = `<strong>Pan:</strong> Middle mouse button or ${modifierKey}+drag`;
-                
-                const app = new window.PetriNetApp();
+            // Section collapse functionality
+            const sectionHeaders = document.querySelectorAll(".section-header");
+            sectionHeaders.forEach((header) => {
+              header.addEventListener("click", () => {
+                const section = header.closest(".sidebar-section");
+                section.classList.toggle("section-collapsed");
 
-                window.petriApp = app;
-
-                // Ghost element feature enhancements
-                const canvas = document.getElementById('petri-canvas');
-                const ghostHint = document.getElementById('ghost-hint');
-                
-                // Monitor for shift key and selection state
-                let isGhostModeActive = false;
-                
-                function updateGhostMode() {
-                    const isShiftPressed = app.editor && app.editor.isShiftPressed;
-                    const hasSelection = app.editor && app.editor.selectedElement && 
-                                       (app.editor.selectedElement.type === 'place' || app.editor.selectedElement.type === 'transition');
-                    
-                    const newGhostModeActive = isShiftPressed && hasSelection && app.editor.mode === 'select';
-                    
-                    if (newGhostModeActive !== isGhostModeActive) {
-                        isGhostModeActive = newGhostModeActive;
-                        
-                        if (isGhostModeActive) {
-                            canvas.classList.add('ghost-mode');
-                            ghostHint.classList.add('show');
-                        } else {
-                            canvas.classList.remove('ghost-mode');
-                            ghostHint.classList.remove('show');
-                        }
-                    }
-                }
-                
-                // Check ghost mode periodically
-                setInterval(updateGhostMode, 100);
-                
-                app.loadTemplateFile('examples/example-config.json').then((data) => {
-                    const templateSelect = document.getElementById('template-select');
-                    data.forEach((example) => {
-                        const option = document.createElement('option');
-                        option.value = example.path;
-                        option.textContent = example.name;
-                        templateSelect.appendChild(option);
+                if (window.localStorage) {
+                  const collapsedSections = [];
+                  document
+                    .querySelectorAll(".sidebar-section.section-collapsed")
+                    .forEach((section) => {
+                      if (section.id) collapsedSections.push(section.id);
                     });
-                });
-
-                const fullscreenButton = document.getElementById('btn-fullscreen');
-                fullscreenButton.addEventListener('click', toggleFullscreen);
-                
-                function toggleFullscreen() {
-                    const body = document.body;
-                    const canvasElement = document.getElementById('petri-canvas');
-                    
-                    body.classList.toggle('fullscreen-mode');
-                    
-                    if (body.classList.contains('fullscreen-mode')) {
-                        fullscreenButton.innerHTML = '⤓';
-                        fullscreenButton.title = 'Exit Full Screen';
-                        
-                        setTimeout(() => {
-                            canvasElement.width = window.innerWidth;
-                            canvasElement.height = window.innerHeight;
-                        }, 10);
-                    } else {
-                        fullscreenButton.innerHTML = '⛶';
-                        fullscreenButton.title = 'Toggle Full Screen';
-                        
-                        setTimeout(() => {
-                            canvasElement.width = "1090";
-                            canvasElement.height = "800";
-                        }, 10);
-                    }
-                    
-                    if (window.petriApp && window.petriApp.resizeCanvas) {
-                        setTimeout(() => {
-                            window.petriApp.resizeCanvas();
-                        }, 50);
-                        
-                        setTimeout(() => {
-                            window.petriApp.resizeCanvas();
-                        }, 350); // slightly longer than the CSS transition duration
-                    }
+                  localStorage.setItem(
+                    "sidebarSections",
+                    JSON.stringify(collapsedSections)
+                  );
                 }
-                
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && document.body.classList.contains('fullscreen-mode')) {
-                        toggleFullscreen();
-                    } else if (e.key === 'F' && (e.ctrlKey || e.metaKey)) {
-                        e.preventDefault(); // Prevent browser's find functionality
-                        toggleFullscreen();
-                    }
-                });
+              });
+            });
 
-                const initTimer = setInterval(() => {
-                    if (window.petriApp) {
-                        window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
-                        clearInterval(initTimer);
-                    }
-                }, 100);
-                
-            } catch (error) {
-                console.error('Error initializing application:', error);
-                alert('Error initializing application: ' + error);
+            // Help Dialog functionality
+            const helpDialogOverlay = document.getElementById(
+              "help-dialog-overlay"
+            );
+            const helpDialogClose =
+              document.getElementById("help-dialog-close");
+            const openHelpButton = document.getElementById("btn-open-help");
+
+            function openHelpDialog() {
+              helpDialogOverlay.style.display = "flex";
+              document.body.style.overflow = "hidden";
             }
-        });
+
+            function closeHelpDialog() {
+              helpDialogOverlay.style.display = "none";
+              document.body.style.overflow = "";
+            }
+
+            if (openHelpButton) {
+              openHelpButton.addEventListener("click", openHelpDialog);
+            }
+
+            if (helpDialogClose) {
+              helpDialogClose.addEventListener("click", closeHelpDialog);
+            }
+
+            if (helpDialogOverlay) {
+              helpDialogOverlay.addEventListener("click", (e) => {
+                if (e.target === helpDialogOverlay) {
+                  closeHelpDialog();
+                }
+              });
+            }
+
+            document.addEventListener("keydown", (e) => {
+              if (
+                e.key === "Escape" &&
+                helpDialogOverlay.style.display === "flex"
+              ) {
+                closeHelpDialog();
+              }
+            });
+
+            // Restore previous states
+            if (window.localStorage) {
+              const savedTab = localStorage.getItem("activeTab");
+              if (savedTab) {
+                const tab = document.querySelector(
+                  `.sidebar-tab[data-tab="${savedTab}"]`
+                );
+                if (tab) tab.click();
+              }
+
+              const savedState = localStorage.getItem("sidebarSections");
+              if (savedState) {
+                try {
+                  const collapsedSections = JSON.parse(savedState);
+                  document
+                    .querySelectorAll(".sidebar-section")
+                    .forEach((section) => {
+                      if (
+                        section.id &&
+                        collapsedSections.includes(section.id)
+                      ) {
+                        section.classList.add("section-collapsed");
+                      }
+                    });
+                } catch (e) {
+                  console.error("Error restoring sidebar state", e);
+                }
+              }
+            }
+
+            // Initialize pan instructions
+            const isMac = navigator.userAgent.includes("Mac");
+            const modifierKey = isMac ? "Command" : "Alt";
+
+            const panInstructions = document.getElementById("pan-instructions");
+            if (panInstructions) {
+              panInstructions.innerHTML = `<span>Pan: Middle mouse button or ${modifierKey}+drag</span>`;
+            }
+
+            const navigationHelpList = document.getElementById(
+              "navigation-help-list"
+            );
+            if (navigationHelpList) {
+              const panHelpItem =
+                navigationHelpList.querySelector("li:first-child");
+              if (panHelpItem) {
+                panHelpItem.innerHTML = `<strong>Pan:</strong> Middle mouse button or ${modifierKey}+drag`;
+              }
+            }
+
+            // Create the main app
+            const app = new window.PetriNetApp();
+            window.petriApp = app;
+
+            // Ghost element feature enhancements
+            const canvas = document.getElementById("petri-canvas");
+            const ghostHint = document.getElementById("ghost-hint");
+
+            if (canvas && ghostHint) {
+              let isGhostModeActive = false;
+
+              function updateGhostMode() {
+                const isShiftPressed = app.editor && app.editor.isShiftPressed;
+                const hasSelection =
+                  app.editor &&
+                  app.editor.selectedElement &&
+                  (app.editor.selectedElement.type === "place" ||
+                    app.editor.selectedElement.type === "transition");
+
+                const newGhostModeActive =
+                  isShiftPressed &&
+                  hasSelection &&
+                  app.editor.mode === "select";
+
+                if (newGhostModeActive !== isGhostModeActive) {
+                  isGhostModeActive = newGhostModeActive;
+
+                  if (isGhostModeActive) {
+                    canvas.classList.add("ghost-mode");
+                    ghostHint.classList.add("show");
+                  } else {
+                    canvas.classList.remove("ghost-mode");
+                    ghostHint.classList.remove("show");
+                  }
+                }
+              }
+
+              setInterval(updateGhostMode, 100);
+            }
+
+            // Load examples
+            app
+              .loadTemplateFile("examples/example-config.json")
+              .then((data) => {
+                const templateSelect =
+                  document.getElementById("template-select");
+                if (templateSelect) {
+                  data.forEach((example) => {
+                    const option = document.createElement("option");
+                    option.value = example.path;
+                    option.textContent = example.name;
+                    templateSelect.appendChild(option);
+                  });
+                }
+              })
+              .catch((error) => {
+                console.warn("Could not load examples:", error);
+              });
+
+            // Fullscreen functionality
+            const fullscreenButton = document.getElementById("btn-fullscreen");
+            if (fullscreenButton) {
+              fullscreenButton.addEventListener("click", toggleFullscreen);
+            }
+
+            function toggleFullscreen() {
+              const body = document.body;
+              const canvasElement = document.getElementById("petri-canvas");
+
+              body.classList.toggle("fullscreen-mode");
+
+              if (body.classList.contains("fullscreen-mode")) {
+                fullscreenButton.innerHTML = "⤓";
+                fullscreenButton.title = "Exit Full Screen";
+
+                setTimeout(() => {
+                  canvasElement.width = window.innerWidth;
+                  canvasElement.height = window.innerHeight;
+                }, 10);
+              } else {
+                fullscreenButton.innerHTML = "⛶";
+                fullscreenButton.title = "Toggle Full Screen";
+
+                setTimeout(() => {
+                  canvasElement.width = "1090";
+                  canvasElement.height = "800";
+                }, 10);
+              }
+
+              if (window.petriApp && window.petriApp.resizeCanvas) {
+                setTimeout(() => {
+                  window.petriApp.resizeCanvas();
+                }, 50);
+
+                setTimeout(() => {
+                  window.petriApp.resizeCanvas();
+                }, 350);
+              }
+            }
+
+            document.addEventListener("keydown", (e) => {
+              if (
+                e.key === "Escape" &&
+                document.body.classList.contains("fullscreen-mode")
+              ) {
+                toggleFullscreen();
+              } else if (e.key === "F" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                toggleFullscreen();
+              }
+            });
+
+            console.log(
+              "✅ Application initialized successfully with Z3 integration"
+            );
+          };
+
+          // Wait for Z3 to be ready
+          if (typeof initZ3 === "function") {
+            // Listen for Z3 ready event
+            document.addEventListener("z3-ready", () => {
+              console.log("Z3 is ready, initializing main application...");
+              initializeApp();
+            });
+
+            // Fallback timer in case Z3 event doesn't fire
+            setTimeout(() => {
+              if (!window.petriApp) {
+                console.warn("Z3 event timeout, initializing app anyway...");
+                initializeApp();
+              }
+            }, 5000);
+          } else {
+            console.warn("initZ3 not found, initializing without Z3...");
+            initializeApp();
+          }
+        } catch (error) {
+          console.error("Error initializing application:", error);
+          alert("Error initializing application: " + error);
+        }
+      });
     </script>
- 
-    <script src="src/event-log-generator.js"></script>
-    <script src="src/event-log-integration.js"></script>
-    <!-- <script src="src/extensions/random-petri-net-generator.js"></script> -->
-    <script src="src/extensions/variable-tracking.js"></script>
-    <script src="src/extensions/pnml-importer.js"></script>
-   
-</body>
+  </body>
 </html>

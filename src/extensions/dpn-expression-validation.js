@@ -1,7 +1,9 @@
 /**
+ * Z3-Enhanced Expression Solver for Data Petri Net Constraints
+ * 
  * Class to parse and solve expressions involving "primed" (new) and unprimed (old) variable values.
  * Given an object of existing variable values, it evaluates constraints on primed variables,
- * determines integer bounds, and returns a random integer within those bounds.
+ * determines integer bounds, and returns a random integer within those bounds using Z3 SMT solver.
  */
 class ExpressionSolver {
   /**
@@ -12,6 +14,7 @@ class ExpressionSolver {
     this.oldValues = { ...oldValues };
     /** @type {Record<string, { min: number, max: number }>} */
     this.bounds = {};
+    this.smtSolver = new SMTSolver();
   }
 
   /**
@@ -59,14 +62,147 @@ class ExpressionSolver {
    *   where <operator> ∈ {<, <=, >, >=, ==}.
    *   Example: "x' > x + 5; x' < x + 100"
    *
-   * @returns {Record<string, number>}
+   * @returns {Promise<Record<string, number>>}
    *   An object mapping each primed variable (without the apostrophe) to its computed new integer value.
    *   The returned value is a random integer within the feasible range.
    *
    * @throws {Error}
    *   If a primed variable references an undefined base variable, if bounds are infinite, if constraints conflict, or if parsing fails.
    */
-  solve(constraintString) {
+  async solve(constraintString) {
+    try {
+      // First try Z3-based solving for better constraint handling
+      const z3Result = await this._solveWithZ3(constraintString);
+      if (z3Result !== null) {
+        return z3Result;
+      }
+    } catch (error) {
+      console.warn("Z3 solving failed, falling back to basic approach:", error);
+    }
+
+    // Fallback to original implementation
+    return this._solveBasic(constraintString);
+  }
+
+  /**
+   * Solve constraints using Z3 SMT solver
+   * @param {string} constraintString - The constraint string
+   * @returns {Promise<Object|null>} - Variable assignments or null
+   * @private
+   */
+  async _solveWithZ3(constraintString) {
+    try {
+      // Convert primed variable notation to Z3 format
+      const z3Formula = this._convertConstraintsToZ3Format(constraintString);
+      
+      // Use Z3 to solve
+      const solution = await this.smtSolver.solve(z3Formula);
+      
+      if (solution) {
+        // Extract primed variable values from Z3 solution
+        const result = {};
+        const primedVars = this._extractPrimedVariables(constraintString);
+        
+        for (const varName of primedVars) {
+          const newVarName = `${varName}_new`;
+          if (solution.hasOwnProperty(newVarName)) {
+            result[varName] = Math.round(solution[newVarName]); // Ensure integer result
+          }
+        }
+        
+        return Object.keys(result).length > 0 ? result : null;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Z3 constraint solving failed:", error);
+      return null;
+    }
+  }
+
+  /**
+   * Convert constraint string to Z3-compatible format
+   * @param {string} constraintString - Original constraints
+   * @returns {string} - Z3 formula
+   * @private
+   */
+  _convertConstraintsToZ3Format(constraintString) {
+    // Remove surrounding parentheses if present, then split on semicolons
+    const trimmed = constraintString.trim().replace(/^\(+/, "").replace(/\)+$/, "");
+    const clauses = trimmed
+      .split(";")
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+
+    const constraints = [];
+    const primedVars = this._extractPrimedVariables(constraintString);
+    
+    // Add current variable values as constraints
+    for (const [varName, value] of Object.entries(this.oldValues)) {
+      constraints.push(`${varName}_old == ${value}`);
+    }
+
+    // Convert each constraint clause
+    for (const clause of clauses) {
+      const match = clause.match(/^([a-zA-Z_]\w*)'\s*(<=|<|>=|>|==)\s*(.+)$/);
+      if (!match) {
+        throw new Error(`Invalid constraint format: "${clause}"`);
+      }
+
+      const [, primedName, operator, rightExpr] = match;
+      
+      // Ensure the unprimed variable exists
+      if (!(primedName in this.oldValues)) {
+        throw new Error(`Variable "${primedName}" is not defined in the oldValues object.`);
+      }
+
+      // Replace unprimed variables in the right expression with their old values
+      let processedRightExpr = rightExpr;
+      for (const [varName, value] of Object.entries(this.oldValues)) {
+        const regex = new RegExp(`\\b${varName}\\b`, 'g');
+        processedRightExpr = processedRightExpr.replace(regex, `${varName}_old`);
+      }
+
+      // Add the constraint with the new variable name
+      constraints.push(`${primedName}_new ${operator} (${processedRightExpr})`);
+      
+      // Add reasonable bounds for integer variables
+      const currentValue = this.oldValues[primedName];
+      if (typeof currentValue === 'number') {
+        const range = Math.max(1000, Math.abs(currentValue) * 10);
+        constraints.push(`${primedName}_new >= ${currentValue - range}`);
+        constraints.push(`${primedName}_new <= ${currentValue + range}`);
+      }
+    }
+
+    return constraints.join(' && ');
+  }
+
+  /**
+   * Extract primed variable names from constraint string
+   * @param {string} constraintString - The constraint string
+   * @returns {Set<string>} - Set of primed variable names (without apostrophe)
+   * @private
+   */
+  _extractPrimedVariables(constraintString) {
+    const primedVars = new Set();
+    const regex = /([a-zA-Z_]\w*)'/g;
+    let match;
+    
+    while ((match = regex.exec(constraintString)) !== null) {
+      primedVars.add(match[1]);
+    }
+    
+    return primedVars;
+  }
+
+  /**
+   * Basic constraint solving (fallback when Z3 fails)
+   * @param {string} constraintString - The constraint string
+   * @returns {Object} - Variable assignments
+   * @private
+   */
+  _solveBasic(constraintString) {
     this.bounds = {};
 
     // Remove surrounding parentheses if present, then split on semicolons

@@ -4,12 +4,20 @@
  * This class handles constraint-based random value generation for 
  * data variables in postconditions using primed variable notation.
  */
+/**
+ * Z3-Enhanced Expression Solver for Data Petri Net Constraints
+ * 
+ * This class handles constraint-based random value generation for 
+ * data variables in postconditions using primed variable notation
+ * and leverages Z3 for powerful constraint solving.
+ */
 class LTLExpressionSolver {
     constructor(currentValuation) {
         this.currentValuation = { ...currentValuation };
         this.constraints = [];
         this.primedVariables = new Set();
         this.randomSeed = Math.random();
+        this.smtSolver = new SMTSolver();
     }
 
     /**
@@ -17,12 +25,20 @@ class LTLExpressionSolver {
      * @param {string} constraintExpression - The constraint expression to solve
      * @returns {Object} New valuation with solved variable values
      */
-    solve(constraintExpression) {
+    async solve(constraintExpression) {
         try {
             // Parse the constraint expression
             this.parseConstraints(constraintExpression);
             
-            // Generate new values for each primed variable
+            // Use Z3 to solve constraints if we have primed variables
+            if (this.primedVariables.size > 0) {
+                const z3Result = await this._solveWithZ3(constraintExpression);
+                if (z3Result) {
+                    return z3Result;
+                }
+            }
+            
+            // Fallback to original approach for simple cases
             const newValuation = { ...this.currentValuation };
             
             for (const variable of this.primedVariables) {
@@ -36,6 +52,119 @@ class LTLExpressionSolver {
             console.error("Error solving constraints:", error);
             return this.currentValuation;
         }
+    }
+
+    /**
+     * Solve constraints using Z3 SMT solver
+     * @param {string} constraintExpression - The constraint expression
+     * @returns {Promise<Object|null>} - New valuation or null if unsatisfiable
+     * @private
+     */
+    async _solveWithZ3(constraintExpression) {
+        try {
+            // Convert primed variable notation to Z3 format
+            const z3Formula = this._convertToZ3Format(constraintExpression);
+            
+            // Use Z3 to solve
+            const solution = await this.smtSolver.solve(z3Formula);
+            
+            if (solution) {
+                // Map Z3 solution back to our variable space
+                return this._mapZ3SolutionToValuation(solution);
+            }
+            
+            return null;
+        } catch (error) {
+            console.error("Z3 solving failed:", error);
+            return null;
+        }
+    }
+
+    /**
+     * Convert constraint expression with primed variables to Z3 format
+     * @param {string} expression - Original constraint expression
+     * @returns {string} - Z3-compatible formula
+     * @private
+     */
+    _convertToZ3Format(expression) {
+        let z3Formula = expression;
+        
+        // Add current variable values as constraints
+        const currentConstraints = [];
+        for (const [varName, value] of Object.entries(this.currentValuation)) {
+            currentConstraints.push(`${varName}_old == ${this._valueToZ3(value)}`);
+        }
+        
+        // Replace primed variables with new variable names
+        for (const varName of this.primedVariables) {
+            const regex = new RegExp(`\\b${varName}'`, 'g');
+            z3Formula = z3Formula.replace(regex, `${varName}_new`);
+        }
+        
+        // Replace unprimed variables with old variable names
+        for (const varName of Object.keys(this.currentValuation)) {
+            if (!this.primedVariables.has(varName)) {
+                const regex = new RegExp(`\\b${varName}\\b`, 'g');
+                z3Formula = z3Formula.replace(regex, `${varName}_old`);
+            }
+        }
+        
+        // Combine current state constraints with new constraints
+        const allConstraints = [...currentConstraints];
+        
+        // Split by semicolon and add each constraint
+        const statements = z3Formula.split(';').map(s => s.trim()).filter(s => s.length > 0);
+        allConstraints.push(...statements);
+        
+        // Add reasonable bounds for numeric variables to ensure finite solutions
+        for (const varName of this.primedVariables) {
+            const currentValue = this.currentValuation[varName];
+            if (typeof currentValue === 'number') {
+                const lowerBound = currentValue - 1000;
+                const upperBound = currentValue + 1000;
+                allConstraints.push(`${varName}_new >= ${lowerBound}`);
+                allConstraints.push(`${varName}_new <= ${upperBound}`);
+            }
+        }
+        
+        return allConstraints.join(' && ');
+    }
+
+    /**
+     * Convert a value to Z3 representation
+     * @param {*} value - The value to convert
+     * @returns {string} - Z3 representation
+     * @private
+     */
+    _valueToZ3(value) {
+        if (typeof value === 'number') {
+            return value.toString();
+        } else if (typeof value === 'boolean') {
+            return value ? 'true' : 'false';
+        } else if (typeof value === 'string') {
+            return `"${value}"`;
+        }
+        return '0'; // Default fallback
+    }
+
+    /**
+     * Map Z3 solution back to our valuation format
+     * @param {Object} z3Solution - Solution from Z3
+     * @returns {Object} - New valuation
+     * @private
+     */
+    _mapZ3SolutionToValuation(z3Solution) {
+        const newValuation = { ...this.currentValuation };
+        
+        // Extract new values for primed variables
+        for (const varName of this.primedVariables) {
+            const newVarName = `${varName}_new`;
+            if (z3Solution.hasOwnProperty(newVarName)) {
+                newValuation[varName] = z3Solution[newVarName];
+            }
+        }
+        
+        return newValuation;
     }
 
     /**
@@ -71,6 +200,7 @@ class LTLExpressionSolver {
 
     /**
      * Generate a value for a specific variable that satisfies all constraints
+     * (Fallback method when Z3 is not available or fails)
      * @param {string} variableName - The variable to generate a value for
      * @returns {*} A generated value that satisfies the constraints
      */
@@ -178,9 +308,6 @@ class LTLExpressionSolver {
      */
     analyzeNumericConstraint(variableName, expression) {
         const bounds = {};
-        
-        // Replace variable references with current values for evaluation
-        let processedExpr = expression;
         
         // Handle different comparison patterns
         const patterns = [
@@ -424,6 +551,12 @@ class LTLExpressionSolver {
     }
 }
 
+// Export for use in other modules
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = LTLExpressionSolver;
+} else {
+    window.LTLExpressionSolver = LTLExpressionSolver;
+}
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = LTLExpressionSolver;
