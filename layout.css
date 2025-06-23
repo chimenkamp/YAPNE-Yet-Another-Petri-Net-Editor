@@ -1,0 +1,616 @@
+
+/* Add these new rules at the top of layout.css */
+html, body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  flex-shrink: 0; /* Prevent the header from shrinking */
+}
+
+/* Modify the .container rule */
+.container {
+  width: 100%;
+  flex-grow: 1; /* Allow the container to fill available vertical space */
+  padding: 20px;
+  box-sizing: border-box;
+  display: flex;
+  min-height: 0; /* Crucial for flex layouts to shrink properly */
+}
+
+/* Modify the .editor-container rule */
+.editor-container {
+  display: flex;
+  flex-wrap: nowrap; /* Prevent wrapping to a new line */
+  gap: 20px;
+  width: 100%;
+  height: 100%;
+}
+
+/* Modify the .canvas-container rule */
+.canvas-container {
+  flex: 1;
+  min-width: 600px;
+  position: relative; /* This is key for child positioning */
+  display: flex;
+  min-height: 0; /* Allow shrinking */
+}
+
+/* Modify the canvas rule */
+#petri-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  line-height: 1.6;
+  color: #D8DEE9; /* nord4 */
+  margin: 0;
+  padding: 0;
+  background-color: #2E3440; /* nord0 */
+}
+.container {
+  width: 100%;
+  padding: 20px;
+  box-sizing: border-box;
+}
+header {
+  background-color: #3B4252; /* nord1 */
+  color: #ECEFF4; /* nord6 */
+  padding: 0px 0;
+}
+h1, h2, h3 {
+  margin-top: 0;
+  color: #E5E9F0; /* nord5 */
+}
+button {
+  background-color: #81A1C1; /* nord9 */
+  color: #ECEFF4; /* nord6 */
+  border: none;
+  padding: 8px 15px;
+  margin: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+button:hover {
+  background-color: #88C0D0; /* nord8 */
+}
+button.active {
+  background-color: #8FBCBB; /* nord7 */
+}
+button.danger {
+  background-color: #BF616A; /* nord11 */
+}
+button.danger:hover {
+  background-color: #D08770; /* nord12 */
+}
+button.success {
+  background-color: #A3BE8C; /* not shown in image but typical Nord green */
+}
+button.success:hover {
+  background-color: #8FBCBB; /* nord7 */
+}
+button:disabled {
+  background-color: #4C566A; /* darker variant based on Nord theme */
+  cursor: not-allowed;
+  color: #E5E9F0; /* nord5 */
+}
+
+.canvas-container {
+  /* This ensures the container itself can resize */
+  overflow: hidden;
+}
+
+#petri-canvas {
+  /* Make the canvas fill its container */
+  width: 100%;
+  height: 100%;
+  
+  /* The 'resizable-content' class adds a manual resize handle, which you might not want for automatic scaling. */
+  /* You can remove the class from the canvas tag or override it like this: */
+  resize: none; 
+}
+
+
+/* Layout styles */
+.editor-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.canvas-container {
+  flex: 1;
+  min-width: 600px;
+  background-color: #3B4252; /* nord1 */
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  position: relative;
+}
+
+/* REDESIGNED SIDEBAR STYLES START */
+.sidebar {
+  width: 320px;
+  background-color: #3B4252; /* nord1 */
+  border-radius: 5px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  padding: 0;
+  overflow-y: auto;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sidebar tabs */
+.sidebar-tabs {
+  display: flex;
+  background-color: #2E3440; /* nord0 */
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.sidebar-tab {
+  flex: 1;
+  padding: 12px 5px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #D8DEE9; /* nord4 */
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin: 0;
+  border-radius: 0;
+}
+
+.sidebar-tab:hover {
+  background-color: rgba(136, 192, 208, 0.1); /* nord8 with alpha */
+  color: #ECEFF4; /* nord6 */
+}
+
+.sidebar-tab.active {
+  background-color: #3B4252; /* nord1 */
+  border-bottom-color: #88C0D0; /* nord8 */
+  color: #ECEFF4; /* nord6 */
+}
+
+/* Sidebar panes (tab content) */
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-pane {
+  display: none;
+  padding: 15px;
+}
+
+.sidebar-pane.active {
+  display: block;
+  margin-bottom: 100px; 
+}
+
+/* Section styling */
+.sidebar-section {
+  margin-bottom: 15px;
+  background-color: #434C5E; /* nord2 */
+  border-radius: 5px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 15px;
+  background-color: #4C566A; /* nord3 */
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #E5E9F0; /* nord5 */
+}
+
+.section-icon {
+  margin-right: 8px;
+  width: 16px;
+  text-align: center;
+  color: #88C0D0; /* nord8 */
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+}
+
+.section-toggle {
+  background: none;
+  border: none;
+  color: #D8DEE9; /* nord4 */
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.section-collapsed .section-toggle {
+  transform: rotate(-90deg);
+}
+
+.section-content {
+  padding: 15px;
+  border-top: 1px solid rgba(46, 52, 64, 0.3); /* nord0 with alpha */
+}
+
+.section-collapsed .section-content {
+  display: none;
+}
+
+.section-actions {
+  display: flex;
+  padding: 0 15px 15px;
+  gap: 10px;
+}
+
+/* Button styling within sections */
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.button-group button {
+  flex: 1;
+  min-width: 80px;
+}
+
+/* Token and data displays */
+.tokens-display,
+#data-values-content {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.data-variable-changed {
+  animation: highlight 1.5s ease-in-out;
+}
+
+@keyframes highlight {
+  0% { background-color: rgba(143, 188, 187, 0.4); }
+  100% { background-color: transparent; }
+}
+/* REDESIGNED SIDEBAR STYLES END */
+
+.toolbar {
+  margin-bottom: 15px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid #434C5E; /* nord2 */
+  display: flex;
+  flex-wrap: wrap;
+}
+.toolbar-group {
+  margin-right: 10px;
+  margin-bottom: 10px;
+  display: flex;
+}
+.properties-panel {
+  margin-top: 15px;
+}
+.form-group {
+  margin-bottom: 15px;
+}
+label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #E5E9F0; /* nord5 */
+}
+input, select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #4C566A; /* darker variant */
+  border-radius: 4px;
+  box-sizing: border-box;
+  background-color: #434C5E; /* nord2 */
+  color: #ECEFF4; /* nord6 */
+}
+canvas {
+  display: block;
+  background-color: #2E3440; /* nord0 */
+  border-radius: 4px;
+  border: 1px solid #4C566A; /* darker variant */
+}
+/* Templates section */
+.templates {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #434C5E; /* nord2 */
+}
+.template-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+/* Simulation panel */
+.simulation-controls {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #434C5E; /* nord2 */
+}
+.tokens-display {
+  margin-top: 10px;
+  font-size: 14px;
+}
+.tokens-display div {
+  margin-bottom: 5px;
+}
+/* File operations */
+.file-operations {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #434C5E; /* nord2 */
+}
+.hidden {
+  display: none;
+}
+/* Footer */
+footer {
+  margin-top: 30px;
+  text-align: center;
+  color: #D8DEE9; /* nord4 */
+  font-size: 14px;
+  padding: 20px 0;
+}
+.header-title{
+  margin: 0;
+  padding: 0;
+}
+.resizable-content {
+  min-height: 30px;
+  min-width: 30px;
+  resize: both;
+  overflow: auto;
+  max-height: fit-content;
+  max-width: fit-content;
+}
+
+
+/* Vertical toolbar styles */
+.vertical-toolbar {
+  position: absolute;
+  left: 10px;
+  top: 70px; /* Position below the existing toolbar */
+  display: flex;
+  flex-direction: column;
+  background-color: #3B4252; /* nord1 */
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  padding: 10px;
+  z-index: 100; /* Ensure it floats above the canvas */
+}
+
+.toolbar-group.vertical {
+  display: flex;
+  flex-direction: column;
+  margin-right: 0;
+  margin-bottom: 0;
+  gap: 8px;
+}
+
+.vertical-toolbar button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+/* Add hover effect for better UX */
+.vertical-toolbar button:hover {
+  background-color: #88C0D0; /* nord8 */
+  transform: scale(1.05);
+}
+
+/* Make canvas position relative for absolute positioning context */
+.canvas-container {
+  position: relative;
+}
+
+/* Zoom Controls Styles */
+.zoom-controls {
+  position: absolute;
+  right: 15px;
+  top: 15px;
+  display: flex;
+  align-items: center;
+  background-color: rgba(59, 66, 82, 0.8); /* nord1 with opacity */
+  border-radius: 5px;
+  padding: 5px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+}
+
+.zoom-controls button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 16px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#zoom-display {
+  margin: 0 10px;
+  min-width: 60px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Pan instructions */
+.pan-instructions {
+  position: absolute;
+  bottom: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(59, 66, 82, 0.8); /* nord1 with opacity */
+  border-radius: 5px;
+  padding: 5px 15px;
+  font-size: 12px;
+  color: #E5E9F0; /* nord5 */
+  z-index: 100;
+  pointer-events: none; /* Allow clicking through */
+  transition: opacity 0.5s;
+  opacity: 0.8;
+}
+
+.pan-instructions:hover {
+  opacity: 0.3;
+}
+
+/* Navigation help section in sidebar */
+.navigation-help {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #434C5E; /* nord2 */
+}
+
+.help-list {
+  margin: 10px 0;
+  padding-left: 20px;
+  font-size: 14px;
+}
+
+.help-list li {
+  margin-bottom: 8px;
+}
+
+/* Canvas cursor styles during different modes */
+canvas.pan-active {
+  cursor: grabbing;
+}
+
+canvas.pan-ready {
+  cursor: grab;
+}
+
+body, header, footer, .sidebar, .vertical-toolbar, 
+.container, .editor-container, .canvas-container, #petri-canvas {
+  transition: all 0.3s ease-in-out;
+}
+
+body.fullscreen-mode header,
+body.fullscreen-mode footer,
+body.fullscreen-mode .sidebar {
+  opacity: 0;
+  visibility: hidden;
+  position: absolute;
+}
+
+body.fullscreen-mode .container {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  transition: width 0.3s ease-in-out, max-width 0.3s ease-in-out, 
+              padding 0.3s ease-in-out, margin 0.3s ease-in-out;
+}
+
+body.fullscreen-mode .editor-container {
+  display: block;
+  transition: display 0.3s ease-in-out;
+}
+
+body.fullscreen-mode .canvas-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  background-color: white;
+  transition: width 0.3s ease-in-out, height 0.3s ease-in-out, 
+              position 0.3s ease-in-out, top 0.3s ease-in-out, 
+              left 0.3s ease-in-out;
+}
+
+body.fullscreen-mode #petri-canvas {
+  width: 100vw !important;
+  height: 100vh !important;
+  transition: width 0.3s ease-in-out, height 0.3s ease-in-out;
+}
+
+/* Add a z-index to ensure controls stay visible */
+.zoom-controls {
+  z-index: 500; 
+  transition: z-index 0.3s ease-in-out;
+}
+
+.pan-instructions {
+  z-index: 499;
+  transition: z-index 0.3s ease-in-out;
+}
+
+/* Button animation for fullscreen toggle */
+#btn-fullscreen {
+  transition: transform 0.3s ease-in-out, background-color 0.3s ease-in-out;
+}
+
+body.fullscreen-mode #btn-fullscreen {
+  background-color: #ffaaaa;
+  transform: rotate(180deg);
+}
+
+
+.petri-overlay-container {
+z-index: 10; /* Make sure arrows are above the canvas */
+pointer-events: none; /* Container itself doesn't receive pointer events */
+position: absolute;
+top: 0;
+left: 0;
+width: 100%;
+height: 100%;
+}
+
+.petri-overlay-arrow {
+position: absolute;
+pointer-events: auto; /* Arrows can receive pointer events */
+cursor: pointer;
+transition: background-color 0.2s ease;
+box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+z-index: 11;
+}
+
+.petri-overlay-arrow:hover {
+transform: translate(15%, 15%) scale(1.2) !important; /* Override inline transform */
+}

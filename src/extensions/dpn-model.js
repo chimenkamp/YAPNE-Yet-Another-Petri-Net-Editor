@@ -1,4 +1,3 @@
-
 /**
  * Represents a data variable in a Data Petri Net
  */
@@ -25,7 +24,6 @@ class DataVariable {
    */
   getValue() {
     if (this.currentValue === null) return null;
-
 
     switch (this.type) {
       case 'number':
@@ -90,7 +88,6 @@ class DataAwareTransition extends Transition {
     super(id, position, label, priority, delay);
     this.precondition = precondition;
     this.postcondition = postcondition;
-
   }
 
   /**
@@ -104,12 +101,10 @@ class DataAwareTransition extends Transition {
     }
 
     try {
-
       const variableNames = Object.keys(valuation);
       const variableValues = variableNames.map(name => valuation[name]);
       const functionBody = `return ${this.precondition};`;
       const evaluator = new Function(...variableNames, functionBody);
-
 
       return Boolean(evaluator(...variableValues));
     } catch (error) {
@@ -121,70 +116,63 @@ class DataAwareTransition extends Transition {
   }
 
   /**
-   * Evaluate the postcondition and compute the new data valuation
+   * Evaluate the postcondition and compute the new data valuation (ASYNC)
    * @param {Object} valuation - Map of variable names to current values
-   * @returns {Object} New valuation after applying the postcondition
+   * @returns {Promise<Object>} New valuation after applying the postcondition
    */
-  evaluatePostcondition(valuation) {
+  async evaluatePostcondition(valuation) {
     if (!this.postcondition || this.postcondition.trim() === "") {
       return valuation; // No postcondition means no changes
     }
   
     try {
-    
       const newValuation = { ...valuation };
-      
-
       const statements = this.postcondition.split(';');
       
-
+      // First pass: Handle direct assignments
       for (const statement of statements) {
         if (!statement.trim()) continue;
         
-
         const assignMatch = statement.trim().match(/([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
         if (!assignMatch) continue; // Skip non-assignments for now
         
         const [, variableName, expression] = assignMatch;
         if (!(variableName in valuation)) continue;
         
-
         const expressionFunction = this.createExpressionEvaluator(expression, Object.keys(valuation));
         newValuation[variableName] = expressionFunction(...Object.values(valuation));
       }
       
-
+      // Second pass: Handle constraint-based assignments
       const constraintStatements = statements.filter(stmt => {
         if (!stmt.trim()) return false;
-
         return !stmt.trim().match(/^[a-zA-Z_][a-zA-Z0-9_]*'\s*=/) && 
                stmt.trim().match(/[a-zA-Z_][a-zA-Z0-9_]*'/);
       });
 
       if (constraintStatements.length > 0) {
-
         const primedVars = new Set();
         for (const stmt of constraintStatements) {
           this.detectPrimedVariables(stmt).forEach(v => primedVars.add(v));
         }
         
-
         for (const variableName of primedVars) {
           if (!(variableName in valuation)) continue;
           
-
+          // Skip if already handled by direct assignment
           if (statements.some(stmt => 
             stmt.trim().match(new RegExp(`^${variableName}'\s*=`)))) {
             continue;
           }
           
-
-          newValuation[variableName] = this.findValueSatisfyingConstraints(
+          // Use constraint-based assignment
+          newValuation[variableName] = await this.findValueSatisfyingConstraints(
             variableName,
             constraintStatements,
             valuation,
             newValuation
           );
+          console.log(`Found value for ${variableName}: ${newValuation[variableName]}`);
         }
       }
       
@@ -205,8 +193,6 @@ class DataAwareTransition extends Transition {
   detectPrimedVariables(expression) {
     const primeRegex = /([a-zA-Z_][a-zA-Z0-9_]*)'/g;
     const matches = expression.match(primeRegex) || [];
-    
-
     return matches.map(match => match.slice(0, -1));
   }
   
@@ -220,22 +206,17 @@ class DataAwareTransition extends Transition {
    * @returns {boolean} Whether the value satisfies all constraints
    */
   checkValueAgainstConstraints(value, variableName, constraintStatements, originalValuation, currentValuation) {
-
     const testValuation = { ...currentValuation };
     testValuation[variableName] = value;
     
-
     for (const statement of constraintStatements) {
-
       const constraintFunction = this.createConstraintEvaluator(
         statement,
         Object.keys(originalValuation),
         testValuation
       );
       
-
       try {
-
         if (!constraintFunction(...Object.values(originalValuation), testValuation)) {
           return false;
         }
@@ -245,65 +226,56 @@ class DataAwareTransition extends Transition {
       }
     }
     
-
     return true;
   }
 
   /**
-* Create a function to evaluate a constraint with primed variables
-* @param {string} constraintExpression - The constraint expression
-* @param {Array<string>} variableNames - Array of variable names
-* @param {Object} testValuation - The test valuation object containing potential new values
-* @returns {Function} A function that evaluates the constraint
-*/
-createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
+   * Create a function to evaluate a constraint with primed variables
+   * @param {string} constraintExpression - The constraint expression
+   * @param {Array<string>} variableNames - Array of variable names
+   * @param {Object} testValuation - The test valuation object containing potential new values
+   * @returns {Function} A function that evaluates the constraint
+   */
+  createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
+    let processedExpression = constraintExpression.trim();
 
-  let processedExpression = constraintExpression.trim();
-
-  const functionBody = `
-    try {
-
-      ${variableNames.map(name => `const ${name}_prime = testValuation["${name}"];`).join('\n      ')}
-      
-
-      const result = (${processedExpression.replace(
-        new RegExp(`(^|[^\\w])([a-zA-Z_][a-zA-Z0-9_]*)'`, 'g'), 
-        (match, prefix, varName) => {
-
-          if (variableNames.includes(varName)) {
-            return `${prefix}${varName}_prime`;
+    const functionBody = `
+      try {
+        ${variableNames.map(name => `const ${name}_prime = testValuation["${name}"];`).join('\n        ')}
+        
+        const result = (${processedExpression.replace(
+          new RegExp(`(^|[^\\w])([a-zA-Z_][a-zA-Z0-9_]*)'`, 'g'), 
+          (match, prefix, varName) => {
+            if (variableNames.includes(varName)) {
+              return `${prefix}${varName}_prime`;
+            }
+            return match;
           }
-          return match;
-        }
-      )});
-      
-      return !!result;
-    } catch (e) {
-      console.error("Error in constraint evaluation:", e);
-      return false;
-    }
-  `;
-  
-
-  return new Function(...variableNames, 'testValuation', functionBody);
-}
-
+        )});
+        
+        return !!result;
+      } catch (e) {
+        console.error("Error in constraint evaluation:", e);
+        return false;
+      }
+    `;
+    
+    return new Function(...variableNames, 'testValuation', functionBody);
+  }
 
   /**
-   * Find a value that satisfies all constraint statements for a variable
+   * Find a value that satisfies all constraint statements for a variable (ASYNC)
    * @param {string} variableName - The variable name to generate a value for
    * @param {Array<string>} constraintStatements - Array of constraint expressions
    * @param {Object} originalValuation - Original variable values
    * @param {Object} currentValuation - Current working variable values
-   * @returns {*} A value that satisfies all constraints
+   * @returns {Promise<*>} A value that satisfies all constraints
    */
-  findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
-
+  async findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
     const currentValue = originalValuation[variableName];
-    console.log("Call me maybe")
+    console.log("Finding value for constraints", variableName, constraintStatements);
 
     if (typeof currentValue === 'boolean') {
-
       if (this.checkValueAgainstConstraints(true, variableName, constraintStatements, originalValuation, currentValuation)) {
         return true;
       }
@@ -312,27 +284,33 @@ createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
       }
       return currentValue; // Fallback to current value
     }
-    console.log(variableName, constraintStatements, originalValuation, currentValuation);
+
     if (typeof currentValue === 'number') {
-      // Create the solver
-      const solver = new ExpressionSolver(currentValuation);
-
-      const expr = "x' > x + 5; x' < x + 100";
-
-      const newValues = solver.solve(constraintStatements.join("; "));
-
-      console.log(`Random Valid Value: ${newValues[variableName]}`);
-
-      return newValues[variableName];
-
+      try {
+        // Convert constraint statements to a single expression
+        const combinedConstraints = constraintStatements.join(' && ');
+        console.log('Combined constraints:', combinedConstraints);
+        
+        // Call the async solveExpression function
+        const result = await window.solveExpression(combinedConstraints, currentValuation, 'int');
+        
+        if (result && result.newValues && result.newValues[variableName] !== undefined) {
+          console.log(`Z3 solver found value for ${variableName}: ${result.newValues[variableName]}`);
+          return result.newValues[variableName];
+        }
+      } catch (error) {
+        console.error('Error using Z3 solver:', error);
+      }
+      
+      // Fallback to current value if Z3 solver fails
+      return currentValue;
     } else if (typeof currentValue === 'string') {
-
       console.warn(`Constraint-based sampling for string variables is not yet implemented`);
     }
     
-
     return currentValue;
   }
+
   /**
    * Create a function to evaluate an expression
    * @param {string} expression - The expression to evaluate
@@ -341,13 +319,11 @@ createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
    * @private
    */
   createExpressionEvaluator(expression, variables) {
-
     let processedExpression = expression;
     variables.forEach(name => {
       const regex = new RegExp(`${name}'`, 'g');
       processedExpression = processedExpression.replace(regex, name);
     });
-
 
     return new Function(...variables, `return (${processedExpression});`);
   }
@@ -425,15 +401,12 @@ class DataPetriNet extends PetriNet {
    * Override the parent updateEnabledTransitions method to check data preconditions
    */
   updateEnabledTransitions() {
-
     super.updateEnabledTransitions();
-
 
     const valuation = this.getDataValuation();
 
     for (const [id, transition] of this.transitions) {
       if (transition.isEnabled) {
-
         if (typeof transition.evaluatePrecondition === 'function') {
           transition.isEnabled = transition.evaluatePrecondition(valuation);
         }
@@ -447,15 +420,12 @@ class DataPetriNet extends PetriNet {
    * @returns {boolean} Whether the transition is enabled
    */
   isTransitionEnabled(transitionId) {
-
     const isEnabledByTokens = super.isTransitionEnabled(transitionId);
 
     if (!isEnabledByTokens) return false;
 
-
     const transition = this.transitions.get(transitionId);
     if (!transition) return false;
-
 
     if (typeof transition.evaluatePrecondition === 'function') {
       const valuation = this.getDataValuation();
@@ -466,11 +436,11 @@ class DataPetriNet extends PetriNet {
   }
 
   /**
-   * Override the parent fireTransition method to handle data updates
+   * Override the parent fireTransition method to handle data updates (ASYNC)
    * @param {string} transitionId - ID of the transition to fire
-   * @returns {boolean} Whether the transition fired successfully
+   * @returns {Promise<boolean>} Whether the transition fired successfully
    */
-  fireTransition(transitionId) {
+  async fireTransition(transitionId) {
     if (!this.isTransitionEnabled(transitionId)) {
       return false;
     }
@@ -478,15 +448,13 @@ class DataPetriNet extends PetriNet {
     const transition = this.transitions.get(transitionId);
     if (!transition) return false;
 
-
     const valuation = this.getDataValuation();
 
-
+    // Handle token movement first
     const incomingArcs = Array.from(this.arcs.values())
       .filter(arc => arc.target === transitionId);
     const outgoingArcs = Array.from(this.arcs.values())
       .filter(arc => arc.source === transitionId);
-
 
     for (const arc of incomingArcs) {
       const place = this.places.get(arc.source);
@@ -497,9 +465,7 @@ class DataPetriNet extends PetriNet {
       } else if (arc.type === "reset") {
         place.tokens = 0;
       }
-
     }
-
 
     for (const arc of outgoingArcs) {
       const place = this.places.get(arc.target);
@@ -508,10 +474,15 @@ class DataPetriNet extends PetriNet {
       place.addTokens(arc.weight);
     }
 
-
+    // Handle data updates (this is now async)
     if (typeof transition.evaluatePostcondition === 'function') {
-      const newValuation = transition.evaluatePostcondition(valuation);
-      this.setDataValuation(newValuation);
+      try {
+        const newValuation = await transition.evaluatePostcondition(valuation);
+        this.setDataValuation(newValuation);
+      } catch (error) {
+        console.error('Error evaluating postcondition:', error);
+        // Continue with execution even if postcondition fails
+      }
     }
 
     return true;
@@ -542,7 +513,6 @@ class DataPetriNet extends PetriNet {
     const data = JSON.parse(json);
     const net = new DataPetriNet(data.id, data.name, data.description);
 
-
     data.places.forEach((placeData) => {
       const place = new Place(
         placeData.id,
@@ -553,7 +523,6 @@ class DataPetriNet extends PetriNet {
       );
       net.places.set(place.id, place);
     });
-
 
     data.transitions.forEach((transitionData) => {
       const transition = new DataAwareTransition(
@@ -568,7 +537,6 @@ class DataPetriNet extends PetriNet {
       net.transitions.set(transition.id, transition);
     });
 
-
     data.arcs.forEach((arcData) => {
       const arc = new Arc(
         arcData.id,
@@ -581,7 +549,6 @@ class DataPetriNet extends PetriNet {
       );
       net.arcs.set(arc.id, arc);
     });
-
 
     if (data.dataVariables) {
       data.dataVariables.forEach((variableData) => {
@@ -614,7 +581,6 @@ class DataPetriNet extends PetriNet {
         <text>${this.description}</text>
       </description>`;
 
-
     for (const [id, place] of this.places) {
       pnml += `
       <place id="${id}">
@@ -630,7 +596,6 @@ class DataPetriNet extends PetriNet {
       </place>`;
     }
 
-
     for (const [id, transition] of this.transitions) {
       pnml += `
       <transition id="${id}">
@@ -640,7 +605,6 @@ class DataPetriNet extends PetriNet {
         <graphics>
           <position x="${transition.position.x}" y="${transition.position.y}"/>
         </graphics>`;
-
 
       if (transition.precondition || transition.postcondition) {
         pnml += `
@@ -655,7 +619,6 @@ class DataPetriNet extends PetriNet {
       pnml += `
       </transition>`;
     }
-
 
     for (const [id, arc] of this.arcs) {
       pnml += `
@@ -685,7 +648,6 @@ class DataPetriNet extends PetriNet {
       pnml += `
       </arc>`;
     }
-
 
     pnml += `
       <dataVariables>`;

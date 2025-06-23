@@ -369,7 +369,7 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Start the verification process
+     * Start the verification process (ASYNC)
      */
     async startVerification() {
       const verifyButton = document.querySelector('#btn-verify-soundness');
@@ -556,7 +556,7 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Main verification method
+     * Main verification method (ASYNC)
      */
     async verify(progressCallback) {
       this.startTime = Date.now();
@@ -574,7 +574,7 @@ class DataPetriNetVerification {
         await this.delay(200);
   
         // Step 2: Check boundedness (simplified)
-        const isBounded = this.checkBoundedness();
+        const isBounded = await this.checkBoundedness();
         if (!isBounded) {
           return this.createResult(false, [
             { name: "P0: Boundedness", satisfied: false, description: "The net must be bounded for verification", details: "The net has unbounded places" }
@@ -585,14 +585,14 @@ class DataPetriNetVerification {
         await this.delay(300);
   
         // Step 3: Construct LTS and check properties
-        const lts = this.constructLTS();
+        const lts = await this.constructLTS();
         
         progressCallback(75, "Checking soundness properties...");
         await this.delay(200);
   
-        const p1 = this.checkProperty1(lts);
-        const p2 = this.checkProperty2(lts);
-        const p3 = this.checkProperty3(lts);
+        const p1 = await this.checkProperty1(lts);
+        const p2 = await this.checkProperty2(lts);
+        const p3 = await this.checkProperty3(lts);
   
         progressCallback(100, "Verification complete!");
         await this.delay(100);
@@ -646,9 +646,9 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Check boundedness (simplified implementation)
+     * Check boundedness (simplified implementation) (ASYNC)
      */
-    checkBoundedness() {
+    async checkBoundedness() {
       // Simplified boundedness check
       // In practice, this would use the coverability graph approach from the paper
       
@@ -672,9 +672,9 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Construct Labeled Transition System (simplified)
+     * Construct Labeled Transition System (simplified) (ASYNC)
      */
-    constructLTS() {
+    async constructLTS() {
       // Simplified LTS construction
       // In the full implementation, this would build the state space with data valuations
       
@@ -698,7 +698,7 @@ class DataPetriNetVerification {
         const enabledTransitions = this.getEnabledTransitions(currentState);
         
         for (const transitionId of enabledTransitions) {
-          const nextState = this.fireTransitionInState(currentState, transitionId);
+          const nextState = await this.fireTransitionInState(currentState, transitionId);
           if (nextState && !explored.has(nextState)) {
             toExplore.push(nextState);
             states.add(nextState);
@@ -776,9 +776,9 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Fire transition in a state and return new state
+     * Fire transition in a state and return new state (ASYNC)
      */
-    fireTransitionInState(stateStr, transitionId) {
+    async fireTransitionInState(stateStr, transitionId) {
       const state = JSON.parse(stateStr);
       const newState = JSON.parse(JSON.stringify(state)); // Deep copy
       
@@ -798,19 +798,24 @@ class DataPetriNetVerification {
         newState.marking[arc.target] = (newState.marking[arc.target] || 0) + arc.weight;
       }
       
-      // Update data valuation
+      // Update data valuation (ASYNC)
       const transition = this.petriNet.transitions.get(transitionId);
       if (transition && typeof transition.evaluatePostcondition === 'function') {
-        newState.dataValuation = transition.evaluatePostcondition(state.dataValuation);
+        try {
+          newState.dataValuation = await transition.evaluatePostcondition(state.dataValuation);
+        } catch (error) {
+          console.warn(`Failed to evaluate postcondition for transition ${transitionId}:`, error);
+          // Continue with original valuation if postcondition fails
+        }
       }
       
       return JSON.stringify(newState);
     }
   
     /**
-     * Check Property 1: Reachability of final state
+     * Check Property 1: Reachability of final state (ASYNC)
      */
-    checkProperty1(lts) {
+    async checkProperty1(lts) {
       // P1: ∀(M,α) ∈ Reach : ∃α′. (M,α) →* (MF,α′)
       
       const finalMarkings = this.identifyFinalMarkings();
@@ -835,9 +840,9 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Check Property 2: Proper termination
+     * Check Property 2: Proper termination (ASYNC)
      */
-    checkProperty2(lts) {
+    async checkProperty2(lts) {
       // P2: ∀(M,α) ∈ Reach : M ⪰ MF ⇒ (M = MF)
       
       const finalMarkings = this.identifyFinalMarkings();
@@ -860,9 +865,9 @@ class DataPetriNetVerification {
     }
   
     /**
-     * Check Property 3: No dead transitions
+     * Check Property 3: No dead transitions (ASYNC)
      */
-    checkProperty3(lts) {
+    async checkProperty3(lts) {
       // P3: ∀t ∈ T. ∃M₁,M₂,α₁,α₂: (M₁,α₁) ∈ Reach and (M₁,α₁) →t (M₂,α₂)
       
       const transitionsFired = new Set();
@@ -989,9 +994,15 @@ class DataPetriNetVerification {
   // Auto-initialize when the DOM is ready and app is available
   document.addEventListener('DOMContentLoaded', () => {
     const initVerification = () => {
+      // Check if enhanced verification is already initialized or will be
+      if (window.dpnVerificationInitialized || window.enhancedDpnVerification) {
+        console.log("Enhanced verification detected, skipping basic verification initialization");
+        return;
+      }
+      
       if (window.petriApp && window.dataPetriNetIntegration) {
         if (!window.dpnVerification) {
-          console.log("Initializing Data Petri Net Verification extension");
+          console.log("Initializing basic Data Petri Net Verification extension");
           window.dpnVerification = new DataPetriNetVerification(window.petriApp);
         }
       } else {
@@ -1000,6 +1011,6 @@ class DataPetriNetVerification {
       }
     };
     
-    // Wait a bit longer to ensure all extensions are loaded
-    setTimeout(initVerification, 1000);
+    // Wait longer to allow enhanced verification to initialize first
+    setTimeout(initVerification, 1500);
   });

@@ -797,8 +797,8 @@ class PetriNetRenderer {
   }
 
   adjustPan(dx, dy) {
-    this.panOffset.x += dx;
-    this.panOffset.y += dy;
+    this.panOffset.x += dx * this.zoomFactor;
+    this.panOffset.y += dy * this.zoomFactor;
   }
 
   setZoom(zoom, centerX, centerY) {
@@ -825,12 +825,28 @@ class PetriNetRenderer {
   }
 
 
-  screenToWorld(screenX, screenY) {
-    return {
-      x: (screenX - this.panOffset.x) / this.zoomFactor,
-      y: (screenY - this.panOffset.y) / this.zoomFactor
-    };
+screenToWorld(screenX, screenY) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+        // Avoid division by zero if canvas is not visible
+        return { x: 0, y: 0 };
+    }
+
+    // Calculate the scaling ratio between the drawing buffer and the CSS display size.
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+
+    // Scale the mouse coordinates to the drawing buffer's coordinate system.
+    const canvasX = screenX * scaleX;
+    const canvasY = screenY * scaleY;
+    
+    // Now, transform from the drawing buffer's coordinates to the panned/zoomed "world" coordinates.
+    const worldX = (canvasX - this.panOffset.x) / this.zoomFactor;
+    const worldY = (canvasY - this.panOffset.y) / this.zoomFactor;
+
+    return { x: worldX, y: worldY };
   }
+
 
 
   worldToScreen(worldX, worldY) {

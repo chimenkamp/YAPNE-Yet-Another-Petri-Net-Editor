@@ -24,26 +24,24 @@ function extendSimulationFunctionality() {
   
   if (!app) return;
   
-  // Override stepSimulation to update variable display after each step
+  // Override stepSimulation to update variable display after each step (ASYNC)
   const originalStepSimulation = app.stepSimulation;
-  app.stepSimulation = function() {
-    // Call original method
-    const result = originalStepSimulation.call(this);
+  app.stepSimulation = async function() {
+    // Call original method (now async)
+    await originalStepSimulation.call(this);
     
     // Update data values display
     updateDataValuesDisplay();
     
     // Add to variable history
     updateVariableHistory();
-    
-    return result;
   };
   
-  // Override fireTransition to update variable display after firing
+  // Override fireTransition to update variable display after firing (ASYNC)
   const originalFireTransition = app.fireTransition;
-  app.fireTransition = function(id) {
-    // Call original method
-    const result = originalFireTransition.call(this, id);
+  app.fireTransition = async function(id) {
+    // Call original method (now async)
+    const result = await originalFireTransition.call(this, id);
     
     // Update data values display
     updateDataValuesDisplay();
@@ -54,12 +52,12 @@ function extendSimulationFunctionality() {
     return result;
   };
   
-  // Override API-level fireTransition
+  // Override API-level fireTransition (ASYNC)
   if (app.api && app.api.fireTransition) {
     const originalAPIFireTransition = app.api.fireTransition;
-    app.api.fireTransition = function(id) {
-      // Call original method
-      const result = originalAPIFireTransition.call(this, id);
+    app.api.fireTransition = async function(id) {
+      // Call original method (now async)
+      const result = await originalAPIFireTransition.call(this, id);
       
       // Update data values display
       updateDataValuesDisplay();
@@ -73,7 +71,7 @@ function extendSimulationFunctionality() {
     };
   }
   
-  // Override startAutoRun to update variable display during autorun
+  // Override startAutoRun to update variable display during autorun (ASYNC)
   const originalStartAutoRun = app.startAutoRun;
   app.startAutoRun = function() {
     // Call original method
@@ -84,7 +82,7 @@ function extendSimulationFunctionality() {
     if (originalInterval) {
       clearInterval(originalInterval);
       
-      this.autoRunInterval = setInterval(() => {
+      this.autoRunInterval = setInterval(async () => {
         const enabledTransitions = this.api.getEnabledTransitions();
         if (enabledTransitions.length === 0) {
           this.stopAutoRun();
@@ -96,7 +94,8 @@ function extendSimulationFunctionality() {
           return;
         }
         
-        this.stepSimulation();
+        // Use async stepSimulation
+        await this.stepSimulation();
         // Variable display updates are handled in stepSimulation
       }, this.autoRunDelay);
     }
@@ -110,7 +109,7 @@ function extendSimulationFunctionality() {
   // Add styles for highlighting changes
   addVariableHistoryStyles();
   
-  console.log('Data Petri Net Variable Tracking Extension loaded.');
+  console.log('Data Petri Net Variable Tracking Extension loaded (with async support).');
 }
 
 /**
@@ -417,6 +416,25 @@ function addVariableHistoryStyles() {
     .history-variable-value {
       color: #A3BE8C;
       font-family: monospace;
+    }
+    
+    .data-variable-changed {
+      background-color: rgba(163, 190, 140, 0.3) !important;
+      border: 1px solid #A3BE8C !important;
+      color: #2E3440 !important;
+      font-weight: bold !important;
+      animation: highlight-fade 2s ease-out;
+    }
+    
+    @keyframes highlight-fade {
+      0% {
+        background-color: rgba(163, 190, 140, 0.8);
+        transform: scale(1.05);
+      }
+      100% {
+        background-color: rgba(163, 190, 140, 0.3);
+        transform: scale(1);
+      }
     }
   `;
 }

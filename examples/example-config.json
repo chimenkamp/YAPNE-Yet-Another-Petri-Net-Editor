@@ -33,5 +33,10 @@
         "name": "DPN: Simple Auction Process Data Petri Net",
         "description": "A Data Petri Net representing a simple auction process as shown in Example 1 from the paper. The last offer is stored in 'o' and time progression is captured by 't'",
         "path": "examples/auction-process-dpn.json"
+    },
+    {
+        "name": "DPN: Soundness Control Flow with Guards",
+        "description": "Test Soundness of a Data Petri Net with guards and data variables",
+        "path": "examples/soundness_proba_CF_GUARDS.json"
     }
 ]

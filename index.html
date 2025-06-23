@@ -1,13 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script src="coi-serviceworker.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>YAPNE - Yet Another Petri Net Editor</title>
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/event-log.css">
     <link rel="stylesheet" href="styles/dpn-styles.css">
     <link rel="stylesheet" href="styles/pnml-importer.css">
+
     <style>
         /* Additional styles for the ghost element feature */
         .info-section {
@@ -297,7 +300,7 @@
                     Move mouse to position element, click to place
                 </div>
                 
-                <canvas id="petri-canvas" width="1090" height="800" class="resizable-content"></canvas>
+                <canvas id="petri-canvas" class="resizable-content"></canvas>
             </div>
 
             <!-- BEGIN REDESIGNED SIDEBAR -->
@@ -626,11 +629,15 @@
         </div>
     </footer>
 
-    <!-- Include the Petri Net library -->
+    <script src="public/z3-built.js"></script>
+    <script>
+      globalThis.global = { initZ3: globalThis.initZ3 };
+    </script>
+    
+    <script type="module" src="/src/z3-expression-evaluation.js"></script>
+
     <script src="src/petri-net-simulator.js"></script>
 
-    <!-- Include Data Petri Net extensions -->
-    <!-- <script src="src/element-overlay.js"></script> -->
     <script src="src/extensions/dpn-expression-validation.js"></script>
     <script src="src/extensions/dpn-model.js"></script>
     <script src="src/extensions/dpn-api.js"></script>
@@ -641,17 +648,25 @@
     <script src="src/extensions/dpn-verification-ui.js"></script>
     <script src="src/extensions/dpn-verification-trace-tracing.js"></script>
     
-    <!-- Include LTL extensions -->
-    <script src="src/extensions/LTL/expression-solver.js"></script>
+    <!-- <script src="src/extensions/LTL/expression-solver.js"></script>
     <script src="src/extensions/LTL/ltl-integration-layer.js"></script>  
     <script src="src/extensions/LTL/dpn-ltl-verification-enhanced.js"></script>
-    <script src="src/extensions/LTL/final-integration-script.js"></script>
+    <script src="src/extensions/LTL/final-integration-script.js"></script> -->
 
     <script src="app.js"></script>
+
     <script>
-    
+        if (window.crossOriginIsolated) {
+            console.log("%c✔️ This page is cross-origin isolated.", "color: green; font-weight: bold;");
+        } else {
+            console.warn("%c❌ This page is not cross-origin isolated. Some features may not work as expected.", "color: red; font-weight: bold;");
+        }
+    </script>
+
+    <script>
         document.addEventListener('DOMContentLoaded', () => {
             try {
+
                 // Sidebar tab functionality
                 const tabs = document.querySelectorAll('.sidebar-tab');
                 tabs.forEach(tab => {

@@ -5,6 +5,7 @@
  * It demonstrates how to create, edit, simulate, and analyze Petri nets.
  */
 
+
 class PetriNetApp {
   /**
    * Constructor for the PetriNetApp
@@ -59,6 +60,8 @@ class PetriNetApp {
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
     this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
 
+    this.setupResizeObserver();
+    this.resizeCanvas();
 
     this.initEventHandlers();
 
@@ -502,15 +505,23 @@ class PetriNetApp {
 
       const fireButton = document.getElementById("btn-fire-transition");
       if (fireButton) {
-        fireButton.addEventListener("click", () => {
-          if (this.api.fireTransition(id)) {
+        fireButton.addEventListener("click", async () => {
+          if (await this.fireTransition(id)) {
             this.updateTokensDisplay();
-
             this.updateTransitionStatus(id);
           }
         });
       }
     }
+  }
+
+  /**
+   * Fire a specific transition (ASYNC)
+   * @param {string} id - ID of the transition to fire
+   * @returns {Promise<boolean>} Whether the transition fired successfully
+   */
+  async fireTransition(id) {
+    return await this.api.fireTransition(id);
   }
 
   /**
@@ -655,11 +666,52 @@ class PetriNetApp {
       this.tokensDisplay.appendChild(placeDiv);
     }
   }
+  /**
+   * Initializes a ResizeObserver to automatically handle canvas resizing.
+   * @returns {void}
+   */
+  setupResizeObserver() {
+    const resizeObserver = new ResizeObserver(() => {
+        this.resizeCanvas();
+    });
+    // Observe the canvas's parent container for size changes
+    if (this.canvas.parentElement) {
+        resizeObserver.observe(this.canvas.parentElement);
+    }
+  }
+
+   /**
+   * Resizes the canvas to fit its container while maintaining sharp resolution.
+   * This function should be called whenever the canvas's container size changes.
+   * @returns {void}
+   */
+  resizeCanvas() {
+    if (!this.canvas || !this.canvas.parentElement) {
+        return;
+    }
+
+    const container = this.canvas.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    
+    // Get the new size from the container, which has a stable size now
+    const displayWidth = container.clientWidth;
+    const displayHeight = container.clientHeight;
+
+    // Set the canvas drawing buffer size.
+    if (this.canvas.width !== displayWidth * dpr || this.canvas.height !== displayHeight * dpr) {
+        this.canvas.width = displayWidth * dpr;
+        this.canvas.height = displayHeight * dpr;
+
+        if (this.editor) {
+            this.editor.render();
+        }
+    }
+  }
 
   /**
-   * Steps the simulation by firing one enabled transition
+   * Steps the simulation by firing one enabled transition (ASYNC)
    */
-  stepSimulation() {
+  async stepSimulation() {
     const enabledTransitions = this.api.getEnabledTransitions();
 
     if (enabledTransitions.length === 0) {
@@ -675,18 +727,18 @@ class PetriNetApp {
     });
 
 
-    this.api.fireTransition(enabledTransitions[0]);
+    await this.api.fireTransition(enabledTransitions[0]);
   }
 
   /**
-   * Starts auto-running the simulation
+   * Starts auto-running the simulation (ASYNC)
    */
   startAutoRun() {
 
     this.stopAutoRun();
 
 
-    this.autoRunInterval = window.setInterval(() => {
+    this.autoRunInterval = window.setInterval(async () => {
       const enabledTransitions = this.api.getEnabledTransitions();
       if (enabledTransitions.length === 0) {
         this.stopAutoRun();
@@ -698,7 +750,7 @@ class PetriNetApp {
         return;
       }
 
-      this.stepSimulation();
+      await this.stepSimulation();
     }, this.autoRunDelay);
   }
 

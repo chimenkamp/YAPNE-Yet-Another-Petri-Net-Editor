@@ -95,10 +95,10 @@ class DataPetriNetAPI extends PetriNetAPI {
 
     const success = variable.setValue(value);
 
-
+    // Update enabled transitions
     this.petriNet.updateEnabledTransitions();
 
-
+    // Render if editor is available
     if (this.editor) this.editor.render();
 
     return success;
@@ -116,10 +116,10 @@ class DataPetriNetAPI extends PetriNetAPI {
 
     transition.precondition = precondition;
 
-
+    // Update enabled transitions
     this.petriNet.updateEnabledTransitions();
 
-
+    // Render if editor is available
     if (this.editor) this.editor.render();
 
     return true;
@@ -137,7 +137,7 @@ class DataPetriNetAPI extends PetriNetAPI {
 
     transition.postcondition = postcondition;
 
-
+    // Render if editor is available
     if (this.editor) this.editor.render();
 
     return true;
@@ -161,11 +161,62 @@ class DataPetriNetAPI extends PetriNetAPI {
       }
     }
 
-
+    // Update enabled transitions
     this.petriNet.updateEnabledTransitions();
 
+    // Render if editor is available
+    if (this.editor) this.editor.render();
+  }
+
+  /**
+   * Fire a transition (ASYNC)
+   * @param {string} id - ID of the transition to fire
+   * @returns {Promise<boolean>} Whether the transition fired successfully
+   */
+  async fireTransition(id) {
+    const success = await this.petriNet.fireTransition(id);
+    if (success && this.editor) this.editor.render();
+    return success;
+  }
+
+  /**
+   * Auto-fire enabled transitions with a maximum number of steps (ASYNC)
+   * @param {number} maxSteps - Maximum number of steps to execute
+   * @returns {Promise<number>} Number of steps executed
+   */
+  async autoFireEnabledTransitions(maxSteps = 10) {
+    let steps = 0;
+    let firedAny = false;
+
+    do {
+      firedAny = false;
+
+      // Update enabled transitions
+      this.petriNet.updateEnabledTransitions();
+      const enabledTransitions = [];
+
+      for (const [id, transition] of this.petriNet.transitions) {
+        if (transition.isEnabled) {
+          enabledTransitions.push(id);
+        }
+      }
+
+      // Sort by priority
+      enabledTransitions.sort((a, b) => {
+        const transA = this.petriNet.transitions.get(a);
+        const transB = this.petriNet.transitions.get(b);
+        return (transB?.priority || 0) - (transA?.priority || 0);
+      });
+
+      // Fire the highest priority transition
+      if (enabledTransitions.length > 0) {
+        firedAny = await this.petriNet.fireTransition(enabledTransitions[0]);
+        if (firedAny) steps++;
+      }
+    } while (firedAny && steps < maxSteps);
 
     if (this.editor) this.editor.render();
+    return steps;
   }
 
   /**
@@ -200,10 +251,10 @@ class DataPetriNetAPI extends PetriNetAPI {
     try {
       const variables = JSON.parse(json);
 
-
+      // Clear existing variables
       this.petriNet.dataVariables.clear();
 
-
+      // Add new variables
       for (const varData of variables) {
         const variable = new DataVariable(
           varData.id || this.generateUUID(),
@@ -215,10 +266,10 @@ class DataPetriNetAPI extends PetriNetAPI {
         this.petriNet.addDataVariable(variable);
       }
 
-
+      // Update enabled transitions
       this.petriNet.updateEnabledTransitions();
 
-
+      // Render if editor is available
       if (this.editor) this.editor.render();
 
       return true;
@@ -240,17 +291,17 @@ class DataPetriNetAPI extends PetriNetAPI {
     }
 
     try {
-
+      // Create dummy valuation
       const dummyValuation = {};
       variableNames.forEach(name => {
         dummyValuation[name] = 0; // Use 0 as a safe default for validation
       });
 
-
+      // Create evaluator function
       const functionBody = `return ${expression};`;
       const evaluator = new Function(...variableNames, functionBody);
 
-
+      // Test evaluation
       evaluator(...variableNames.map(name => dummyValuation[name]));
 
       return { valid: true, error: null };
@@ -273,20 +324,20 @@ class DataPetriNetAPI extends PetriNetAPI {
       return { valid: true, error: null }; // Empty expression is valid
     }
   
-
+    // Split into statements
     const statements = expression.split(';');
     
     for (const statement of statements) {
       if (!statement.trim()) continue;
       
-
+      // Check for assignment pattern
       const assignMatch = statement.trim().match(/^([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
       
       if (assignMatch) {
-
+        // Direct assignment validation
         const [, variableName, rightHandSide] = assignMatch;
         
-
+        // Check if variable exists
         if (!variableNames.includes(variableName)) {
           return {
             valid: false,
@@ -294,25 +345,23 @@ class DataPetriNetAPI extends PetriNetAPI {
           };
         }
         
-
+        // Validate right-hand side expression
         try {
-
+          // Create dummy valuation
           const dummyValuation = {};
           variableNames.forEach(name => {
             dummyValuation[name] = 0; // Use 0 as a safe default for validation
           });
           
-
+          // Process expression (remove primes)
           let processedExpression = rightHandSide;
           variableNames.forEach(name => {
             const regex = new RegExp(`${name}'`, 'g');
             processedExpression = processedExpression.replace(regex, name);
           });
           
-
+          // Create and test evaluator
           const evaluator = new Function(...variableNames, `return (${processedExpression});`);
-          
-
           evaluator(...variableNames.map(name => dummyValuation[name]));
         } catch (error) {
           return { 
@@ -321,9 +370,7 @@ class DataPetriNetAPI extends PetriNetAPI {
           };
         }
       } else {
-
-        
-
+        // Check for constraint pattern
         const primedVarsUsed = variableNames.filter(name => 
           statement.match(new RegExp(`${name}'`, 'g'))
         );
@@ -335,25 +382,24 @@ class DataPetriNetAPI extends PetriNetAPI {
           };
         }
         
-
+        // Validate constraint expression
         try {
-
+          // Create dummy valuation
           const dummyValuation = {};
           variableNames.forEach(name => {
             dummyValuation[name] = 0; // Use 0 as a safe default for validation
           });
           
-
           const dummyTestValuation = { ...dummyValuation };
           
-
+          // Process expression for validation
           let processedExpression = statement;
           variableNames.forEach(name => {
             const regex = new RegExp(`${name}'`, 'g');
             processedExpression = processedExpression.replace(regex, `dummyTestValuation["${name}"]`);
           });
           
-
+          // Create and test evaluator
           const evaluator = new Function(
             ...variableNames,
             'dummyTestValuation',

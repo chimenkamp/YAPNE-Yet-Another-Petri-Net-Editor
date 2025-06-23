@@ -656,6 +656,7 @@ class PNMLImporter {
           // Check for data-aware attributes
           const precondition = this.getTextContent(transition.querySelector('dataGuard text')) || 
                              transition.getAttribute('guard') || '';
+
           const postcondition = this.getTextContent(transition.querySelector('dataUpdate text')) || 
                               this.getTextContent(transition.querySelector('dataAction text')) || '';
           
@@ -665,7 +666,11 @@ class PNMLImporter {
                                transition.querySelector('dataGuard') ||
                                transition.querySelector('dataUpdate') ||
                                transition.querySelector('dataAction'));
-          
+
+          // const { pre, post } = splitPrePostConditions(precondition)
+
+          // precondition = pre || '';
+          // postcondition = post || '';
           const transitionData = {
             id: transition.getAttribute('id'),
             label: this.getTextContent(transition.querySelector('name text')) || transition.getAttribute('id'),
@@ -707,13 +712,13 @@ class PNMLImporter {
               currentValue: this.getTextContent(variable.querySelector('initialValue text')),
               description: this.getTextContent(variable.querySelector('description text')) || ''
             };
-            let minValue = variable.getAttribute('minValue');
-            let maxValue = variable.getAttribute('maxValue');
-
+            let minValue = variable.getAttribute('minValue')|| "";
+            let maxValue = variable.getAttribute('maxValue')|| "";
+            let initialValue =  variable.querySelector("initialValue") ? variable.querySelector("initialValue").textContent : "";
             // Convert value to appropriate type
             if (varData.type === 'number' || varData.type === 'java.lang.Double' || varData.type === 'java.lang.Integer') {
               varData.type = 'number';
-              varData.currentValue = parseFloat(minValue) || 0;
+              varData.currentValue = parseFloat(initialValue) || 0;
             } else if (varData.type === 'boolean' || varData.type === 'java.lang.Boolean') {
               varData.type = 'boolean';
               varData.currentValue = varData.currentValue === 'true';
@@ -731,6 +736,34 @@ class PNMLImporter {
         console.error('Error parsing PNML:', error);
         return null;
       }
+    }
+
+    splitPrePostConditions(inputString) {
+      // Default return object in case of invalid input format
+      const result = { pre: 'Invalid input format', post: 'Invalid input format' };
+
+      // Find the boundary between the pre and post conditions.
+      // We use ' | post: ' as the unique delimiter.
+      const postMarker = ' | post: ';
+      const postIndex = inputString.indexOf(postMarker);
+
+      if (postIndex !== -1) {
+          // Extract the part before " | post: "
+          let prePart = inputString.substring(0, postIndex);
+          // Extract the part after " | post: "
+          let postPart = inputString.substring(postIndex + postMarker.length);
+
+          // Clean up the 'pre' condition by removing the "pre: " prefix.
+          if (prePart.startsWith('pre: ')) {
+              result.pre = prePart.substring(5).trim();
+          }
+
+          // Clean up the 'post' condition by replacing all instances of ' | ' with ' ; '.
+          // A global regex is used to ensure all occurrences are replaced.
+          result.post = postPart.replace(/ \| /g, ' ; ').trim();
+      }
+
+      return result;
     }
   
     getTextContent(element) {
