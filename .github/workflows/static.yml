@@ -2,11 +2,8 @@
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes to the default branch
   push:
     branches: ["main"]
-
-  # Allows manual run from the Actions tab
   workflow_dispatch:
 
 permissions:
@@ -32,14 +29,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'         # or whichever LTS you target
+          node-version: '20'      # use Node 20 for built-in Web Crypto
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build with Vite
-        run: npm run build         # assumes your package.json has "build": "vite build"
+        run: npm run build       # generates dist/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -47,7 +44,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist              # point at Vite’s output folder
+          path: ./dist
 
       - name: Deploy to GitHub Pages
         id: deployment
