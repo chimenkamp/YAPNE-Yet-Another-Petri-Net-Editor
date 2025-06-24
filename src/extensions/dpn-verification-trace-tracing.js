@@ -1601,18 +1601,17 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
       <div class="section-header">
         <div class="section-title">
           <span class="section-icon">🎯</span>
-          <h3>Enhanced Verification</h3>
+          <h3>Verification</h3>
         </div>
         <button class="section-toggle">▼</button>
       </div>
       <div class="section-content">
         <p style="font-size: 14px; color: #D8DEE9; margin-bottom: 15px;">
-          <strong>Advanced soundness verification</strong> with detailed counterexample analysis, 
-          responsible variable tracking, and comprehensive problem visualization.
+          <strong>Data-aware soundness verification</strong>
         </p>
         <button id="btn-verify-soundness" style="background: linear-gradient(135deg, #A3BE8C, #88C0D0, #EBCB8B); color: #2E3440; font-weight: 600; font-size: 15px; padding: 14px;">
           <span class="verify-btn-icon">🎯</span>
-          Enhanced Verification
+          Soundness Verification
         </button>
       </div>
     `;

@@ -130,18 +130,23 @@ class PetriNetApp {
       });
     }
 
-    // Set the editor mode to 'addArc' when the c key is pressed and 'select if c key is released'
+    // Set the editor mode to 'addArc' when the Space key is held down
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'c' &&  this.editor && this.editor.mode !== 'addArc') {
+      if (e.key === ' ' && this.editor && this.editor.mode !== 'addArc') {
           e.preventDefault();
+          e.stopPropagation();
           this.editor.setMode('addArc');
           this.updateActiveButton("btn-add-arc");
-      } else if (e.key === 'c' && this.editor && this.editor.mode === 'addArc') {
-          e.preventDefault();
-          this.editor.setMode('select');
-          this.updateActiveButton("btn-select");
       }
-      
+    });
+
+    document.addEventListener('keyup', (e) => {
+        if (e.key === ' ' && this.editor) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.editor.setMode('select');
+            this.updateActiveButton("btn-select");
+        }
     });
 
     const btnDelete = document.getElementById("btn-delete");
@@ -362,7 +367,7 @@ class PetriNetApp {
       <div class="info-section">
         <h4>💡 Quick Tip</h4>
         <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected transitions!</p>
-        <p><strong>Quick Connect:</strong> Press <kbd>C</kbd> to enter connection mode instantly!</p>
+        <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode instantly!</p>
       </div>
     `;
 
@@ -430,7 +435,7 @@ class PetriNetApp {
    <div class="info-section">
      <h4>💡 Quick Tip</h4>
      <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected places!</p>
-     <p><strong>Quick Connect:</strong> Press <kbd>C</kbd> to enter connection mode instantly!</p>
+     <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode instantly!</p>
    </div>
   `;
 
@@ -587,7 +592,7 @@ class PetriNetApp {
       </div>
       <div class="info-section">
         <h4>💡 Quick Tip</h4>
-        <p><strong>Quick Connect:</strong> Press <kbd>C</kbd> to enter connection mode for creating more arcs!</p>
+        <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode for creating more arcs!</p>
       </div>
     `;
 
