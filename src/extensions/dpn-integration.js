@@ -1,4 +1,3 @@
-
 class DataPetriNetIntegration {
   /**
    * Initialize the Data Petri Net extensions

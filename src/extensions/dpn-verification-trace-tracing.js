@@ -3,7 +3,7 @@
  * 
  * Integrates comprehensive counterexample analysis with detailed reasons,
  * problematic marking visualization, and responsible variable highlighting
- * into the existing class structure.
+ * into the existing class structure. Updated to support int/float types.
  */
 
 class EnhancedDataAwareVerifier extends DataAwareVerifier {
@@ -290,7 +290,7 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
         const failedGuards = this.findFailedDataGuards(id, stateData);
         if (failedGuards.length > 0) {
           responsibleVariables.push(...failedGuards);
-          disabledReasons.push(`${transition.label || id}: data guard failed (${failedGuards.map(v => `${v.variable}=${v.value}`).join(', ')})`);
+          disabledReasons.push(`${transition.label || id}: data guard failed (${failedGuards.map(v => `${v.variable}=${this.formatVariableValue(v.value, v.type)}`).join(', ')})`);
         }
       }
     }
@@ -344,9 +344,11 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
     // Check if data conditions contribute to the problem
     for (const [varName, value] of Object.entries(state.dataValuation)) {
       if (this.isVariableContributingToTerminationProblem(varName, value, state)) {
+        const variableType = this.getVariableType(varName);
         responsibleVariables.push({
           variable: varName,
           value: value,
+          type: variableType,
           problem: "contributes to improper termination"
         });
       }
@@ -480,9 +482,11 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
         const isEnabled = transition.evaluatePrecondition(stateData.dataValuation);
         if (!isEnabled) {
           for (const [varName, value] of Object.entries(stateData.dataValuation)) {
+            const variableType = this.getVariableType(varName);
             failedGuards.push({
               variable: varName,
               value: value,
+              type: variableType,
               guard: transition.precondition || "unknown guard"
             });
           }
@@ -491,12 +495,53 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
         failedGuards.push({
           variable: "evaluation_error",
           value: error.message,
+          type: "error",
           guard: transition.precondition || "unknown guard"
         });
       }
     }
     
     return failedGuards;
+  }
+
+  /**
+   * Get the type of a variable by name
+   * @param {string} varName - Variable name
+   * @returns {string} Variable type
+   */
+  getVariableType(varName) {
+    if (this.petriNet.dataVariables) {
+      for (const [id, variable] of this.petriNet.dataVariables) {
+        if (variable.name === varName) {
+          return variable.type;
+        }
+      }
+    }
+    return 'unknown';
+  }
+
+  /**
+   * Format variable value based on its type
+   * @param {*} value - The value to format
+   * @param {string} type - The type of the variable
+   * @returns {string} Formatted value
+   */
+  formatVariableValue(value, type) {
+    if (value === undefined || value === null) return 'null';
+    
+    switch (type) {
+      case 'int':
+        return Math.floor(Number(value)).toString();
+      case 'float':
+        const floatValue = Number(value);
+        return floatValue % 1 === 0 ? floatValue.toString() : floatValue.toFixed(3).replace(/\.?0+$/, '');
+      case 'boolean':
+        return value ? 'true' : 'false';
+      case 'string':
+        return `"${value}"`;
+      default:
+        return value.toString();
+    }
   }
 
   isTransitionTokenEnabledInState(transitionId, stateData) {
@@ -617,6 +662,7 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       // Create problematic variables list
       for (const varName of allVariables) {
         const range = variableRanges[varName];
+        const variableType = this.getVariableType(varName);
         
         // Get current value from petri net definition if range analysis failed
         let currentValue = null;
@@ -631,9 +677,10 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
         
         problematicVariables.push({
           variable: varName,
+          type: variableType,
           minValue: range ? range.min : currentValue,
           maxValue: range ? range.max : currentValue,
-          currentValue: currentValue, // Add current value for better analysis
+          currentValue: currentValue,
           guard: transition.precondition
         });
       }
@@ -659,18 +706,41 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
       }
       
       for (const [varName, value] of Object.entries(stateData.dataValuation)) {
-        // Skip undefined, null, or non-numeric values for range analysis
-        if (value === undefined || value === null || (typeof value !== 'number' && isNaN(Number(value)))) {
+        // Get variable type
+        const variableType = this.getVariableType(varName);
+        
+        // Skip undefined, null, or non-numeric values for range analysis (except for known numeric types)
+        if (value === undefined || value === null) {
           continue;
         }
         
-        const numericValue = typeof value === 'number' ? value : Number(value);
-        
-        if (!ranges[varName]) {
-          ranges[varName] = { min: numericValue, max: numericValue };
-        } else {
-          ranges[varName].min = Math.min(ranges[varName].min, numericValue);
-          ranges[varName].max = Math.max(ranges[varName].max, numericValue);
+        // Handle different types appropriately
+        if (variableType === 'int' || variableType === 'float') {
+          const numericValue = Number(value);
+          if (isNaN(numericValue)) continue;
+          
+          if (!ranges[varName]) {
+            ranges[varName] = { min: numericValue, max: numericValue };
+          } else {
+            ranges[varName].min = Math.min(ranges[varName].min, numericValue);
+            ranges[varName].max = Math.max(ranges[varName].max, numericValue);
+          }
+        } else if (variableType === 'boolean') {
+          // For boolean, track the possible values
+          if (!ranges[varName]) {
+            ranges[varName] = { values: new Set([value]) };
+          } else {
+            if (!ranges[varName].values) ranges[varName].values = new Set();
+            ranges[varName].values.add(value);
+          }
+        } else if (variableType === 'string') {
+          // For string, track the possible values
+          if (!ranges[varName]) {
+            ranges[varName] = { values: new Set([value]) };
+          } else {
+            if (!ranges[varName].values) ranges[varName].values = new Set();
+            ranges[varName].values.add(value);
+          }
         }
       }
     }
@@ -708,7 +778,10 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
     if (!valuation) return 'no data';
     
     return Object.entries(valuation)
-      .map(([variable, value]) => `${variable}=${value !== undefined ? value : 'undefined'}`)
+      .map(([variable, value]) => {
+        const variableType = this.getVariableType(variable);
+        return `${variable}=${this.formatVariableValue(value, variableType)}`;
+      })
       .join(', ') || 'no data';
   }
 
@@ -832,10 +905,11 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
     if (this.petriNet.dataVariables) {
       for (const [id, variable] of this.petriNet.dataVariables) {
         const value = variable.getValue ? variable.getValue() : variable.currentValue;
-        // Ensure we have a valid value, use 0 as fallback for numbers, empty string for strings, false for booleans
+        // Ensure we have a valid value, use appropriate defaults based on type
         if (value === undefined || value === null) {
           switch (variable.type) {
-            case 'number':
+            case 'int':
+            case 'float':
               valuation[variable.name] = 0;
               break;
             case 'boolean':
@@ -895,10 +969,12 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
     for (const [variable, newValue] of Object.entries(newValuation)) {
       const oldValue = oldValuation[variable];
       if (oldValue !== newValue) {
+        const variableType = this.getVariableType(variable);
         changes.push({
           variable: variable,
-          oldValue: oldValue !== undefined ? oldValue : 'undefined',
-          newValue: newValue !== undefined ? newValue : 'undefined',
+          type: variableType,
+          oldValue: oldValue !== undefined ? this.formatVariableValue(oldValue, variableType) : 'undefined',
+          newValue: newValue !== undefined ? this.formatVariableValue(newValue, variableType) : 'undefined',
           changeType: oldValue === undefined ? 'created' : 'modified'
         });
       }
@@ -947,7 +1023,7 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
 }
 
 /**
- * Enhanced Trace Visualization Renderer with detailed highlighting
+ * Enhanced Trace Visualization Renderer with detailed highlighting and type-aware display
  */
 class TraceVisualizationRenderer {
   constructor(app) {
@@ -1397,7 +1473,7 @@ class TraceVisualizationRenderer {
   }
 
   /**
-   * Render data overlays
+   * Render data overlays with type-aware formatting
    */
   renderDataOverlays() {
     const ctx = this.mainRenderer.ctx;
@@ -1451,14 +1527,14 @@ class TraceVisualizationRenderer {
       });
     }
 
-    // Render responsible variables
+    // Render responsible variables with type information
     this.renderResponsibleVariables();
     
     ctx.restore();
   }
 
   /**
-   * Format dead transition overlay text
+   * Format dead transition overlay text with type information
    */
   formatDeadTransitionOverlay(data) {
     const lines = [`DEAD: ${data.transitionLabel}`];
@@ -1475,13 +1551,12 @@ class TraceVisualizationRenderer {
       }
     }
     
-    // Add responsible variables if any
+    // Add responsible variables if any with type-aware formatting
     if (data.responsibleVariables && data.responsibleVariables.length > 0) {
       lines.push('');
       lines.push('Data Guard Issues:');
       for (const variable of data.responsibleVariables) {
-        const value = variable.value !== undefined ? variable.value : 
-                     (variable.currentValue !== undefined ? variable.currentValue : 'undefined');
+        const value = this.formatVariableForDisplay(variable);
         lines.push(`• ${variable.variable} = ${value}`);
       }
     }
@@ -1499,7 +1574,31 @@ class TraceVisualizationRenderer {
   }
 
   /**
-   * Render responsible variable information
+   * Format variable for display based on type
+   */
+  formatVariableForDisplay(variable) {
+    const value = variable.value !== undefined ? variable.value : 
+                 (variable.currentValue !== undefined ? variable.currentValue : 'undefined');
+    const type = variable.type || 'unknown';
+    
+    switch (type) {
+      case 'int':
+        return `${Math.floor(Number(value))} (int)`;
+      case 'float':
+        const floatValue = Number(value);
+        const formattedFloat = floatValue % 1 === 0 ? floatValue.toString() : floatValue.toFixed(3).replace(/\.?0+$/, '');
+        return `${formattedFloat} (float)`;
+      case 'boolean':
+        return `${value ? 'true' : 'false'} (bool)`;
+      case 'string':
+        return `"${value}" (str)`;
+      default:
+        return `${value} (${type})`;
+    }
+  }
+
+  /**
+   * Render responsible variable information with type awareness
    */
   renderResponsibleVariables() {
     const ctx = this.mainRenderer.ctx;
@@ -1510,13 +1609,12 @@ class TraceVisualizationRenderer {
       const canvasRect = renderer.canvas.getBoundingClientRect();
       const worldPos = renderer.screenToWorld(canvasRect.width - 20, 100);
       
-      const x = worldPos.x - 200;
+      const x = worldPos.x - 250; // Wider for type information
       const y = worldPos.y + 50;
       
       const lines = ['Responsible Variables:'];
       for (const [varName, varInfo] of this.responsibleVariables) {
-        const displayValue = varInfo.value !== undefined ? varInfo.value : 
-                           (varInfo.currentValue !== undefined ? varInfo.currentValue : 'undefined');
+        const displayValue = this.formatVariableForDisplay(varInfo);
         lines.push(`${varName}: ${displayValue}`);
         if (varInfo.problem) {
           lines.push(`  → ${varInfo.problem}`);
@@ -1551,14 +1649,15 @@ class TraceVisualizationRenderer {
   }
 
   /**
-   * Format data overlay text
+   * Format data overlay text with type information
    */
   formatDataOverlay(overlay) {
     const lines = ['Data Changes:'];
     
     for (const change of overlay.changes) {
       const symbol = change.changeType === 'created' ? '+' : '~';
-      lines.push(`${symbol} ${change.variable}: ${change.oldValue} → ${change.newValue}`);
+      const typeInfo = change.type ? ` (${change.type})` : '';
+      lines.push(`${symbol} ${change.variable}${typeInfo}: ${change.oldValue} → ${change.newValue}`);
     }
     
     return lines.join('\n');
@@ -1570,7 +1669,7 @@ class TraceVisualizationRenderer {
 }
 
 /**
- * Enhanced Data Petri Net Verification with Integrated Detailed Analysis
+ * Enhanced Data Petri Net Verification with Integrated Detailed Analysis and Type Support
  */
 class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   constructor(app) {
@@ -1607,7 +1706,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
       </div>
       <div class="section-content">
         <p style="font-size: 14px; color: #D8DEE9; margin-bottom: 15px;">
-          <strong>Data-aware soundness verification</strong>
+          <strong>Data-aware soundness verification</strong> with support for int/float types
         </p>
         <button id="btn-verify-soundness" style="background: linear-gradient(135deg, #A3BE8C, #88C0D0, #EBCB8B); color: #2E3440; font-weight: 600; font-size: 15px; padding: 14px;">
           <span class="verify-btn-icon">🎯</span>
@@ -1758,7 +1857,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
       <div class="verification-algorithm-info">
         <h4>🎯 Algorithm: Enhanced Data-Aware Soundness Verification</h4>
         <p style="color: #D8DEE9; margin: 0;">
-          Advanced verification with comprehensive counterexample analysis and detailed problem visualization.
+          Advanced verification with comprehensive counterexample analysis, detailed problem visualization, and full support for int/float types.
         </p>
       </div>
       <div class="verification-progress">
@@ -1773,7 +1872,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   }
 
   /**
-   * Create enhanced results HTML with counterexample sections
+   * Create enhanced results HTML with counterexample sections and type support
    */
   createEnhancedResultsHTML(result) {
     const isSound = result.isSound;
@@ -1785,7 +1884,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
       <div class="verification-algorithm-info">
         <h4>🎯 Enhanced Data-Aware Soundness Verification</h4>
         <p style="color: #D8DEE9; margin: 0;">
-          Advanced analysis with detailed counterexample reasons and responsible variable tracking.
+          Advanced analysis with detailed counterexample reasons, responsible variable tracking, and full int/float type support.
         </p>
       </div>
 
@@ -1835,14 +1934,14 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   }
 
   /**
-   * Create enhanced counterexample section with visualization controls
+   * Create enhanced counterexample section with visualization controls and type information
    */
   createEnhancedCounterexampleSection(counterexamples, propertyName, propertyIndex) {
     if (!counterexamples || counterexamples.length === 0) return '';
 
     let html = `
       <div class="enhanced-counterexample-section">
-        <h4>🔍 Detailed Counterexample Analysis (${counterexamples.length})</h4>
+        <h4>🔍 Detailed Counterexample Analysis (${counterexamples.length}) - Int/Float Aware</h4>
         <div class="counterexample-controls">
           <button class="trace-control-btn" onclick="window.enhancedDpnVerification.clearCounterexampleVisualization()">
             Clear All Highlights
@@ -1887,8 +1986,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
               <div class="responsible-variables">
                 <strong>Responsible Variables:</strong><br>
                 ${ce.responsibleVariables.map(v => 
-                  `• ${v.variable} = ${v.value !== undefined ? v.value : 
-                    (v.currentValue !== undefined ? v.currentValue : 'undefined')}${v.problem ? ` (${v.problem})` : ''}`
+                  `• ${v.variable} = ${this.formatVariableForCounterexample(v)} (${v.type || 'unknown'} type)${v.problem ? ` - ${v.problem}` : ''}`
                 ).join('<br>')}
               </div>
             ` : ''}
@@ -1907,6 +2005,29 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
     `;
 
     return html;
+  }
+
+  /**
+   * Format variable for counterexample display with type information
+   */
+  formatVariableForCounterexample(variable) {
+    const value = variable.value !== undefined ? variable.value : 
+                 (variable.currentValue !== undefined ? variable.currentValue : 'undefined');
+    const type = variable.type || 'unknown';
+    
+    switch (type) {
+      case 'int':
+        return Math.floor(Number(value)).toString();
+      case 'float':
+        const floatValue = Number(value);
+        return floatValue % 1 === 0 ? floatValue.toString() : floatValue.toFixed(3).replace(/\.?0+$/, '');
+      case 'boolean':
+        return value ? 'true' : 'false';
+      case 'string':
+        return `"${value}"`;
+      default:
+        return value.toString();
+    }
   }
 
   /**
@@ -2079,7 +2200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         injectEnhancedIntegratedVerificationStyles();
         window.enhancedDpnVerification = new EnhancedDataPetriNetVerification(window.petriApp);
         window.dpnVerification = window.enhancedDpnVerification;
-        console.log("Enhanced Data Petri Net Verification initialized with integrated detailed analysis");
+        console.log("Enhanced Data Petri Net Verification initialized with integrated detailed analysis and int/float support");
       }
     } else {
       setTimeout(initEnhancedVerification, 500);

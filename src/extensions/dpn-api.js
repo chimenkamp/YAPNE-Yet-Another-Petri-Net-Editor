@@ -1,5 +1,3 @@
-
-
 class DataPetriNetAPI extends PetriNetAPI {
   /**
    * Create a new Data Petri Net API
@@ -45,7 +43,7 @@ class DataPetriNetAPI extends PetriNetAPI {
   /**
    * Create a new data variable
    * @param {string} name - Name of the variable
-   * @param {string} type - Data type ('number', 'string', 'boolean')
+   * @param {string} type - Data type ('int', 'float', 'string', 'boolean')
    * @param {*} initialValue - Initial value
    * @param {string} description - Optional description
    * @returns {string} ID of the created variable
@@ -256,10 +254,16 @@ class DataPetriNetAPI extends PetriNetAPI {
 
       // Add new variables
       for (const varData of variables) {
+        // Handle legacy 'number' type by converting to 'int'
+        let variableType = varData.type;
+        if (variableType === 'number') {
+          variableType = 'int';
+        }
+        
         const variable = new DataVariable(
           varData.id || this.generateUUID(),
           varData.name,
-          varData.type,
+          variableType,
           varData.currentValue,
           varData.description || ""
         );
@@ -446,6 +450,12 @@ class DataPetriNetAPI extends PetriNetAPI {
   - Use semicolons to separate multiple assignments/constraints
   - Direct assignments have priority over constraints
   - Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
+  
+  Data Types:
+  - int: Whole numbers (42, -7, 0)
+  - float: Decimal numbers (3.14, -2.5, 1.0)
+  - string: Text values ("hello", "processing")
+  - boolean: true or false values
       `
     };
   }

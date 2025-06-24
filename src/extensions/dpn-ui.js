@@ -431,7 +431,8 @@ class DataPetriNetUI {
           <div class="form-group">
             <label for="variable-type">Type</label>
             <select id="variable-type">
-              <option value="number">Number</option>
+              <option value="int">Integer</option>
+              <option value="float">Float</option>
               <option value="string">String</option>
               <option value="boolean">Boolean</option>
             </select>
@@ -497,10 +498,15 @@ class DataPetriNetUI {
       let initialValue = null;
       if (initialValueStr) {
         try {
-          if (type === 'number') {
-            initialValue = Number(initialValueStr);
+          if (type === 'int') {
+            initialValue = parseInt(initialValueStr, 10);
             if (isNaN(initialValue)) {
-              throw new Error('Not a valid number');
+              throw new Error('Not a valid integer');
+            }
+          } else if (type === 'float') {
+            initialValue = parseFloat(initialValueStr);
+            if (isNaN(initialValue)) {
+              throw new Error('Not a valid float');
             }
           } else if (type === 'boolean') {
             if (initialValueStr.toLowerCase() === 'true') {
@@ -561,7 +567,8 @@ class DataPetriNetUI {
           <div class="form-group">
             <label for="variable-type">Type</label>
             <select id="variable-type">
-              <option value="number" ${variable.type === 'number' ? 'selected' : ''}>Number</option>
+              <option value="int" ${variable.type === 'int' ? 'selected' : ''}>Integer</option>
+              <option value="float" ${variable.type === 'float' ? 'selected' : ''}>Float</option>
               <option value="string" ${variable.type === 'string' ? 'selected' : ''}>String</option>
               <option value="boolean" ${variable.type === 'boolean' ? 'selected' : ''}>Boolean</option>
             </select>
@@ -627,10 +634,15 @@ class DataPetriNetUI {
       let parsedValue = null;
       if (valueStr) {
         try {
-          if (type === 'number') {
-            parsedValue = Number(valueStr);
+          if (type === 'int') {
+            parsedValue = parseInt(valueStr, 10);
             if (isNaN(parsedValue)) {
-              throw new Error('Not a valid number');
+              throw new Error('Not a valid integer');
+            }
+          } else if (type === 'float') {
+            parsedValue = parseFloat(valueStr);
+            if (isNaN(parsedValue)) {
+              throw new Error('Not a valid float');
             }
           } else if (type === 'boolean') {
             if (valueStr.toLowerCase() === 'true') {
@@ -727,10 +739,15 @@ class DataPetriNetUI {
       let parsedValue = null;
       if (valueStr) {
         try {
-          if (variable.type === 'number') {
-            parsedValue = Number(valueStr);
+          if (variable.type === 'int') {
+            parsedValue = parseInt(valueStr, 10);
             if (isNaN(parsedValue)) {
-              throw new Error('Not a valid number');
+              throw new Error('Not a valid integer');
+            }
+          } else if (variable.type === 'float') {
+            parsedValue = parseFloat(valueStr);
+            if (isNaN(parsedValue)) {
+              throw new Error('Not a valid float');
             }
           } else if (variable.type === 'boolean') {
             if (valueStr.toLowerCase() === 'true') {
@@ -807,11 +824,20 @@ class DataPetriNetUI {
             <li><code>x' = x * 2; y' = y - 1;</code> - Double x and decrement y</li>
           </ul>
           
+          <h3>Data Types</h3>
+          <ul>
+            <li><strong>Integer:</strong> Whole numbers (e.g., 42, -7, 0)</li>
+            <li><strong>Float:</strong> Decimal numbers (e.g., 3.14, -2.5, 1.0)</li>
+            <li><strong>String:</strong> Text values (use quotes: "hello", "processing")</li>
+            <li><strong>Boolean:</strong> true or false values</li>
+          </ul>
+          
           <h3>Notes</h3>
           <ul>
             <li>Use a prime symbol (<code>'</code>) after variable names in postconditions to indicate the updated value.</li>
             <li>You can reference other variables in expressions (e.g., <code>total' = x + y;</code>).</li>
             <li>You can use the current and new values in the same expression (e.g., <code>x' = x + 1; y' = x' * 2;</code>).</li>
+            <li>For constraint-based assignments, use expressions like <code>x' > 0 && x' < 100;</code> to let the solver find valid values.</li>
           </ul>
         </div>
         <div class="modal-footer">

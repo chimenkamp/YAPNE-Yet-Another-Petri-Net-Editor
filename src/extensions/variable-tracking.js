@@ -109,7 +109,7 @@ function extendSimulationFunctionality() {
   // Add styles for highlighting changes
   addVariableHistoryStyles();
   
-  console.log('Data Petri Net Variable Tracking Extension loaded (with async support).');
+  console.log('Data Petri Net Variable Tracking Extension loaded (with async support and int/float types).');
 }
 
 /**
@@ -237,12 +237,14 @@ function addVariableSnapshot(label) {
   const snapshot = {
     label: label || `Step ${historyTracking.entries.length + 1}`,
     timestamp: timestamp,
-    values: {}
+    values: {},
+    types: {} // Store variable types for better display
   };
   
-  // Collect current values
+  // Collect current values and types
   for (const [id, variable] of app.api.petriNet.dataVariables) {
     snapshot.values[variable.name] = variable.currentValue;
+    snapshot.types[variable.name] = variable.type;
   }
   
   // Check if values have changed from previous snapshot
@@ -330,12 +332,16 @@ function updateVariableHistoryDisplay() {
           <div class="history-entry-values">
       `;
       
-      // Add each variable and its value
+      // Add each variable and its value with type information
       for (const [name, value] of Object.entries(entry.values)) {
+        const type = entry.types[name] || 'unknown';
+        const displayValue = value !== null ? formatVariableValue(value, type) : '(null)';
+        const typeClass = getTypeClass(type);
+        
         html += `
           <div class="history-entry-variable">
             <span class="history-variable-name">${name}:</span>
-            <span class="history-variable-value">${value !== null ? value : '(null)'}</span>
+            <span class="history-variable-value ${typeClass}" title="Type: ${type}">${displayValue}</span>
           </div>
         `;
       }
@@ -353,6 +359,49 @@ function updateVariableHistoryDisplay() {
 }
 
 /**
+ * Format variable value based on its type
+ * @param {*} value - The value to format
+ * @param {string} type - The type of the variable
+ * @returns {string} Formatted value
+ */
+function formatVariableValue(value, type) {
+  switch (type) {
+    case 'int':
+      return Math.floor(Number(value)).toString();
+    case 'float':
+      // Show up to 3 decimal places, but remove trailing zeros
+      const floatValue = Number(value);
+      return floatValue % 1 === 0 ? floatValue.toString() : floatValue.toFixed(3).replace(/\.?0+$/, '');
+    case 'boolean':
+      return value ? 'true' : 'false';
+    case 'string':
+      return `"${value}"`;
+    default:
+      return value.toString();
+  }
+}
+
+/**
+ * Get CSS class based on variable type
+ * @param {string} type - The type of the variable
+ * @returns {string} CSS class name
+ */
+function getTypeClass(type) {
+  switch (type) {
+    case 'int':
+      return 'type-int';
+    case 'float':
+      return 'type-float';
+    case 'boolean':
+      return 'type-boolean';
+    case 'string':
+      return 'type-string';
+    default:
+      return 'type-unknown';
+  }
+}
+
+/**
  * Add styles for the variable history panel
  */
 function addVariableHistoryStyles() {
@@ -364,7 +413,7 @@ function addVariableHistoryStyles() {
     document.head.appendChild(styleElement);
   }
   
-  // Add CSS styles
+  // Add CSS styles with type-specific styling
   styleElement.textContent = `
     .history-entries {
       display: flex;
@@ -414,8 +463,28 @@ function addVariableHistoryStyles() {
     }
     
     .history-variable-value {
-      color: #A3BE8C;
       font-family: monospace;
+    }
+    
+    /* Type-specific styling */
+    .type-int {
+      color: #A3BE8C;
+    }
+    
+    .type-float {
+      color: #EBCB8B;
+    }
+    
+    .type-boolean {
+      color: #B48EAD;
+    }
+    
+    .type-string {
+      color: #D08770;
+    }
+    
+    .type-unknown {
+      color: #D8DEE9;
     }
     
     .data-variable-changed {

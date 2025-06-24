@@ -6,7 +6,7 @@ class DataVariable {
    * Create a new data variable
    * @param {string} id - Unique identifier for the variable
    * @param {string} name - Human-readable name of the variable
-   * @param {string} type - Data type ('number', 'string', 'boolean')
+   * @param {string} type - Data type ('int', 'float', 'string', 'boolean')
    * @param {*} initialValue - Initial value of the variable
    * @param {string} description - Optional description of the variable
    */
@@ -26,7 +26,9 @@ class DataVariable {
     if (this.currentValue === null) return null;
 
     switch (this.type) {
-      case 'number':
+      case 'int':
+        return Math.floor(Number(this.currentValue));
+      case 'float':
         return Number(this.currentValue);
       case 'boolean':
         return Boolean(this.currentValue);
@@ -44,8 +46,19 @@ class DataVariable {
   setValue(value) {
     try {
       switch (this.type) {
-        case 'number':
-          this.currentValue = Number(value);
+        case 'int':
+          const intValue = Number(value);
+          if (isNaN(intValue)) {
+            throw new Error('Not a valid integer');
+          }
+          this.currentValue = Math.floor(intValue);
+          break;
+        case 'float':
+          const floatValue = Number(value);
+          if (isNaN(floatValue)) {
+            throw new Error('Not a valid float');
+          }
+          this.currentValue = floatValue;
           break;
         case 'boolean':
           this.currentValue = Boolean(value);
@@ -165,7 +178,7 @@ class DataAwareTransition extends Transition {
             continue;
           }
           
-          // Use constraint-based assignment
+          // Use constraint-based assignment with proper type
           newValuation[variableName] = await this.findValueSatisfyingConstraints(
             variableName,
             constraintStatements,
@@ -287,16 +300,41 @@ class DataAwareTransition extends Transition {
 
     if (typeof currentValue === 'number') {
       try {
+        // Get the variable type from the data petri net
+        let variableType = 'int'; // default fallback
+        
+        // Try to get the actual variable type from the petri net
+        if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
+          for (const [id, variable] of window.petriApp.api.petriNet.dataVariables) {
+            if (variable.name === variableName) {
+              if (variable.type === 'int' || variable.type === 'float') {
+                variableType = variable.type;
+              } else if (variable.type === 'number') {
+                // Legacy support: default to int for old 'number' type
+                variableType = 'int';
+              }
+              break;
+            }
+          }
+        }
+        
         // Convert constraint statements to a single expression
         const combinedConstraints = constraintStatements.join(' && ');
         console.log('Combined constraints:', combinedConstraints);
+        console.log('Using variable type:', variableType);
         
-        // Call the async solveExpression function
-        const result = await window.solveExpression(combinedConstraints, currentValuation, 'int');
+        // Call the async solveExpression function with the correct type
+        const result = await window.solveExpression(combinedConstraints, currentValuation, variableType);
         
         if (result && result.newValues && result.newValues[variableName] !== undefined) {
           console.log(`Z3 solver found value for ${variableName}: ${result.newValues[variableName]}`);
-          return result.newValues[variableName];
+          
+          // Ensure the result matches the expected type
+          if (variableType === 'int') {
+            return Math.floor(Number(result.newValues[variableName]));
+          } else {
+            return Number(result.newValues[variableName]);
+          }
         }
       } catch (error) {
         console.error('Error using Z3 solver:', error);
@@ -552,10 +590,16 @@ class DataPetriNet extends PetriNet {
 
     if (data.dataVariables) {
       data.dataVariables.forEach((variableData) => {
+        // Handle legacy 'number' type by converting to 'int'
+        let variableType = variableData.type;
+        if (variableType === 'number') {
+          variableType = 'int';
+        }
+        
         const variable = new DataVariable(
           variableData.id,
           variableData.name,
-          variableData.type,
+          variableType,
           variableData.currentValue,
           variableData.description
         );
