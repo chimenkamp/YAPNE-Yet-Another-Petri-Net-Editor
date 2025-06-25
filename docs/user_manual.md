@@ -4,7 +4,7 @@
 
 YAPNE (Yet Another Petri Net Editor) is a web-based tool for creating, editing, simulating, and analyzing Petri nets. It features extensions for handling data-aware Petri nets (DPNs). This manual provides a detailed guide to all its functionalities.
 
-[Screenshot Placeholder: A full screenshot of the YAPNE user interface, showing the canvas, vertical toolbar, and the sidebar with its tabs.]
+
 
 ## 2. Controls
 
@@ -79,7 +79,6 @@ YAPNE includes a PNML importer with an integrated layout algorithm to automatica
     4.  **Import:** Click "Import to Editor" to load the model onto the main canvas.
 -   **Layout Algorithm:** The importer uses an algorithm based on the principles of the "Simple Algorithm for Automatic Layout of BPMN Processes". It performs a modified topological sort to arrange elements in a logical flow from left to right, minimizing crossed arcs and applying heuristics for compaction and clarity.
 
-[Screenshot Placeholder: The PNML Import dialog, showing the upload area, layout settings, and preview canvas.]
 
 ### 3.3 Simulation
 
@@ -160,5 +159,3 @@ A key example is the **unsatisfiable guard condition**. A transition might be co
     -   Provide a detailed reason in the overlay, such as: "Dead transition: data guard 'x > 10' is never satisfied."
     -   Display the computed range of the problematic variable(s) (e.g., "Variable 'x' was found to only have values between 0 and 5.").
 
-
-[Screenshot Placeholder: The verification results modal, showing an "Unsound" result with expandable counterexamples for P1, P2, and P3.]
