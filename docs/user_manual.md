@@ -149,13 +149,13 @@ If the verifier finds a violation of any property, it declares the model **"Unso
 
 #### 3.5.3 Data-Aware Verification Challenges
 
-Data adds significant complexity to verification. A model can be unsound due to data-related issues even if the token flow appears correct. The soundness checker is specifically designed to find these issues.
+Data adds significant complexity to verification. A model can be unsound due to data-related issues even if the token flow appears correct.
 
 A key example is the **unsatisfiable guard condition**. A transition might be considered "dead" (violating P3) not because its input places can never get enough tokens, but because its data-aware guard (precondition) can **never be satisfied**.
 
 -   **How it's Detected:** During state-space exploration, the verifier tracks the range of all possible values for each data variable. When checking for dead transitions, if it finds a transition that has never been fired, it analyzes the reason. The tool will check if the transition's guard expression is logically impossible given the reachable data values. For instance, a guard `x > 10` is unsatisfiable if the analysis shows that the value of `x` can never exceed 5.
 -   **Counterexample Feedback:** If an unsatisfiable guard is the cause of a dead transition, the counterexample will:
     -   Highlight the dead transition.
-    -   Provide a detailed reason in the overlay, such as: "Dead transition: data guard 'x > 10' is never satisfied."
+    -   Provide a reason in the overlay, such as: "Dead transition: data guard 'x > 10' is never satisfied."
     -   Display the computed range of the problematic variable(s) (e.g., "Variable 'x' was found to only have values between 0 and 5.").
 
