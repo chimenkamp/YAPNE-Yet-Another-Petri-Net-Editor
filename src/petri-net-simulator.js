@@ -1077,6 +1077,26 @@ class PetriNetEditor {
     this.eventListeners.set('wheel', mouseWheelHandler);
     this.eventListeners.set('keydown', keyDownHandler);
     this.eventListeners.set('keyup', keyUpHandler);
+
+    // Listener for deliting selected element with Delete key
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Delete' && this.selectedElement) {
+        if (this.selectedElement.type === 'place') {
+          this.petriNet.removePlace(this.selectedElement.id);
+        } else if (this.selectedElement.type === 'transition') {
+          this.petriNet.removeTransition(this.selectedElement.id);
+        } else if (this.selectedElement.type === 'arc') {
+          this.petriNet.removeArc(this.selectedElement.id);
+        }
+        this.selectedElement = null;
+        this.dragOffset = null; // Reset dragOffset when deleting
+        if (this.callbacks.onChange) {
+          this.callbacks.onChange();
+        }
+        this.render();
+      }
+    }
+    );
   }
 
   updateGhostElement(worldPos) {
