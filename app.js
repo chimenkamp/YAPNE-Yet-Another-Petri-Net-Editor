@@ -939,7 +939,7 @@ class PetriNetApp {
   exportToPNML() {
     const pnml = this.api.exportAsPNML();
     const blob = new Blob([pnml], { type: "application/xml" });
-    const url = URL.createObjectURL(url);
+    const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
     a.href = url;
