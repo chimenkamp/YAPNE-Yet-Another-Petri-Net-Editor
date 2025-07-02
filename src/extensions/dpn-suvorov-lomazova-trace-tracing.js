@@ -1600,7 +1600,7 @@ class EnhancedSuvorovLomazovaVerificationUI {
     createProgressHTML() {
         return `
             <div class="verification-algorithm-info">
-                <h4>🎯 Enhanced Suvorov & Lomazova Algorithm</h4>
+                <h4>🎯 Soundness Validation</h4>
                 <p style="color: #D8DEE9; margin: 0;">
                     Advanced data-aware soundness verification with detailed counterexample analysis and visualization.
                 </p>
@@ -1719,9 +1719,9 @@ class EnhancedSuvorovLomazovaVerificationUI {
 
         return `
             <div class="verification-algorithm-info">
-                <h4>🎯 Enhanced Suvorov & Lomazova Algorithm</h4>
+                <h4>🎯 Soundness Validation</h4>
                 <p style="color: #D8DEE9; margin: 0;">
-                    Advanced formal verification with comprehensive counterexample analysis and intelligent visualization.
+                    Formal verification with counterexample analysis.
                 </p>
             </div>
             <div class="verification-status ${statusClass}">

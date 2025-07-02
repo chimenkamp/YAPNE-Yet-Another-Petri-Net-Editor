@@ -791,17 +791,22 @@ class PetriNetApp {
    * Resets the simulation to initial state
    */
   resetSimulation() {
-
-
+    // Stop auto-run
     this.stopAutoRun();
 
-
     const json = this.api.exportAsJSON();
+    
+    // IMPORTANT: Completely destroy the old editor and clean up all references
+    this.destroyCurrentEditor();
+
     this.api = PetriNetAPI.importFromJSON(json);
     this.editor = this.api.attachEditor(this.canvas);
 
     // IMPORTANT: Re-establish the app reference after reset
     this.editor.app = this;
+
+    // Re-initialize event handlers for the new editor
+    this.initEventHandlers();
 
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
     this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
@@ -809,25 +814,50 @@ class PetriNetApp {
     this.editor.setMode("select");
     this.updateActiveButton("btn-select");
 
-
     this.editor.render();
     this.updateTokensDisplay();
     this.updateZoomDisplay();
     this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
   }
-
+  /**
+   * Clean up all app-level event listeners
+   */
+  cleanupAppEventListeners() {
+    this.appEventListeners.forEach(([event, handler]) => {
+      document.removeEventListener(event, handler);
+    });
+    this.appEventListeners = [];
+  }
+    destroyCurrentEditor() {
+    // Clean up app-level event listeners first
+    this.cleanupAppEventListeners();
+    
+    // Clean up editor event listeners
+    if (this.editor) {
+      this.editor.destroy();
+      this.editor = null;
+    }
+    
+    // Clear any remaining references
+    this.api = null;
+  }
   /**
    * Resets the Petri net completely
    */
   resetPetriNet() {
     this.stopAutoRun();
 
+    // IMPORTANT: Completely destroy the old editor and clean up all references
+    this.destroyCurrentEditor();
 
     this.api = new PetriNetAPI();
     this.editor = this.api.attachEditor(this.canvas);
 
     // IMPORTANT: Re-establish the app reference after reset
     this.editor.app = this;
+
+    // Re-initialize event handlers for the new editor
+    this.initEventHandlers();
 
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
     this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
@@ -905,18 +935,24 @@ class PetriNetApp {
       try {
         const json = e.target?.result;
         console.log(json);
+        
+        // IMPORTANT: Completely destroy the old editor and clean up all references
+        this.destroyCurrentEditor();
+        
         this.api = PetriNetAPI.importFromJSON(json);
         this.editor = this.api.attachEditor(this.canvas);
 
         // IMPORTANT: Re-establish the app reference after loading
         this.editor.app = this;
 
+        // Re-initialize event handlers for the new editor
+        this.initEventHandlers();
+
         this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
         this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
         this.editor.setSnapToGrid(this.gridEnabled);
         this.editor.setMode("select");
         this.updateActiveButton("btn-select");
-
 
         this.editor.render();
         this.updateTokensDisplay();
