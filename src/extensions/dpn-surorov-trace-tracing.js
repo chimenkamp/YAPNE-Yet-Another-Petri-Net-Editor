@@ -46,8 +46,11 @@ class EnhancedSuvorovLomazovaVerifier extends SuvorovLomazovaVerifier {
             `Data values: ${this.formatDataValuationDetailed(stateData.dataValuation, dpn)}. ` +
             `Disabled transitions: ${disabledReasons.join('; ')}.`;
 
+        // Enhanced trace construction with proper data change tracking
+        const enhancedTrace = await this.buildEnhancedTraceToState(stateStr, lts, dpn);
+
         return {
-            trace: await this.buildTraceToState(stateStr, lts, dpn),
+            trace: enhancedTrace,
             violationType: "deadlock",
             reason,
             detailedReason,
@@ -63,7 +66,7 @@ class EnhancedSuvorovLomazovaVerifier extends SuvorovLomazovaVerifier {
     }
 
     /**
-     * Enhanced dead transition analysis with suggested fixes
+     * Enhanced transition analysis with suggested fixes
      */
     async analyzeDeadTransition(transitionId, lts, dpn) {
         const transition = dpn.transitions.get(transitionId);
@@ -182,8 +185,11 @@ class EnhancedSuvorovLomazovaVerifier extends SuvorovLomazovaVerifier {
             `Enabled transitions: ${enabledTransitions.map(t => t.transitionLabel).join(', ')}. ` +
             `This violates proper termination as the net should stop at the final marking.`;
 
+        // Enhanced trace construction with proper data change tracking
+        const enhancedTrace = await this.buildEnhancedTraceToState(stateStr, lts, dpn);
+
         return {
-            trace: await this.buildTraceToState(stateStr, lts, dpn),
+            trace: enhancedTrace,
             violationType: "improper_termination",
             reason,
             detailedReason,
@@ -197,6 +203,86 @@ class EnhancedSuvorovLomazovaVerifier extends SuvorovLomazovaVerifier {
                 canReachFinalState: problematicPlaces.length === 0
             }
         };
+    }
+
+    /**
+     * Enhanced trace construction that properly tracks data changes
+     */
+    async buildEnhancedTraceToState(targetState, lts, dpn) {
+        const path = lts.executionPaths.get(targetState) || [];
+        const trace = [];
+        
+        // Initial state
+        const initialStateData = this.parseStateData(lts.initialState, dpn);
+        trace.push({
+            step: 0,
+            action: "Initial State",
+            marking: initialStateData.marking,
+            dataValuation: initialStateData.dataValuation,
+            dataChanges: [] // No changes in initial state
+        });
+
+        let currentStateStr = lts.initialState;
+        let previousDataValuation = { ...initialStateData.dataValuation };
+        
+        for (let i = 0; i < path.length; i++) {
+            const step = path[i];
+            const transition = dpn.transitions.get(step.transitionId);
+            
+            // Fire the transition to get the new state
+            currentStateStr = await this.fireTransitionInState(
+                currentStateStr,
+                step.transitionId,
+                dpn
+            );
+            
+            const newStateData = this.parseStateData(currentStateStr, dpn);
+            
+            // Calculate data changes
+            const dataChanges = this.calculateDataChanges(
+                previousDataValuation, 
+                newStateData.dataValuation
+            );
+            
+            trace.push({
+                step: i + 1,
+                action: `Fire: ${transition?.label || step.transitionId}`,
+                transitionId: step.transitionId,
+                marking: newStateData.marking,
+                dataValuation: newStateData.dataValuation,
+                dataChanges: dataChanges
+            });
+            
+            previousDataValuation = { ...newStateData.dataValuation };
+        }
+        
+        return trace;
+    }
+
+    /**
+     * Calculate the changes between two data valuations
+     */
+    calculateDataChanges(oldValuation, newValuation) {
+        const changes = [];
+        
+        // Find all variables that changed
+        const allVars = new Set([...Object.keys(oldValuation), ...Object.keys(newValuation)]);
+        
+        for (const varName of allVars) {
+            const oldValue = oldValuation[varName];
+            const newValue = newValuation[varName];
+            
+            if (oldValue !== newValue) {
+                changes.push({
+                    variable: varName,
+                    oldValue: oldValue,
+                    newValue: newValue,
+                    changeType: oldValue === undefined ? 'created' : (newValue === undefined ? 'deleted' : 'modified')
+                });
+            }
+        }
+        
+        return changes;
     }
 
     // --- Enhanced Helper Methods ---
@@ -467,6 +553,7 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         this.responsibleVariables = new Map();
         this.violationInfo = null;
         this.isActive = false;
+        this.persistentHighlights = false; // Flag to control clearing behavior
         
         // Store original render method
         this.originalRender = this.mainRenderer.render.bind(this.mainRenderer);
@@ -505,7 +592,11 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
     visualizeCounterexample(counterexample, currentStep = -1) {
         console.log("Visualizing counterexample:", counterexample);
         
-        this.clearHighlights();
+        // Don't clear if we want persistent highlights
+        if (!this.persistentHighlights) {
+            this.clearHighlights();
+        }
+        
         this.isActive = true;
         this.violationInfo = counterexample;
 
@@ -529,11 +620,11 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
             console.log("Visualizing dead transition");
             this.visualizeDeadTransition(counterexample);
         } else if (counterexample.trace) {
-            console.log("Visualizing trace");
+            console.log("Visualizing trace with", counterexample.trace.length, "steps");
             this.visualizeTrace(counterexample.trace, currentStep);
         }
 
-        // Add special highlighting for problematic elements
+        // Add special highlighting for problematic elements AFTER trace visualization
         this.addProblemHighlighting();
         
         // Force immediate render
@@ -585,7 +676,7 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
     }
 
     visualizeTrace(trace, currentStep = -1) {
-        this.clearHighlights();
+        // DO NOT clear highlights here - preserve problematic places highlighting
         this.isActive = true;
         
         if (!trace || trace.length === 0) {
@@ -593,6 +684,8 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
             return;
         }
 
+        console.log("Visualizing trace with", trace.length, "steps");
+        
         // Add final trace token marking
         const finalStep = trace[trace.length - 1];
         if (finalStep.marking) {
@@ -606,6 +699,7 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         
         for (let i = 0; i < Math.min(stepsToShow, trace.length); i++) {
             const step = trace[i];
+            console.log(`Processing trace step ${i}:`, step);
             
             if (step.transitionId) {
                 // Map tau_ prefixed transition IDs back to original IDs
@@ -615,12 +709,19 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
                 this.highlightedElements.add(originalTransitionId);
                 this.highlightConnectedElements(originalTransitionId);
                 
+                // Add data overlay for this step
                 if (step.dataChanges && step.dataChanges.length > 0) {
+                    console.log("Adding data overlay for transition", originalTransitionId, "with changes:", step.dataChanges);
                     this.addDataOverlay(originalTransitionId, step.dataChanges, step.dataValuation);
+                } else if (step.dataValuation) {
+                    // Even if no explicit data changes, show current valuation
+                    console.log("Adding data valuation overlay for transition", originalTransitionId);
+                    this.addDataValuationOverlay(originalTransitionId, step.dataValuation);
                 }
             }
         }
         
+        console.log("Trace visualization complete. Highlighted elements:", this.highlightedElements.size);
         this.mainRenderer.render();
     }
 
@@ -631,6 +732,9 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         for (const [placeId, placeInfo] of this.problematicPlaces) {
             console.log("Highlighting problematic place:", placeId, placeInfo);
             this.highlightedElements.add(placeId);
+            
+            // Add special overlay for problematic places
+            this.addProblematicPlaceOverlay(placeId, placeInfo);
         }
 
         // For dead transitions, highlight the transition itself
@@ -644,6 +748,20 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         
         console.log("Total highlighted elements:", this.highlightedElements.size);
         console.log("Highlighted element IDs:", Array.from(this.highlightedElements));
+    }
+
+    addProblematicPlaceOverlay(placeId, placeInfo) {
+        const petriNet = this.mainRenderer.petriNet;
+        const place = petriNet.places.get(placeId);
+        if (!place) return;
+        
+        let overlayId = `place_problem_${placeId}`;
+        this.dataOverlays.set(overlayId, {
+            type: 'problematicPlace',
+            placeInfo: placeInfo,
+            position: { ...place.position },
+            isPlace: true
+        });
     }
 
     highlightConnectedElements(transitionId) {
@@ -677,6 +795,18 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         });
     }
 
+    addDataValuationOverlay(transitionId, currentValuation) {
+        const petriNet = this.mainRenderer.petriNet;
+        const transition = petriNet.transitions.get(transitionId);
+        if (!transition) return;
+        
+        this.dataOverlays.set(transitionId, {
+            type: 'dataValuation',
+            valuation: currentValuation,
+            position: { ...transition.position }
+        });
+    }
+
     clearHighlights() {
         console.log("Clearing highlights");
         this.highlightedElements.clear();
@@ -686,10 +816,15 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         this.responsibleVariables.clear();
         this.violationInfo = null;
         this.isActive = false;
+        this.persistentHighlights = false;
         
         // Force a render to clear the highlights
         this.mainRenderer.render();
         console.log("Highlights cleared and render forced");
+    }
+
+    setPersistentHighlights(persistent) {
+        this.persistentHighlights = persistent;
     }
 
     // Method to manually trigger highlighting for debugging
@@ -961,20 +1096,39 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         const ctx = this.mainRenderer.ctx;
         const renderer = this.mainRenderer;
         
+        console.log("Rendering", this.dataOverlays.size, "data overlays");
+        
+        // Ensure we have a valid context
+        if (!ctx || !renderer) {
+            console.error("No valid context or renderer");
+            return;
+        }
+        
         ctx.save();
         ctx.translate(renderer.panOffset.x, renderer.panOffset.y);
         ctx.scale(renderer.zoomFactor, renderer.zoomFactor);
         
         for (const [transitionId, overlay] of this.dataOverlays) {
+            if (overlay.isPlace) {
+                // Skip place overlays for now - they're handled in place highlighting
+                continue;
+            }
+            
             const transition = renderer.petriNet.transitions.get(transitionId);
             if (!transition) continue;
             
-            const x = transition.position.x + 40;
-            const y = transition.position.y - 30;
+            console.log("Rendering overlay for transition", transitionId, "type:", overlay.type);
+            
+            const x = transition.position.x + 50; // Offset to the right
+            const y = transition.position.y - 60; // Offset above
             
             let text;
             if (overlay.type === 'deadTransition') {
                 text = this.formatDeadTransitionOverlay(overlay.data);
+            } else if (overlay.type === 'dataChanges') {
+                text = this.formatDataChangesOverlay(overlay);
+            } else if (overlay.type === 'dataValuation') {
+                text = this.formatDataValuationOverlay(overlay);
             } else {
                 text = this.formatDataOverlay(overlay);
             }
@@ -985,22 +1139,35 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
             
             ctx.font = '12px monospace';
             const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
-            const boxWidth = maxWidth + padding * 2;
+            const boxWidth = Math.max(120, maxWidth + padding * 2); // Minimum width
             const boxHeight = lines.length * lineHeight + padding * 2;
             
-            // Different background color for dead transitions
+            // Different background color based on overlay type
             if (overlay.type === 'deadTransition') {
                 ctx.fillStyle = 'rgba(139, 0, 0, 0.95)'; // Dark red for dead transitions
                 ctx.strokeStyle = '#8B0000';
+            } else if (overlay.type === 'dataChanges') {
+                ctx.fillStyle = 'rgba(46, 125, 50, 0.95)'; // Green for data changes
+                ctx.strokeStyle = '#2E7D32';
             } else {
-                ctx.fillStyle = 'rgba(46, 52, 64, 0.95)';
+                ctx.fillStyle = 'rgba(46, 52, 64, 0.95)'; // Default dark blue
                 ctx.strokeStyle = '#88C0D0';
             }
             
+            // Draw shadow first
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(x + 3, y - boxHeight + 3, boxWidth, boxHeight);
+            
+            // Draw main box
+            ctx.fillStyle = overlay.type === 'deadTransition' ? 'rgba(139, 0, 0, 0.95)' : 
+                           (overlay.type === 'dataChanges' ? 'rgba(46, 125, 50, 0.95)' : 'rgba(46, 52, 64, 0.95)');
             ctx.fillRect(x, y - boxHeight, boxWidth, boxHeight);
+            
+            // Draw border
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y - boxHeight, boxWidth, boxHeight);
             
+            // Draw text
             ctx.fillStyle = '#ECEFF4';
             ctx.textAlign = 'left';
             
@@ -1013,6 +1180,7 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         this.renderResponsibleVariables();
         
         ctx.restore();
+        console.log("Data overlays rendering complete");
     }
 
     formatDeadTransitionOverlay(data) {
@@ -1127,16 +1295,38 @@ class EnhancedSuvorovLomazovaTraceVisualizationRenderer {
         }
     }
 
-    formatDataOverlay(overlay) {
+    formatDataChangesOverlay(overlay) {
         const lines = ['Data Changes:'];
         
-        for (const change of overlay.changes) {
-            const symbol = change.changeType === 'created' ? '+' : '~';
-            const typeInfo = change.type ? ` (${change.type})` : '';
-            lines.push(`${symbol} ${change.variable}${typeInfo}: ${change.oldValue} → ${change.newValue}`);
+        if (overlay.changes && overlay.changes.length > 0) {
+            for (const change of overlay.changes) {
+                const symbol = change.changeType === 'created' ? '+' : 
+                              (change.changeType === 'deleted' ? '-' : '→');
+                lines.push(`${symbol} ${change.variable}: ${change.oldValue} → ${change.newValue}`);
+            }
+        } else {
+            lines.push('No changes');
         }
         
         return lines.join('\n');
+    }
+
+    formatDataValuationOverlay(overlay) {
+        const lines = ['Variables:'];
+        
+        if (overlay.valuation && Object.keys(overlay.valuation).length > 0) {
+            for (const [varName, value] of Object.entries(overlay.valuation)) {
+                lines.push(`${varName} = ${value}`);
+            }
+        } else {
+            lines.push('No variables');
+        }
+        
+        return lines.join('\n');
+    }
+
+    formatDataOverlay(overlay) {
+        return this.formatDataChangesOverlay(overlay);
     }
 
     delay(ms) {
@@ -1274,6 +1464,9 @@ class EnhancedSuvorovLomazovaVerificationUI {
             .counterexample-controls {
                 margin-bottom: 15px;
                 text-align: right;
+                display: flex;
+                gap: 10px;
+                justify-content: flex-end;
             }
 
             .trace-control-btn {
@@ -1289,6 +1482,15 @@ class EnhancedSuvorovLomazovaVerificationUI {
 
             .trace-control-btn:hover {
                 background-color: #5E81AC;
+            }
+
+            .trace-control-btn.persistent {
+                background-color: #A3BE8C;
+                color: #2E3440;
+            }
+
+            .trace-control-btn.persistent:hover {
+                background-color: #B4CFB0;
             }
             
             .counterexample-header {
@@ -1308,6 +1510,13 @@ class EnhancedSuvorovLomazovaVerificationUI {
             .verification-algorithm-info h4 {
                 margin: 0 0 10px 0;
                 color: #88C0D0;
+            }
+
+            .visualization-status {
+                font-size: 11px;
+                color: #88C0D0;
+                margin-top: 5px;
+                font-style: italic;
             }
         `;
         document.head.appendChild(style);
@@ -1360,7 +1569,7 @@ class EnhancedSuvorovLomazovaVerificationUI {
     
     closeModal() { 
         document.querySelector('#enhanced-sl-verification-modal').classList.remove('show'); 
-        // this.clearCounterexampleVisualization();
+        // Don't automatically clear visualization when closing modal
     }
 
     async startVerification() {
@@ -1391,7 +1600,7 @@ class EnhancedSuvorovLomazovaVerificationUI {
     createProgressHTML() {
         return `
             <div class="verification-algorithm-info">
-                <h4>🎯 Suvorov & Lomazova Algorithm</h4>
+                <h4>🎯 Enhanced Suvorov & Lomazova Algorithm</h4>
                 <p style="color: #D8DEE9; margin: 0;">
                     Advanced data-aware soundness verification with detailed counterexample analysis and visualization.
                 </p>
@@ -1421,10 +1630,10 @@ class EnhancedSuvorovLomazovaVerificationUI {
     }
 
     initializeTraceVisualizer() {
-        console.log("Initializing trace visualizer");
+        console.log("Initializing FIXED trace visualizer");
         if (this.app.editor && this.app.editor.renderer && !this.traceVisualizer) {
             this.traceVisualizer = new EnhancedSuvorovLomazovaTraceVisualizationRenderer(this.app);
-            console.log("Enhanced trace visualizer created");
+            console.log("FIXED Enhanced trace visualizer created");
             
             // Add a test method to the visualizer for debugging
             this.traceVisualizer.testHighlight = () => {
@@ -1456,6 +1665,8 @@ class EnhancedSuvorovLomazovaVerificationUI {
         const counterexample = this.currentCounterexamples[counterexampleIndex];
         console.log("Counterexample to visualize:", counterexample);
         
+        // Enable persistent highlights to prevent clearing when dialog closes
+        this.traceVisualizer.setPersistentHighlights(true);
         this.traceVisualizer.visualizeCounterexample(counterexample);
 
         document.querySelectorAll('.enhanced-counterexample-item').forEach((item, idx) => {
@@ -1463,15 +1674,30 @@ class EnhancedSuvorovLomazovaVerificationUI {
         });
         this.isVisualizationActive = true;
         
-        console.log("Visualization activated");
+        console.log("Visualization activated with persistent highlights");
     }
 
     clearCounterexampleVisualization() {
         if (this.traceVisualizer) {
+            this.traceVisualizer.setPersistentHighlights(false);
             this.traceVisualizer.clearHighlights();
             this.isVisualizationActive = false;
         }
         document.querySelectorAll('.enhanced-counterexample-item').forEach(item => item.classList.remove('active-counterexample'));
+    }
+
+    togglePersistentVisualization() {
+        if (this.traceVisualizer) {
+            const currentState = this.traceVisualizer.persistentHighlights;
+            this.traceVisualizer.setPersistentHighlights(!currentState);
+            
+            // Update button text to reflect state
+            const toggleBtn = document.querySelector('#btn-toggle-persistent');
+            if (toggleBtn) {
+                toggleBtn.textContent = this.traceVisualizer.persistentHighlights ? "Unlock Highlights" : "Lock Highlights";
+                toggleBtn.classList.toggle('persistent', this.traceVisualizer.persistentHighlights);
+            }
+        }
     }
 
     createEnhancedResultsHTML(result) {
@@ -1521,12 +1747,18 @@ class EnhancedSuvorovLomazovaVerificationUI {
                         <div class="enhanced-counterexample-details">
                             ${this.formatCounterexampleDetails(ce)}
                         </div>
+                        <div class="visualization-status" id="viz-status-${globalIndex}">
+                            Click "Analyze & Visualize" to see detailed trace with variable evolution boxes
+                        </div>
                     </div>`;
         }).join('');
 
         return `<div class="enhanced-counterexample-section">
                     <h4>🔍 Detailed Counterexample Analysis (${counterexamples.length})</h4>
                     <div class="counterexample-controls">
+                        <button class="trace-control-btn" id="btn-toggle-persistent" onclick="window.enhancedFormalVerifierUI.togglePersistentVisualization()">
+                            Lock Highlights
+                        </button>
                         <button class="trace-control-btn" onclick="window.enhancedFormalVerifierUI.clearCounterexampleVisualization()">
                             Clear All Highlights
                         </button>
@@ -1575,7 +1807,7 @@ class EnhancedSuvorovLomazovaVerificationUI {
         }
 
         if (ce.trace && ce.trace.length > 0) {
-            details += `<div class="execution-info"><strong>Execution steps:</strong> ${ce.trace.length}</div>`;
+            details += `<div class="execution-info"><strong>Execution steps:</strong> ${ce.trace.length} (with data evolution tracking)</div>`;
         }
 
         if (ce.deadTransition) {
