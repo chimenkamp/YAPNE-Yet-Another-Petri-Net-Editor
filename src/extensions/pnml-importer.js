@@ -8,7 +8,7 @@ class PNMLImporter {
       this.app = app;
       this.currentParsedNet = null;
       this.previewRenderer = null;
-      this.layoutAlgorithm = new BPMNLayoutAlgorithm();
+      this.layoutAlgorithm = new LayoutAlgorithm();
       this.initializeUI();
     }
   
@@ -654,23 +654,22 @@ class PNMLImporter {
         const transitions = net.querySelectorAll('transition');
         transitions.forEach(transition => {
           // Check for data-aware attributes
-          const precondition = this.getTextContent(transition.querySelector('dataGuard text')) || 
+          let precondition = this.getTextContent(transition.querySelector('dataGuard text')) || 
                              transition.getAttribute('guard') || '';
 
-          const postcondition = this.getTextContent(transition.querySelector('dataUpdate text')) || 
+          let postcondition = this.getTextContent(transition.querySelector('dataUpdate text')) || 
                               this.getTextContent(transition.querySelector('dataAction text')) || '';
           
-          // Check if transition has any data-aware features
-          const isDataAware = !!(precondition || postcondition || 
+          let isDataAware = !!(precondition || postcondition || 
                                transition.querySelector('guard') ||
                                transition.querySelector('dataGuard') ||
                                transition.querySelector('dataUpdate') ||
                                transition.querySelector('dataAction'));
 
-          // const { pre, post } = splitPrePostConditions(precondition)
+          const { pre, post } = this.splitPrePostConditions(precondition)
 
-          // precondition = pre || '';
-          // postcondition = post || '';
+          precondition = pre || '';
+          postcondition = post || '';
           const transitionData = {
             id: transition.getAttribute('id'),
             label: this.getTextContent(transition.querySelector('name text')) || transition.getAttribute('id'),
@@ -748,20 +747,23 @@ class PNMLImporter {
       const postIndex = inputString.indexOf(postMarker);
 
       if (postIndex !== -1) {
-          // Extract the part before " | post: "
+
           let prePart = inputString.substring(0, postIndex);
-          // Extract the part after " | post: "
+
           let postPart = inputString.substring(postIndex + postMarker.length);
 
           // Clean up the 'pre' condition by removing the "pre: " prefix.
           if (prePart.startsWith('pre: ')) {
               result.pre = prePart.substring(5).trim();
+          } else {
+              result.pre = "";
           }
 
           // Clean up the 'post' condition by replacing all instances of ' | ' with ' ; '.
           // A global regex is used to ensure all occurrences are replaced.
           result.post = postPart.replace(/ \| /g, ' ; ').trim();
       }
+      console.log("Split pre/post conditions:", result);
 
       return result;
     }
@@ -1286,7 +1288,7 @@ class PNMLImporter {
    * BPMN Layout Algorithm Implementation
    * Based on "A Simple Algorithm for Automatic Layout of BPMN Processes" (Kitzmann et al., 2009)
    */
-  class BPMNLayoutAlgorithm {
+  class LayoutAlgorithm {
     constructor() {
       this.grid = null;
       this.sortedElements = [];
@@ -1301,7 +1303,7 @@ class PNMLImporter {
       this.sortedElements = this.modifiedTopologicalSort(net);
       
       // Step 3: Initialize grid
-      this.grid = new LayoutGrid();
+      this.grid = new Layouter();
       this.settings = settings; // Store settings for grid operations
       
       // Step 4: Position elements
@@ -1594,7 +1596,7 @@ class PNMLImporter {
   /**
    * Grid data structure for layout positioning
    */
-  class LayoutGrid {
+  class Layouter {
     constructor() {
       this.cells = new Map(); // Map<'col,row', elementId>
       this.elementPositions = new Map(); // Map<elementId, {col, row}>

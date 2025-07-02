@@ -1,32 +1,98 @@
 import { init } from 'z3-solver';
-  const { Context } = await init();
-  const Z3 = Context('main');
+import { parse, evaluate } from 'mathjs';
 
+const { Context } = await init();
+const Z3 = Context('main');
 
 /**
- * Parses and solves a Z3 constraint expression of arbitrary size/operators.
- * Old (un-primed) variables are fixed to the numbers in `oldValues`.
- * Returns, for each primed variable, its computed bounds and a random in-range sample.
- *
- * @param {string} expr Boolean expression like `"x' >= x + 1 && y' <= y * 2"`.
- * @param {{[varName: string]: number}} oldValues Map from old-variable names (no trailing apostrophe) to their numeric values.
- * @param {'int'|'float'} mode `"int"` for integer arithmetic or `"float"` for Real arithmetic.
- * @returns {Promise<{
- *   bounds: {[varName: string]: { lower: number, upper: number }},
- *   newValues: {[varName: string]: number}
- * } | null>} An object with `bounds` and `newValues`, or `null` if unsatisfiable.
+ * Robust expression solver using Math.js for parsing
+ * @param {string} expr Boolean expression like `"x' >= x + 1 && y' <= y * 2"`
+ * @param {{[varName: string]: number|boolean}} oldValues Map from variable names to their values
+ * @param {'int'|'float'|'bool'|'auto'} mode Type mode for variables
+ * @returns {Promise<{bounds: Object, newValues: Object} | null>} Result or null if unsatisfiable
  */
-export async function solveExpression(expr, oldValues, mode) {
+export async function solveExpression(expr, oldValues, mode = 'auto') {
+  
+  // Helper function to determine variable type
+  function getVarType(value, defaultMode) {
+    if (defaultMode === 'auto') {
+      if (typeof value === 'boolean') return 'bool';
+      if (value === 'true' || value === 'false') return 'bool';
+      if (typeof value === 'string' && (value.toLowerCase() === 'true' || value.toLowerCase() === 'false')) return 'bool';
+      
+      if (typeof value === 'number') {
+        if (Number.isInteger(value)) return 'int';
+        return 'float';
+      }
+      
+      if (typeof value === 'string') {
+        const num = Number(value);
+        if (!isNaN(num)) {
+          if (Number.isInteger(num)) return 'int';
+          return 'float';
+        }
+      }
+      
+      return 'bool';
+    }
+    return defaultMode;
+  }
+
+/**
+ * Get the string name of a Z3 expression’s sort, regardless of binding version.
+ *
+ * @param {import('z3-solver').Ast} expr
+ * @returns {string} the sort name, e.g. "Int", "Real", "Bool"
+ */
+function getSortString(expr) {
+  // some bindings use a sort() method, others expose a sort property
+  const s = typeof expr.sort === 'function'
+    ? expr.sort()
+    : expr.sort;
+  return s.toString();
+}
+
+/**
+ * Cast two Z3 expressions to a common type so arithmetic/comparison works.
+ *
+ * @param {import('z3-solver').Ast} left
+ * @param {import('z3-solver').Ast} right
+ * @returns {[import('z3-solver').Ast, import('z3-solver').Ast]}
+ */
+function castToCompatibleType(left, right) {
+  const ls = getSortString(left);
+  const rs = getSortString(right);
+
+  if (ls === rs) {
+    return [left, right];
+  }
+  if (ls.includes('Int') && rs.includes('Real')) {
+    return [left.toReal(), right];
+  }
+  if (ls.includes('Real') && rs.includes('Int')) {
+    return [left, right.toReal()];
+  }
+  return [left, right];
+}
 
 
   // 1. Declare Z3 constants for old variables
   const varMap = {};
-  for (const name of Object.keys(oldValues)) {
-    varMap[name] =
-      mode === 'int' ? Z3.Int.const(name) : Z3.Real.const(name);
+  const varTypes = {};
+  for (const [name, value] of Object.entries(oldValues)) {
+    const varType = getVarType(value, mode);
+    varTypes[name] = varType;
+    
+    if (varType === 'int') {
+      varMap[name] = Z3.Int.const(name);
+    } else if (varType === 'float') {
+      varMap[name] = Z3.Real.const(name);
+    } else if (varType === 'bool') {
+      varMap[name] = Z3.Bool.const(name);
+    }
   }
 
-  // 2. Find primed variable names
+  // 2. Find primed variable names using regex
   const primedNames = new Set();
   for (const m of expr.matchAll(/([A-Za-z_]\w*)'/g)) {
     primedNames.add(m[1]);
@@ -34,231 +100,281 @@ export async function solveExpression(expr, oldValues, mode) {
 
   // 3. Declare Z3 constants for primed variables
   const primedMap = {};
+  const primedTypes = {};
   for (const name of primedNames) {
-    const full = `${name}'`;
-    primedMap[name] =
-      mode === 'int' ? Z3.Int.const(full) : Z3.Real.const(full);
+    const full = `${name}_prime`; // Use _prime instead of ' for Math.js compatibility
+    const primedType = varTypes[name] || (mode === 'auto' ? 'int' : mode);
+    primedTypes[name] = primedType;
+    
+    if (primedType === 'int') {
+      primedMap[name] = Z3.Int.const(full);
+    } else if (primedType === 'float') {
+      primedMap[name] = Z3.Real.const(full);
+    } else if (primedType === 'bool') {
+      primedMap[name] = Z3.Bool.const(full);
+    }
   }
 
-  // 4. Tokenizer
-  function tokenize(input) {
-    const ops2 = new Set(['>=','<=','==','!=','&&','||']);
-    const tokens = [];
-    let i = 0;
-    while (i < input.length) {
-      const ch = input[i];
-      if (/\s/.test(ch)) { i++; continue; }
-      const two = input.substr(i, 2);
-      if (ops2.has(two)) {
-        tokens.push({ type: 'operator', value: two });
-        i += 2;
-        continue;
-      }
-      if ('+-*/<>!'.includes(ch)) {
-        tokens.push({ type: 'operator', value: ch });
-        i++;
-        continue;
-      }
-      if (ch === '(' || ch === ')') {
-        tokens.push({ type: 'paren', value: ch });
-        i++;
-        continue;
-      }
-      if (/[0-9]/.test(ch)) {
-        let num = ch; i++;
-        while (i < input.length && /[0-9.]/.test(input[i])) {
-          num += input[i++];
+  // 4. Preprocess expression to replace ' with _prime for Math.js compatibility
+  let processedExpr = expr;
+  
+  // Replace logical operators for Math.js
+  processedExpr = processedExpr.replace(/&&/g, ' and ');
+  processedExpr = processedExpr.replace(/\|\|/g, ' or ');
+  processedExpr = processedExpr.replace(/==/g, ' == ');
+  processedExpr = processedExpr.replace(/!=/g, ' != ');
+  
+  // Replace primed variables
+  for (const name of primedNames) {
+    const regex = new RegExp(`\\b${name}'`, 'g');
+    processedExpr = processedExpr.replace(regex, `${name}_prime`);
+  }
+  
+  console.log('Original expression:', expr);
+  console.log('Processed expression:', processedExpr);
+
+  // 5. Parse the expression using Math.js
+  let ast;
+  try {
+    ast = parse(processedExpr);
+    console.log('Parsed AST:', JSON.stringify(ast, null, 2));
+  } catch (error) {
+    throw new Error(`Failed to parse expression: ${error.message}`);
+  }
+
+  // 6. Convert Math.js AST to Z3 expression
+  function astToZ3(node) {
+    console.log('Converting node:', node.type, node);
+    
+    switch (node.type) {
+      case 'ConstantNode':
+        if (typeof node.value === 'boolean') {
+          return Z3.Bool.val(node.value);
+        } else if (typeof node.value === 'number') {
+          if (Number.isInteger(node.value)) {
+            return Z3.Int.val(node.value);
+          } else {
+            return Z3.Real.val(node.value);
+          }
+        } else if (typeof node.value === 'string') {
+          // Handle string boolean literals
+          if (node.value === 'true') return Z3.Bool.val(true);
+          if (node.value === 'false') return Z3.Bool.val(false);
+          throw new Error(`Unsupported string constant: ${node.value}`);
         }
-        tokens.push({ type: 'number', value: num });
-        continue;
-      }
-      if (/[A-Za-z_]/.test(ch)) {
-        let id = ch; i++;
-        while (i < input.length && /\w/.test(input[i])) {
-          id += input[i++];
+        break;
+
+      case 'SymbolNode':
+        const varName = node.name;
+        
+        // Check if it's a primed variable
+        if (varName.endsWith('_prime')) {
+          const baseName = varName.slice(0, -6); // Remove '_prime'
+          if (primedMap[baseName]) {
+            return primedMap[baseName];
+          }
         }
-        if (input[i] === "'") {
-          id += "'"; i++;
+        
+        // Check if it's a regular variable
+        if (varMap[varName]) {
+          return varMap[varName];
         }
-        tokens.push({ type: 'identifier', value: id });
-        continue;
-      }
-      throw new Error(`Unexpected char '${ch}' at position ${i}`);
+        
+        // Handle boolean literals
+        if (varName === 'true') return Z3.Bool.val(true);
+        if (varName === 'false') return Z3.Bool.val(false);
+        
+        throw new Error(`Unknown variable: ${varName}`);
+
+      case 'OperatorNode':
+        const args = node.args.map(astToZ3);
+
+        switch (node.fn) {
+          case 'add': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.add(r);
+          }
+          case 'subtract': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.sub(r);
+          }
+          case 'multiply': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.mul(r);
+          }
+          case 'divide': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.div(r);
+          }
+          case 'larger': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.gt(r);
+          }
+          case 'largerEq': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.ge(r);
+          }
+          case 'smaller': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.lt(r);
+          }
+          case 'smallerEq': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.le(r);
+          }
+          case 'equal': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.eq(r);
+          }
+          case 'unequal': {
+            const [l, r] = castToCompatibleType(args[0], args[1]);
+            return l.neq(r);
+          }
+          case 'and':
+            return Z3.And(...args);
+          case 'or':
+            return Z3.Or(...args);
+          case 'not':
+            return Z3.Not(args[0]);
+          case 'unaryMinus':
+            return args[0].neg();
+          case 'unaryPlus':
+            return args[0];
+          default:
+            throw new Error(`Unsupported operator: ${node.fn}`);
+        }
+    
+
+      case 'ParenthesisNode':
+        return astToZ3(node.content);
+
+      case 'FunctionNode':
+        // Handle function calls if needed
+        throw new Error(`Function calls not supported: ${node.fn.name}`);
+
+      default:
+        throw new Error(`Unsupported AST node type: ${node.type}`);
     }
-    return tokens;
   }
 
-  // 5. Recursive-descent parser
-  const tokens = tokenize(expr);
-  let pos = 0;
+  const constraintAst = astToZ3(ast);
 
-  function peek() {
-    return tokens[pos] || null;
-  }
-  function next() {
-    return tokens[pos++];
-  }
-  function expect(type, val) {
-    const tk = peek();
-    if (!tk || tk.type !== type || (val && tk.value !== val)) {
-      throw new Error(`Expected ${type}${val ? ` '${val}'` : ''} but got ${tk?.type} '${tk?.value}'`);
-    }
-    return next();
-  }
-
-  function parseExpr() { return parseOr(); }
-  function parseOr() {
-    let left = parseAnd();
-    while (peek()?.type === 'operator' && peek().value === '||') {
-      next();
-      left = Z3.Or(left, parseAnd());
-    }
-    return left;
-  }
-  function parseAnd() {
-    let left = parseComp();
-    while (peek()?.type === 'operator' && peek().value === '&&') {
-      next();
-      left = Z3.And(left, parseComp());
-    }
-    return left;
-  }
-  function parseComp() {
-    let left = parseAdd();
-    const op = peek();
-    if (op?.type === 'operator' && ['>=','<=','>','<','==','!='].includes(op.value)) {
-      next();
-      const right = parseAdd();
-      switch (op.value) {
-        case '>=': return left.ge(right);
-        case '<=': return left.le(right);
-        case '>':  return left.gt(right);
-        case '<':  return left.lt(right);
-        case '==': return left.eq(right);
-        case '!=': return left.neq(right);
-      }
-    }
-    return left;
-  }
-  function parseAdd() {
-    let left = parseMul();
-    while (peek()?.type === 'operator' && ['+','-'].includes(peek().value)) {
-      const op = next().value;
-      const right = parseMul();
-      left = op === '+' ? left.add(right) : left.sub(right);
-    }
-    return left;
-  }
-  function parseMul() {
-    let left = parseUnary();
-    while (peek()?.type === 'operator' && ['*','/'].includes(peek().value)) {
-      const op = next().value;
-      const right = parseUnary();
-      left = op === '*' ? left.mul(right) : left.div(right);
-    }
-    return left;
-  }
-  function parseUnary() {
-    if (peek()?.type === 'operator' && ['+','-'].includes(peek().value)) {
-      const op = next().value;
-      const sub = parseUnary();
-      return op === '-' ? sub.neg() : sub;
-    }
-    return parsePrimary();
-  }
-  function parsePrimary() {
-    const tk = peek();
-    if (!tk) throw new Error('Unexpected end of input');
-    if (tk.type === 'number') {
-      next();
-      return mode === 'int'
-        ? Z3.Int.val(parseInt(tk.value, 10))
-        : Z3.Real.val(tk.value);
-    }
-    if (tk.type === 'identifier') {
-      next();
-      if (tk.value.endsWith("'")) {
-        const name = tk.value.slice(0, -1);
-        if (!(name in primedMap)) throw new Error(`Unknown primed var '${tk.value}'`);
-        return primedMap[name];
-      } else {
-        if (!(tk.value in varMap)) throw new Error(`Unknown old var '${tk.value}'`);
-        return varMap[tk.value];
-      }
-    }
-    if (tk.type === 'paren' && tk.value === '(') {
-      next();
-      const inside = parseExpr();
-      expect('paren', ')');
-      return inside;
-    }
-    throw new Error(`Unexpected token ${tk.type} '${tk.value}'`);
-  }
-
-  const constraintAst = parseExpr();
-  if (pos < tokens.length) {
-    throw new Error(`Trailing tokens: ${tokens.slice(pos).map(t => t.value).join(' ')}`);
-  }
-
-  // 6. Fixed-old constraints
+  // 7. Create fixed constraints for old variables
   const fixed = [];
   for (const [name, val] of Object.entries(oldValues)) {
-    const lit = mode === 'int'
-      ? Z3.Int.val(val)
-      : Z3.Real.val(val.toString());
-    fixed.push(varMap[name].eq(lit));
+    let lit;
+    const varType = varTypes[name];
+    
+    try {
+      if (varType === 'int') {
+        if (val === 'true' || val === true || val === 'false' || val === false) {
+          throw new Error(`Boolean value '${val}' cannot be used as integer. Use mode='auto' or mode='bool' instead.`);
+        }
+        const intVal = typeof val === 'string' ? parseInt(val, 10) : Math.floor(Number(val));
+        if (isNaN(intVal)) {
+          throw new Error(`Cannot convert '${val}' to integer`);
+        }
+        lit = Z3.Int.val(intVal);
+      } else if (varType === 'float') {
+        if (val === 'true' || val === true || val === 'false' || val === false) {
+          throw new Error(`Boolean value '${val}' cannot be used as float. Use mode='auto' or mode='bool' instead.`);
+        }
+        const floatVal = typeof val === 'string' ? parseFloat(val) : Number(val);
+        if (isNaN(floatVal)) {
+          throw new Error(`Cannot convert '${val}' to float`);
+        }
+        lit = Z3.Real.val(floatVal.toString());
+      } else if (varType === 'bool') {
+        let boolVal;
+        if (typeof val === 'boolean') {
+          boolVal = val;
+        } else if (typeof val === 'string') {
+          if (val.toLowerCase() === 'true') {
+            boolVal = true;
+          } else if (val.toLowerCase() === 'false') {
+            boolVal = false;
+          } else {
+            throw new Error(`Cannot convert string '${val}' to boolean. Expected 'true' or 'false'.`);
+          }
+        } else {
+          boolVal = Boolean(val);
+        }
+        lit = Z3.Bool.val(boolVal);
+      }
+      fixed.push(varMap[name].eq(lit));
+    } catch (error) {
+      throw new Error(`Failed to create Z3 value for variable '${name}' with value '${val}' (type: ${typeof val}) and detected type '${varType}': ${error.message}`);
+    }
   }
 
-  // 7. Compute bounds for each primed var
+  // 8. Compute bounds for each primed variable
   const bounds = {};
   for (const name of primedNames) {
     const p = primedMap[name];
+    const primedType = primedTypes[name];
 
-    const optMin = new Z3.Optimize();
-    optMin.add(...fixed, constraintAst);
-    optMin.minimize(p);
-    if ((await optMin.check()) !== 'sat') return null;
-    const lowStr = (await optMin.model().get(p)).toString();
-    const lower = mode === 'int' ? parseInt(lowStr, 10) : parseFloat(lowStr);
+    if (primedType === 'bool') {
+      const solverTrue = new Z3.Solver();
+      solverTrue.add(...fixed, constraintAst, p.eq(Z3.Bool.val(true)));
+      const canBeTrue = (await solverTrue.check()) === 'sat';
+      
+      const solverFalse = new Z3.Solver();
+      solverFalse.add(...fixed, constraintAst, p.eq(Z3.Bool.val(false)));
+      const canBeFalse = (await solverFalse.check()) === 'sat';
+      
+      if (!canBeTrue && !canBeFalse) return null;
+      
+      bounds[name] = { 
+        canBeTrue, 
+        canBeFalse,
+        lower: canBeFalse ? 0 : 1,
+        upper: canBeTrue ? 1 : 0
+      };
+    } else {
+      const optMin = new Z3.Optimize();
+      optMin.add(...fixed, constraintAst);
+      optMin.minimize(p);
+      if ((await optMin.check()) !== 'sat') return null;
+      const lowStr = (await optMin.model().get(p)).toString();
+      const lower = primedType === 'int' ? parseInt(lowStr, 10) : parseFloat(lowStr);
 
-    const optMax = new Z3.Optimize();
-    optMax.add(...fixed, constraintAst);
-    optMax.maximize(p);
-    await optMax.check();
-    const highStr = (await optMax.model().get(p)).toString();
-    const upper = mode === 'int' ? parseInt(highStr, 10) : parseFloat(highStr);
+      const optMax = new Z3.Optimize();
+      optMax.add(...fixed, constraintAst);
+      optMax.maximize(p);
+      await optMax.check();
+      const highStr = (await optMax.model().get(p)).toString();
+      const upper = primedType === 'int' ? parseInt(highStr, 10) : parseFloat(highStr);
 
-    bounds[name] = { lower, upper };
+      bounds[name] = { lower, upper };
 
-    if (lower === upper) {
-      bounds[name].upper = Number.MAX_SAFE_INTEGER;
+      if (lower === upper) {
+        bounds[name].upper = Number.MAX_SAFE_INTEGER;
+      }
     }
   }
 
-  // 8. Sample random new values
+  // 9. Sample random new values
   const newValues = {};
   for (const name of primedNames) {
-    const { lower, upper } = bounds[name];
-    newValues[name] =
-      mode === 'int'
-        ? Math.floor(Math.random() * (upper - lower + 1)) + lower
-        : Math.random() * (upper - lower) + lower;
+    const primedType = primedTypes[name];
+    
+    if (primedType === 'bool') {
+      const { canBeTrue, canBeFalse } = bounds[name];
+      if (canBeTrue && canBeFalse) {
+        newValues[name] = Math.random() < 0.5;
+      } else {
+        newValues[name] = canBeTrue;
+      }
+    } else {
+      const { lower, upper } = bounds[name];
+      newValues[name] =
+        primedType === 'int'
+          ? Math.floor(Math.random() * (upper - lower + 1)) + lower
+          : Math.random() * (upper - lower) + lower;
+    }
   }
 
   return { bounds, newValues };
 }
 
 window.solveExpression = solveExpression;
-
-// (async () => {
-//   const expr = "x' >= x + 100";
-
-//   const result = await solveExpression(expr, { x: 10 }, 'int');
-
-//   if (result) {
-//     console.log('Bounds:', result.bounds);    
-//     console.log('Sampled x\' Value:', result.newValues)
-//   } else {
-//     console.log('Constraints unsatisfiable');
-//   }
-// })();

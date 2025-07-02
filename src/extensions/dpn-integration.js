@@ -224,7 +224,6 @@ async initializeUI() {
     // Create the UI
     this.dataPetriNetUI = new DataPetriNetUI(this.app);
     
-    // CRITICAL FIX: Attach the UI to the app object so other components can access it
     this.app.dataPetriNetUI = this.dataPetriNetUI;
     console.log("DataPetriNetUI attached to app:", this.app.dataPetriNetUI);
     

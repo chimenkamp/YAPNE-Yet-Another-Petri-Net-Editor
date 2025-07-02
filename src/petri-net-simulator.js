@@ -681,8 +681,10 @@ class PetriNetRenderer {
   }
 
   calculateArcEndpoints(source, target) {
+
+
     let start = { x: source.position.x, y: source.position.y };
-    let end = { x: target.position.x, y: target.position.y };
+    let end = { x: target.position.x , y: target.position.y };
 
 
     if (source instanceof Place) {
@@ -2035,49 +2037,108 @@ class PetriNetAPI {
 
 
   /**
-  * Performs automatic layout of the Petri net elements.
-  * @param {Object} options - Layout options
-  * @param {number} [options.horizontalSpacing=150] - Horizontal spacing between nodes
-  * @param {number} [options.verticalSpacing=100] - Vertical spacing between layers
-  * @param {number} [options.startX=100] - Starting X coordinate
-  * @param {number} [options.startY=100] - Starting Y coordinate
-  * @param {string} [options.direction='horizontal'] - Layout direction ('horizontal' or 'vertical')
-  * @param {boolean} [options.centerGraph=true] - Whether to center the graph in the canvas
-  * @returns {boolean} - Success of the operation
-  */
-  autoLayout(options = {}) {
-
-    const opts = {
-      horizontalSpacing: options.horizontalSpacing || 150,
+   * Performs advanced automatic layout of the Petri net elements using BPMN layout algorithm.
+   * @param {Object} options - Layout options
+   * @param {number} [options.elementSpacing=150] - Horizontal spacing between elements
+   * @param {number} [options.verticalSpacing=100] - Vertical spacing between layers
+   * @param {number} [options.startX=100] - Starting X coordinate
+   * @param {number} [options.startY=100] - Starting Y coordinate
+   * @param {boolean} [options.centerLayout=true] - Whether to center the graph in the canvas
+   * @param {boolean} [options.compactLayout=true] - Whether to apply compaction
+   * @returns {Promise<boolean>} - Success of the operation
+   */
+  async autoLayout(options = {}) {
+    // Default settings optimized for Petri nets
+    const settings = {
+      elementSpacing: options.elementSpacing || 150,
       verticalSpacing: options.verticalSpacing || 100,
       startX: options.startX || 100,
       startY: options.startY || 100,
-      direction: options.direction || 'horizontal',
-      centerGraph: options.centerGraph !== undefined ? options.centerGraph : true
+      centerLayout: options.centerLayout !== undefined ? options.centerLayout : true,
+      compactLayout: options.compactLayout !== undefined ? options.compactLayout : true
     };
 
-
+    // Check if there are elements to layout
     if (this.petriNet.places.size === 0 && this.petriNet.transitions.size === 0) {
       return false;
     }
 
+    // Convert PetriNet to format expected by BPMN algorithm
+    const netData = {
+      places: Array.from(this.petriNet.places.values()),
+      transitions: Array.from(this.petriNet.transitions.values()),
+      arcs: Array.from(this.petriNet.arcs.values())
+    };
 
-    const { layers, nodeToLayer } = this.calculateLayers();
+    try {
+      // Apply the sophisticated BPMN layout algorithm
+      const layoutAlgorithm = new BPMNLayoutAlgorithm();
+      await layoutAlgorithm.applyLayout(netData, settings);
 
+      // Center the graph in the canvas if requested and canvas is available
+      if (settings.centerLayout && this.canvas) {
+        this.centerGraphInCanvas();
+      }
 
-    this.assignPositions(layers, nodeToLayer, opts);
+      // Render the updated layout
+      if (this.editor) {
+        this.editor.render();
+      }
 
+      return true;
+    } catch (error) {
+      console.error('Layout algorithm error:', error);
+      return false;
+    }
+  }
 
-    if (opts.centerGraph && this.canvas) {
-      this.centerGraph();
+  // ADD this new method to PetriNetAPI class:
+  centerGraphInCanvas() {
+    if (!this.canvas) return;
+
+    // Calculate current bounds of all elements
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    // Check places
+    for (const [, place] of this.petriNet.places) {
+      minX = Math.min(minX, place.position.x - place.radius);
+      minY = Math.min(minY, place.position.y - place.radius);
+      maxX = Math.max(maxX, place.position.x + place.radius);
+      maxY = Math.max(maxY, place.position.y + place.radius);
     }
 
-
-    if (this.editor) {
-      this.editor.render();
+    // Check transitions
+    for (const [, transition] of this.petriNet.transitions) {
+      minX = Math.min(minX, transition.position.x - transition.width / 2);
+      minY = Math.min(minY, transition.position.y - transition.height / 2);
+      maxX = Math.max(maxX, transition.position.x + transition.width / 2);
+      maxY = Math.max(maxY, transition.position.y + transition.height / 2);
     }
 
-    return true;
+    // Only proceed if we have valid bounds
+    if (minX === Infinity) return;
+
+    // Calculate graph dimensions
+    const graphWidth = maxX - minX;
+    const graphHeight = maxY - minY;
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
+
+    // Calculate centering offset with padding
+    const padding = 50;
+    const offsetX = (canvasWidth - graphWidth) / 2 - minX;
+    const offsetY = (canvasHeight - graphHeight) / 2 - minY;
+
+    // Apply offset to all elements
+    for (const [, place] of this.petriNet.places) {
+      place.position.x += offsetX;
+      place.position.y += offsetY;
+    }
+
+    for (const [, transition] of this.petriNet.transitions) {
+      transition.position.x += offsetX;
+      transition.position.y += offsetY;
+    }
   }
 
   /**
@@ -2386,6 +2447,288 @@ class PetriNetAPI {
     }
 
     return null;
+  }
+}
+
+/**
+ * BPMN Layout Algorithm Implementation
+ * Based on "A Simple Algorithm for Automatic Layout of BPMN Processes" (Kitzmann et al., 2009)
+ */
+class BPMNLayoutAlgorithm {
+  constructor() {
+    this.grid = null;
+    this.sortedElements = [];
+    this.elementTypes = new Map();
+  }
+
+  async applyLayout(net, settings) {
+    // Step 1: Classify elements
+    this.classifyElements(net);
+    
+    // Step 2: Modified topological sort
+    this.sortedElements = this.modifiedTopologicalSort(net);
+    
+    // Step 3: Initialize grid
+    this.grid = new LayoutGrid();
+    this.settings = settings;
+    
+    // Step 4: Position elements
+    await this.positionElements(net, settings);
+    
+    // Step 5: Apply heuristics
+    if (settings.compactLayout) {
+      this.applyInterleaving();
+    }
+    
+    // Step 6: Calculate final coordinates
+    this.calculateFinalCoordinates(net, settings);
+  }
+
+  classifyElements(net) {
+    this.elementTypes.clear();
+    
+    [...net.places, ...net.transitions].forEach(element => {
+      const types = new Set(['element']);
+      
+      const incomingArcs = net.arcs.filter(arc => arc.target === element.id);
+      const outgoingArcs = net.arcs.filter(arc => arc.source === element.id);
+      
+      if (incomingArcs.length === 0) types.add('start');
+      if (outgoingArcs.length === 0) types.add('end');
+      if (incomingArcs.length > 1) types.add('join');
+      if (outgoingArcs.length > 1) types.add('split');
+      
+      this.elementTypes.set(element.id, types);
+    });
+  }
+
+  modifiedTopologicalSort(net) {
+    const elements = [...net.places, ...net.transitions];
+    const arcs = net.arcs;
+    const incomingCount = new Map();
+    const result = [];
+    
+    elements.forEach(element => {
+      const incomingArcs = arcs.filter(arc => arc.target === element.id);
+      incomingCount.set(element.id, incomingArcs.length);
+    });
+    
+    const originalIncomingCount = new Map(incomingCount);
+    
+    while (elements.some(e => !result.includes(e))) {
+      const freeNodes = elements.filter(element => 
+        !result.includes(element) && incomingCount.get(element.id) === 0
+      );
+      
+      if (freeNodes.length > 0) {
+        const node = freeNodes[0];
+        result.push(node);
+        
+        const outgoingArcs = arcs.filter(arc => arc.source === node.id);
+        outgoingArcs.forEach(arc => {
+          incomingCount.set(arc.target, incomingCount.get(arc.target) - 1);
+        });
+      } else {
+        const remainingElements = elements.filter(e => !result.includes(e));
+        
+        let loopEntry = remainingElements.find(element => {
+          const types = this.elementTypes.get(element.id);
+          return types.has('join') && 
+                 incomingCount.get(element.id) < originalIncomingCount.get(element.id);
+        });
+        
+        if (!loopEntry) {
+          loopEntry = remainingElements[0];
+        }
+        
+        const remainingIncoming = arcs.filter(arc => 
+          arc.target === loopEntry.id && 
+          !result.find(e => e.id === arc.source)
+        );
+        
+        remainingIncoming.forEach(arc => {
+          incomingCount.set(loopEntry.id, incomingCount.get(loopEntry.id) - 1);
+        });
+      }
+    }
+    
+    return result;
+  }
+
+  async positionElements(net, settings) {
+    for (let i = 0; i < this.sortedElements.length; i++) {
+      const element = this.sortedElements[i];
+      const elementTypes = this.elementTypes.get(element.id);
+      
+      if (elementTypes.has('start')) {
+        this.grid.placeElement(element.id, 0, this.grid.getNextAvailableRow(0));
+      } else {
+        this.positionElementRelativeToPredecessors(element, net);
+      }
+      
+      if (i % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 1));
+      }
+    }
+  }
+
+  positionElementRelativeToPredecessors(element, net) {
+    const elementTypes = this.elementTypes.get(element.id);
+    const incomingArcs = net.arcs.filter(arc => arc.target === element.id);
+    
+    if (incomingArcs.length === 0) {
+      this.grid.placeElement(element.id, 0, 0);
+      return;
+    }
+    
+    const predecessorPositions = incomingArcs.map(arc => {
+      return this.grid.getElementPosition(arc.source);
+    }).filter(pos => pos !== null);
+    
+    if (predecessorPositions.length === 0) {
+      this.grid.placeElement(element.id, 0, 0);
+      return;
+    }
+    
+    if (elementTypes.has('join')) {
+      const rightmostCol = Math.max(...predecessorPositions.map(pos => pos.col));
+      const avgRow = Math.round(
+        predecessorPositions.reduce((sum, pos) => sum + pos.row, 0) / predecessorPositions.length
+      );
+      this.grid.placeElement(element.id, rightmostCol + 1, avgRow);
+    } else if (predecessorPositions.length === 1) {
+      const predPos = predecessorPositions[0];
+      const predElement = [...net.places, ...net.transitions].find(e => e.id === incomingArcs[0].source);
+      const predTypes = this.elementTypes.get(predElement.id);
+      
+      if (predTypes.has('split')) {
+        const splitSuccessors = net.arcs.filter(arc => arc.source === predElement.id);
+        const thisArcIndex = splitSuccessors.findIndex(arc => arc.target === element.id);
+        const targetRow = predPos.row + thisArcIndex - Math.floor(splitSuccessors.length / 2);
+        this.grid.placeElement(element.id, predPos.col + 1, targetRow);
+      } else {
+        this.grid.placeElement(element.id, predPos.col + 1, predPos.row);
+      }
+    } else {
+      const rightmostCol = Math.max(...predecessorPositions.map(pos => pos.col));
+      const avgRow = Math.round(
+        predecessorPositions.reduce((sum, pos) => sum + pos.row, 0) / predecessorPositions.length
+      );
+      this.grid.placeElement(element.id, rightmostCol + 1, avgRow);
+    }
+  }
+
+  applyInterleaving() {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      
+      for (let row = 0; row < this.grid.getMaxRow(); row++) {
+        const nextRow = row + 1;
+        if (this.grid.canInterleaveRows(row, nextRow)) {
+          this.grid.interleaveRows(row, nextRow);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  calculateFinalCoordinates(net, settings) {
+    const spacing = settings.elementSpacing || 150;
+    const verticalSpacing = settings.verticalSpacing || 100;
+    
+    [...net.places, ...net.transitions].forEach(element => {
+      const gridPos = this.grid.getElementPosition(element.id);
+      if (gridPos) {
+        const x = (settings.startX || 100) + gridPos.col * spacing;
+        const y = (settings.startY || 100) + gridPos.row * verticalSpacing;
+        element.position = { x, y };
+      }
+    });
+  }
+}
+
+/**
+ * Grid data structure for layout positioning
+ */
+class LayoutGrid {
+  constructor() {
+    this.cells = new Map();
+    this.elementPositions = new Map();
+    this.maxCol = 0;
+    this.maxRow = 0;
+  }
+
+  placeElement(elementId, col, row) {
+    while (this.cells.has(`${col},${row}`)) {
+      row++;
+    }
+    
+    const key = `${col},${row}`;
+    this.cells.set(key, elementId);
+    this.elementPositions.set(elementId, { col, row });
+    
+    this.maxCol = Math.max(this.maxCol, col);
+    this.maxRow = Math.max(this.maxRow, row);
+  }
+
+  getElementPosition(elementId) {
+    return this.elementPositions.get(elementId) || null;
+  }
+
+  getNextAvailableRow(col) {
+    let row = 0;
+    while (this.cells.has(`${col},${row}`)) {
+      row++;
+    }
+    return row;
+  }
+
+  getMaxRow() {
+    return this.maxRow;
+  }
+
+  canInterleaveRows(row1, row2) {
+    for (let col = 0; col <= this.maxCol; col++) {
+      const key1 = `${col},${row1}`;
+      const key2 = `${col},${row2}`;
+      
+      if (this.cells.has(key1) && this.cells.has(key2)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  interleaveRows(row1, row2) {
+    for (let col = 0; col <= this.maxCol; col++) {
+      const key2 = `${col},${row2}`;
+      if (this.cells.has(key2)) {
+        const elementId = this.cells.get(key2);
+        this.cells.delete(key2);
+        
+        const key1 = `${col},${row1}`;
+        this.cells.set(key1, elementId);
+        this.elementPositions.set(elementId, { col, row: row1 });
+      }
+    }
+    
+    for (let row = row2 + 1; row <= this.maxRow; row++) {
+      for (let col = 0; col <= this.maxCol; col++) {
+        const oldKey = `${col},${row}`;
+        if (this.cells.has(oldKey)) {
+          const elementId = this.cells.get(oldKey);
+          this.cells.delete(oldKey);
+          
+          const newKey = `${col},${row - 1}`;
+          this.cells.set(newKey, elementId);
+          this.elementPositions.set(elementId, { col, row: row - 1 });
+        }
+      }
+    }
+    
+    this.maxRow--;
   }
 }
 

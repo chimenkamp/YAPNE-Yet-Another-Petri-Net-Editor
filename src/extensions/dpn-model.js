@@ -276,41 +276,54 @@ class DataAwareTransition extends Transition {
     return new Function(...variableNames, 'testValuation', functionBody);
   }
 
-  /**
-   * Find a value that satisfies all constraint statements for a variable (ASYNC)
-   * @param {string} variableName - The variable name to generate a value for
-   * @param {Array<string>} constraintStatements - Array of constraint expressions
-   * @param {Object} originalValuation - Original variable values
-   * @param {Object} currentValuation - Current working variable values
-   * @returns {Promise<*>} A value that satisfies all constraints
-   */
-  async findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
-    const currentValue = originalValuation[variableName];
-    console.log("Finding value for constraints", variableName, constraintStatements);
+/**
+ * Find a value that satisfies all constraint statements for a variable (ASYNC)
+ * @param {string} variableName - The variable name to generate a value for
+ * @param {Array<string>} constraintStatements - Array of constraint expressions
+ * @param {Object} originalValuation - Original variable values
+ * @param {Object} currentValuation - Current working variable values
+ * @returns {Promise<*>} A value that satisfies all constraints
+ */
+async findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
+  const currentValue = originalValuation[variableName];
+  console.log("Finding value for constraints", variableName, constraintStatements);
 
-    if (typeof currentValue === 'boolean') {
-      if (this.checkValueAgainstConstraints(true, variableName, constraintStatements, originalValuation, currentValuation)) {
-        return true;
-      }
-      if (this.checkValueAgainstConstraints(false, variableName, constraintStatements, originalValuation, currentValuation)) {
-        return false;
-      }
-      return currentValue; // Fallback to current value
+  if (typeof currentValue === 'boolean') {
+    if (this.checkValueAgainstConstraints(true, variableName, constraintStatements, originalValuation, currentValuation)) {
+      return true;
     }
+    if (this.checkValueAgainstConstraints(false, variableName, constraintStatements, originalValuation, currentValuation)) {
+      return false;
+    }
+    return currentValue; // Fallback to current value
+  }
 
-    if (typeof currentValue === 'number') {
-      try {
-        // Get the variable type from the data petri net
+  if (typeof currentValue === 'number') {
+    try {
+      // Use 'auto' mode to let Z3 auto-detect types based on actual values
+      // This is more robust than trying to manually determine types
+      console.log('Combined constraints:', constraintStatements.join(' && '));
+      console.log('Using auto type detection');
+      
+      // Call the async solveExpression function with auto type detection
+      const result = await window.solveExpression(
+        constraintStatements.join(' && '), 
+        currentValuation, 
+        'auto'  // Use auto mode for robust type detection
+      );
+      console.log('Z3 solver result:', result);
+      if (result && result.newValues && result.newValues[variableName] !== undefined) {
+        console.log(`Z3 solver found value for ${variableName}: ${result.newValues[variableName]}`);
+        
+        // Get the actual variable type from the data petri net for proper conversion
         let variableType = 'int'; // default fallback
         
-        // Try to get the actual variable type from the petri net
         if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
           for (const [id, variable] of window.petriApp.api.petriNet.dataVariables) {
             if (variable.name === variableName) {
-              if (variable.type === 'int' || variable.type === 'float') {
-                variableType = variable.type;
-              } else if (variable.type === 'number') {
-                // Legacy support: default to int for old 'number' type
+              variableType = variable.type;
+              // Handle legacy 'number' type
+              if (variableType === 'number') {
                 variableType = 'int';
               }
               break;
@@ -318,36 +331,48 @@ class DataAwareTransition extends Transition {
           }
         }
         
-        // Convert constraint statements to a single expression
-        const combinedConstraints = constraintStatements.join(' && ');
-        console.log('Combined constraints:', combinedConstraints);
-        console.log('Using variable type:', variableType);
-        
-        // Call the async solveExpression function with the correct type
-        const result = await window.solveExpression(combinedConstraints, currentValuation, variableType);
-        
-        if (result && result.newValues && result.newValues[variableName] !== undefined) {
-          console.log(`Z3 solver found value for ${variableName}: ${result.newValues[variableName]}`);
-          
-          // Ensure the result matches the expected type
-          if (variableType === 'int') {
-            return Math.floor(Number(result.newValues[variableName]));
-          } else {
-            return Number(result.newValues[variableName]);
-          }
+        // Ensure the result matches the expected type
+        if (variableType === 'int') {
+          return Math.floor(Number(result.newValues[variableName]));
+        } else if (variableType === 'float') {
+          return Number(result.newValues[variableName]);
+        } else if (variableType === 'boolean') {
+          return Boolean(result.newValues[variableName]);
+        } else {
+          // For other types, return as-is
+          return result.newValues[variableName];
         }
-      } catch (error) {
-        console.error('Error using Z3 solver:', error);
       }
-      
-      // Fallback to current value if Z3 solver fails
-      return currentValue;
-    } else if (typeof currentValue === 'string') {
-      console.warn(`Constraint-based sampling for string variables is not yet implemented`);
+    } catch (error) {
+      console.error('Error using Z3 solver:', error);
     }
     
+    // Fallback to current value if Z3 solver fails
+    return currentValue;
+  } else if (typeof currentValue === 'string') {
+    // For string variables, try using Z3 with auto detection
+    try {
+      console.log('String variable, using Z3 with auto detection');
+      const result = await window.solveExpression(
+        constraintStatements.join(' && '), 
+        currentValuation, 
+        'auto'
+      );
+      
+      if (result && result.newValues && result.newValues[variableName] !== undefined) {
+        console.log(`Z3 solver found value for string ${variableName}: ${result.newValues[variableName]}`);
+        return String(result.newValues[variableName]);
+      }
+    } catch (error) {
+      console.error('Error using Z3 solver for string:', error);
+    }
+    
+    // Fallback for strings - return current value
     return currentValue;
   }
+  
+  return currentValue;
+}
 
   /**
    * Create a function to evaluate an expression

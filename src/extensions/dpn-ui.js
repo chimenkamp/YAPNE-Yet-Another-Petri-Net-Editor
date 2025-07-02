@@ -49,7 +49,7 @@ class DataPetriNetUI {
       </div>
       <div class="toolbar-group">
         <button id="btn-add-data-variable">Add Variable</button>
-        <button id="btn-validate-expressions">Validate Expressions</button>
+
       </div>
     `;
     

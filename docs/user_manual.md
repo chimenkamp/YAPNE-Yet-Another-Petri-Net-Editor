@@ -119,7 +119,7 @@ To handle complex constraint-based postconditions, YAPNE integrates the **Z3 SMT
 
 ### 3.5 Soundness Checker
 
-YAPNE includes a data-aware soundness checker to verify the correctness of your DPN models. It is inspired on the algorithm described in "Verification of data-aware process models: Checking soundness of data Petri nets" by Suvorov & Lomazova.
+YAPNE includes a data-aware soundness checker to verify the correctness of your DPN models.
 
 #### 3.5.1 The Verification Process
 When you run the "Soundness Verification" from the "Model" tab, the tool performs a systematic check of your model's properties through **state-space exploration**.

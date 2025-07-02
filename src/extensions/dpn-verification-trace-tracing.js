@@ -105,51 +105,8 @@ class EnhancedDataAwareVerifier extends DataAwareVerifier {
   /**
    * Enhanced Property 1 checking with detailed deadlock analysis (ASYNC)
    */
-  async checkEnhancedProperty1(lts) {
-    if (this.finalMarkings.length === 0) {
-      return { 
-        satisfied: true,
-        details: "No explicit final marking found - assuming sound",
-        counterexamples: []
-      };
-    }
 
-    const deadlockStates = [];
-    
-    for (const state of lts.states) {
-      const stateData = this.parseStateData(state);
-      const hasEnabledTransitions = this.hasEnabledTransitionsInState(state, lts);
-      
-      if (!hasEnabledTransitions && !this.isFinalState(stateData, this.finalMarkings)) {
-        const trace = await this.buildTraceToState(state, lts);
-        const analysis = this.analyzeDeadlockCause(stateData, state, lts);
-        
-        deadlockStates.push({
-          state: state,
-          trace: trace,
-          reason: analysis.reason,
-          detailedReason: analysis.detailedReason,
-          stateData: stateData,
-          problematicPlaces: analysis.problematicPlaces,
-          responsibleVariables: analysis.responsibleVariables,
-          expectedFinalMarking: this.finalMarkings[0], // Use first final marking
-          actualMarking: stateData.marking,
-          violationType: "deadlock"
-        });
-      }
-    }
-
-    if (deadlockStates.length > 0) {
-      this.counterexampleTraces.push(...deadlockStates);
-      return { 
-        satisfied: false, 
-        details: `Found ${deadlockStates.length} deadlock states`,
-        counterexamples: deadlockStates
-      };
-    }
-    
-    return { satisfied: true, counterexamples: [] };
-  }
+  
 
   /**
    * Enhanced Property 2 checking with detailed coverage analysis (ASYNC)
@@ -1715,7 +1672,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
       </div>
     `;
 
-    modelTab.appendChild(verificationSection);
+    // modelTab.appendChild(verificationSection);
 
     // Add event listeners
     const verifyButton = verificationSection.querySelector('#btn-verify-soundness');
@@ -1855,10 +1812,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   createEnhancedProgressHTML() {
     return `
       <div class="verification-algorithm-info">
-        <h4>🎯 Algorithm: Enhanced Data-Aware Soundness Verification</h4>
-        <p style="color: #D8DEE9; margin: 0;">
-          Advanced verification with comprehensive counterexample analysis, detailed problem visualization, and full support for int/float types.
-        </p>
+        <h4>🎯 Data-aware soundness verification</h4>
       </div>
       <div class="verification-progress">
         <div class="verification-progress-bar">
@@ -1882,9 +1836,9 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
 
     let html = `
       <div class="verification-algorithm-info">
-        <h4>🎯 Enhanced Data-Aware Soundness Verification</h4>
+        <h4>🎯 Data-Aware Soundness Verification</h4>
         <p style="color: #D8DEE9; margin: 0;">
-          Advanced analysis with detailed counterexample reasons, responsible variable tracking, and full int/float type support.
+          Advanced analysis with detailed counterexample reasons.
         </p>
       </div>
 
@@ -1926,7 +1880,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
     html += `
       </div>
       <div class="verification-timing">
-        Enhanced verification completed in ${result.executionTime}ms
+        Verification completed in ${result.executionTime}ms
       </div>
     `;
 
@@ -1941,7 +1895,7 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
 
     let html = `
       <div class="enhanced-counterexample-section">
-        <h4>🔍 Detailed Counterexample Analysis (${counterexamples.length}) - Int/Float Aware</h4>
+        <h4>🔍 Detailed Counterexample Analysis (${counterexamples.length})</h4>
         <div class="counterexample-controls">
           <button class="trace-control-btn" onclick="window.enhancedDpnVerification.clearCounterexampleVisualization()">
             Clear All Highlights
@@ -2045,7 +1999,6 @@ class EnhancedDataPetriNetVerification extends DataPetriNetVerification {
   }
 }
 
-// Enhanced verification styles
 const enhancedIntegratedVerificationStyles = `
   .enhanced-counterexample-section {
     background: linear-gradient(135deg, #2E3440, #3B4252);
@@ -2170,7 +2123,6 @@ const enhancedIntegratedVerificationStyles = `
   }
 `;
 
-// Inject enhanced styles
 function injectEnhancedIntegratedVerificationStyles() {
   const existingStyles = document.getElementById('enhanced-verification-styles');
   if (existingStyles) {
@@ -2183,7 +2135,6 @@ function injectEnhancedIntegratedVerificationStyles() {
   }
 }
 
-// Initialize enhanced verification system (replaces existing initialization)
 document.addEventListener('DOMContentLoaded', () => {
   const initEnhancedVerification = () => {
     if (window.petriApp && window.dataPetriNetIntegration) {

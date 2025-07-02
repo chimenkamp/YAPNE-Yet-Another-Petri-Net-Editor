@@ -12,6 +12,7 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "mathjs": "^14.5.2",
     "z3-solver": "^4.15.1"
   }
 }

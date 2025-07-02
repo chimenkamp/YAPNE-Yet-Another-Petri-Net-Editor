@@ -176,12 +176,30 @@ class PetriNetApp {
     }
 
 
-    const btnAuto = document.getElementById("btn-auto-layout");
-    if (btnAuto) {
-      btnAuto.addEventListener("click", () => {
-        this.api.autoLayout();
-      });
-    }
+  const btnAuto = document.getElementById("btn-auto-layout");
+  if (btnAuto) {
+    btnAuto.addEventListener("click", async () => {
+      // Show loading state
+      const originalText = btnAuto.textContent;
+      btnAuto.textContent = "Laying out...";
+      btnAuto.disabled = true;
+      
+      try {
+        await this.api.autoLayout({
+          elementSpacing: 150,
+          verticalSpacing: 100,
+          centerLayout: true,
+          compactLayout: true
+        });
+      } catch (error) {
+        console.error("Layout error:", error);
+      } finally {
+        // Restore button state
+        btnAuto.textContent = originalText;
+        btnAuto.disabled = false;
+      }
+    });
+  }
 
 
     const btnZoomIn = document.getElementById("btn-zoom-in");
