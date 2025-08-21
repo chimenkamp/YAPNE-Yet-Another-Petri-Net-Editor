@@ -109,7 +109,6 @@ function extendSimulationFunctionality() {
   // Add styles for highlighting changes
   addVariableHistoryStyles();
   
-  console.log('Data Petri Net Variable Tracking Extension loaded (with async support and int/float types).');
 }
 
 /**

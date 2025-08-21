@@ -527,7 +527,6 @@ class PetriNetRenderer {
 
   drawArcs() {
     for (const [id, arc] of this.petriNet.arcs) {
-
       let sourceElement;
       let targetElement;
 
@@ -536,13 +535,21 @@ class PetriNetRenderer {
 
       if (!sourceElement || !targetElement) continue;
 
-
       const { start, end } = this.calculateArcEndpoints(sourceElement, targetElement);
 
+      // Set line style based on arc type
+      this.ctx.save();
+      
+      // Modifier arcs use dotted lines
+      if (arc.type === "modifier") {
+        this.ctx.setLineDash([5, 5]);
+      } else {
+        this.ctx.setLineDash([]);
+      }
 
+      // Draw the arc line
       this.ctx.beginPath();
       this.ctx.moveTo(start.x, start.y);
-
 
       if (arc.points.length > 0) {
         for (const point of arc.points) {
@@ -555,42 +562,144 @@ class PetriNetRenderer {
       this.ctx.lineWidth = 1.5;
       this.ctx.stroke();
 
+      // Calculate direction for arc endings
+      const direction = this.calculateArcDirection(
+        arc.points.length > 0 ? arc.points[arc.points.length - 1] : start, 
+        end
+      );
 
-      this.drawArrowhead(end, this.calculateArcDirection(arc.points.length > 0 ?
-        arc.points[arc.points.length - 1] : start, end));
+      // Draw different endings based on arc type
+      switch (arc.type) {
+        case "inhibitor":
+          this.drawInhibitorEnding(end, direction);
+          break;
+        case "read":
+          this.drawReadArcEnding(end, direction);
+          break;
+        case "reset":
+          this.drawResetArcEnding(end, direction);
+          break;
+        case "modifier":
+          this.drawModifierArcEnding(end, direction);
+          break;
+        default: // regular arc
+          this.drawArrowhead(end, direction);
+          break;
+      }
 
+      this.ctx.restore();
 
-      if (arc.weight > 1 || arc.type !== "regular") {
+      // Draw arc weight/label if needed
+      if (arc.weight > 1 || arc.label) {
         const midpoint = this.calculateArcMidpoint(arc, start, end);
         this.ctx.fillStyle = this.theme.textColor;
         this.ctx.font = '12px Arial';
         this.ctx.textAlign = 'center';
         this.ctx.textBaseline = 'middle';
-
-        let arcLabel = arc.label || arc.weight.toString();
-        if (arc.type === "inhibitor") {
-          arcLabel = "○" + arcLabel; // Circle for inhibitor
-        } else if (arc.type === "reset") {
-          arcLabel = "R" + arcLabel; // R for reset
-        } else if (arc.type === "read") {
-          arcLabel = "?" + arcLabel; // ? for read
-        }
-
-        this.ctx.fillText(arcLabel, midpoint.x, midpoint.y);
-      }
-
-
-      if (arc.type === "inhibitor") {
-
-        const circleRadius = 5;
-        const circlePos = this.interpolatePoints(end, start, 10);
-
-        this.ctx.beginPath();
-        this.ctx.arc(circlePos.x, circlePos.y, circleRadius, 0, Math.PI * 2);
-        this.ctx.strokeStyle = this.theme.arcColor;
-        this.ctx.stroke();
+        
+        // Create background for better readability
+        const label = arc.label || arc.weight.toString();
+        const metrics = this.ctx.measureText(label);
+        const padding = 3;
+        
+        this.ctx.fillStyle = this.theme.backgroundColor;
+        this.ctx.fillRect(
+          midpoint.x - metrics.width / 2 - padding,
+          midpoint.y - 7 - padding,
+          metrics.width + padding * 2,
+          14 + padding * 2
+        );
+        
+        this.ctx.fillStyle = this.theme.textColor;
+        this.ctx.fillText(label, midpoint.x, midpoint.y);
       }
     }
+  }
+
+  /**
+   * Draws inhibitor arc ending (hollow circle)
+   */
+  drawInhibitorEnding(position, angle) {
+    const circleRadius = 6;
+    const offset = 10;
+    
+    // Position the circle slightly before the endpoint
+    const circleX = position.x - Math.cos(angle) * offset;
+    const circleY = position.y - Math.sin(angle) * offset;
+    
+    this.ctx.beginPath();
+    this.ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
+    this.ctx.fillStyle = this.theme.backgroundColor;
+    this.ctx.fill();
+    this.ctx.strokeStyle = this.theme.arcColor;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.stroke();
+  }
+
+  /**
+   * Draws read arc ending (filled dot before arrow)
+   */
+  drawReadArcEnding(position, angle) {
+    const dotRadius = 4;
+    const dotOffset = 15;
+    
+    // Draw the arrow first
+    this.drawArrowhead(position, angle);
+    
+    // Position the dot before the arrowhead
+    const dotX = position.x - Math.cos(angle) * dotOffset;
+    const dotY = position.y - Math.sin(angle) * dotOffset;
+    
+    this.ctx.beginPath();
+    this.ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
+    this.ctx.fillStyle = this.theme.arcColor;
+    this.ctx.fill();
+  }
+
+  /**
+   * Draws reset arc ending (double arrow or special symbol)
+   */
+  drawResetArcEnding(position, angle) {
+    // Draw double arrowhead for reset arc
+    this.drawArrowhead(position, angle);
+    
+    // Draw second arrowhead slightly behind
+    const offset = 8;
+    const secondPos = {
+      x: position.x - Math.cos(angle) * offset,
+      y: position.y - Math.sin(angle) * offset
+    };
+    this.drawArrowhead(secondPos, angle);
+  }
+
+  /**
+   * Draws modifier arc ending (dotted line with arrow)
+   */
+  drawModifierArcEnding(position, angle) {
+    // Just draw a regular arrowhead, the line is already dotted
+    this.drawArrowhead(position, angle);
+  }
+
+  /**
+   * Enhanced arrowhead drawing
+   */
+  drawArrowhead(position, angle) {
+    const arrowSize = 10;
+    const arrowAngle = Math.PI / 6; // 30 degrees
+
+    this.ctx.beginPath();
+    this.ctx.moveTo(position.x, position.y);
+    this.ctx.lineTo(
+      position.x - arrowSize * Math.cos(angle - arrowAngle),
+      position.y - arrowSize * Math.sin(angle - arrowAngle)
+    );
+    this.ctx.lineTo(
+      position.x - arrowSize * Math.cos(angle + arrowAngle),
+      position.y - arrowSize * Math.sin(angle + arrowAngle)
+    );
+    this.ctx.closePath();
+    this.ctx.fillStyle = this.theme.arcColor;
+    this.ctx.fill();
   }
 
   drawGhostPlace(position, isGhost = true) {
@@ -635,11 +744,18 @@ class PetriNetRenderer {
     this.ctx.restore();
   }
 
-  drawGhostArc(start, end, isGhost = true) {
+  drawGhostArc(start, end, isGhost = true, arcType = "regular") {
     const alpha = isGhost ? 0.5 : 1.0;
     
     this.ctx.save();
     this.ctx.globalAlpha = alpha;
+    
+    // Set line style based on arc type
+    if (arcType === "modifier") {
+      this.ctx.setLineDash([5, 5]);
+    } else {
+      this.ctx.setLineDash([]);
+    }
     
     this.ctx.beginPath();
     this.ctx.moveTo(start.x, start.y);
@@ -648,9 +764,23 @@ class PetriNetRenderer {
     this.ctx.lineWidth = 1.5;
     this.ctx.stroke();
 
-    // Draw arrowhead
+    // Draw appropriate ending based on type
     const angle = this.calculateArcDirection(start, end);
-    this.drawGhostArrowhead(end, angle, isGhost);
+    
+    switch (arcType) {
+      case "inhibitor":
+        this.drawInhibitorEnding(end, angle);
+        break;
+      case "read":
+        this.drawReadArcEnding(end, angle);
+        break;
+      case "reset":
+        this.drawResetArcEnding(end, angle);
+        break;
+      default:
+        this.drawGhostArrowhead(end, angle, isGhost);
+        break;
+    }
     
     this.ctx.restore();
   }
@@ -1026,6 +1156,10 @@ class PetriNetEditor {
 
       this.renderer.adjustZoom(factor, x, y);
       this.render();
+
+      if (this.app && this.app.updateZoomDisplay) {
+        this.app.updateZoomDisplay();
+      }
     };
 
 
@@ -1766,6 +1900,10 @@ class PetriNetEditor {
   resetView() {
     this.renderer.resetView();
     this.render();
+
+     if (this.app && this.app.updateZoomDisplay) {
+      this.app.updateZoomDisplay();
+    }
   }
   
 
@@ -1829,6 +1967,19 @@ class PetriNetAPI {
     return this.editor;
   }
 
+  totalReset() {
+    this.petriNet = null;
+    this.resetAllCallbacks();
+    this.editor = null;
+    this.canvas = null;
+  } 
+
+  resetAllCallbacks() {
+    if (this.editor) {
+      this.editor.setOnChangeCallback(null);
+      this.editor.setOnSelectCallback(null);
+    }
+  } 
 
   createPlace(x, y, label, tokens = 0) {
     const id = this.generateUUID();
@@ -1945,6 +2096,85 @@ class PetriNetAPI {
     arc.type = type;
     if (this.editor) this.editor.render();
     return true;
+  }
+
+  
+    /**
+   * Fits the entire Petri net within the canvas viewport
+   * @param {number} padding - Padding around the content in pixels (default: 50)
+   * @returns {boolean} - Success of the operation
+   */
+  fitToCanvas(padding = 50) {
+    if (!this.editor || !this.canvas) return false;
+
+    // Get the bounds of all elements
+    const bounds = this.getNetworkBounds();
+    if (!bounds) return false;
+
+    // Calculate the size of the content
+    const contentWidth = bounds.maxX - bounds.minX;
+    const contentHeight = bounds.maxY - bounds.minY;
+
+    // Get canvas dimensions
+    const canvasWidth = this.canvas.width;
+    const canvasHeight = this.canvas.height;
+
+    // Calculate available space (minus padding)
+    const availableWidth = canvasWidth - (2 * padding);
+    const availableHeight = canvasHeight - (2 * padding);
+
+    // Calculate zoom factor to fit content
+    const zoomX = availableWidth / contentWidth;
+    const zoomY = availableHeight / contentHeight;
+    const targetZoom = Math.min(zoomX, zoomY, 1.0); // Don't zoom in beyond 100%
+
+    // Calculate center of content
+    const contentCenterX = (bounds.minX + bounds.maxX) / 2;
+    const contentCenterY = (bounds.minY + bounds.maxY) / 2;
+
+    // Apply zoom and center the content
+    this.editor.renderer.zoomFactor = targetZoom;
+    
+    // Calculate pan offset to center the content
+    this.editor.renderer.panOffset.x = (canvasWidth / 2) - (contentCenterX * targetZoom);
+    this.editor.renderer.panOffset.y = (canvasHeight / 2) - (contentCenterY * targetZoom);
+
+    // Render the changes
+    this.editor.render();
+
+    return true;
+  }
+
+  /**
+   * Gets the bounding box of all elements in the network
+   * @returns {Object|null} - Bounds object with minX, minY, maxX, maxY or null if no elements
+   */
+  getNetworkBounds() {
+    let minX = Infinity, minY = Infinity;
+    let maxX = -Infinity, maxY = -Infinity;
+    let hasElements = false;
+
+    // Check places
+    for (const [, place] of this.petriNet.places) {
+      hasElements = true;
+      minX = Math.min(minX, place.position.x - place.radius);
+      minY = Math.min(minY, place.position.y - place.radius);
+      maxX = Math.max(maxX, place.position.x + place.radius);
+      maxY = Math.max(maxY, place.position.y + place.radius);
+    }
+
+    // Check transitions
+    for (const [, transition] of this.petriNet.transitions) {
+      hasElements = true;
+      minX = Math.min(minX, transition.position.x - transition.width / 2);
+      minY = Math.min(minY, transition.position.y - transition.height / 2);
+      maxX = Math.max(maxX, transition.position.x + transition.width / 2);
+      maxY = Math.max(maxY, transition.position.y + transition.height / 2);
+    }
+
+    if (!hasElements) return null;
+
+    return { minX, minY, maxX, maxY };
   }
 
 

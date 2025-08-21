@@ -287,6 +287,7 @@
                     <button id="btn-zoom-out" title="Zoom Out">-</button>
                     <button id="btn-reset-view" title="Reset View">↺</button>
                     <button id="btn-fullscreen" title="Toggle Full Screen">⛶</button>
+                    <button id="btn-fit-to-canvas" title="Fit to Canvas">⊡</button>
                 </div>
                 
                 <!-- Pan instructions overlay - will be updated with JS -->
@@ -361,7 +362,7 @@
                                 <div class="button-group">
                                     <button id="btn-step" class="success" title="Fire a single transition">Step</button>
                                     <button id="btn-auto-run" class="success" title="Auto-fire transitions">Auto Run</button>
-                                    <!-- <button id="btn-reset" title="Reset simulation">Reset</button> -->
+                                    <button id="btn-reset" title="Reset simulation to initial state">Reset</button>
                                 </div>
                             </div>
                         </div>
@@ -400,7 +401,7 @@
                         <div id="variable-history-section" class="sidebar-section">
                             <div class="section-header">
                                 <div class="section-title">
-                                    <span class="section-icon">📝</span>
+                                    <span class="section-icon">📈</span>
                                     <h3>Variable History</h3>
                                 </div>
                                 <button class="section-toggle">▼</button>
@@ -478,7 +479,7 @@
                         <div id="navigation-help-section" class="sidebar-section">
                             <div class="section-header">
                                 <div class="section-title">
-                                    <span class="section-icon">🔍</span>
+                                    <span class="section-icon">🧭</span>
                                     <h3>Navigation</h3>
                                 </div>
                                 <button class="section-toggle">▼</button>
@@ -610,11 +611,11 @@
                     <h3>🎯 Simulation Controls</h3>
                     <div class="help-controls-grid">
                         <span class="help-key">Step</span>
-                        <span class="help-description">Fire one enabled transition</span>
+                        <span class="help-description">Fire one enabled transition and capture initial state if first simulation step</span>
                         <span class="help-key">Auto Run</span>
-                        <span class="help-description">Continuously fire transitions automatically</span>
-                        <!-- <span class="help-key">Reset</span> -->
-                        <span class="help-description">Reset simulation to initial state</span>
+                        <span class="help-description">Continuously fire transitions automatically and capture initial state if first run</span>
+                        <span class="help-key">Reset</span>
+                        <span class="help-description">Reset simulation to the captured initial state (tokens and data variables)</span>
                         <span class="help-key">Fire Button</span>
                         <span class="help-description">Fire a specific transition (appears when transition is selected)</span>
                     </div>
@@ -629,7 +630,7 @@
         </div>
     </footer>
 
-    <script src="public/z3-built.js"></script>
+    <script src="z3-built.js"></script>
     <script>
       globalThis.global = { initZ3: globalThis.initZ3 };
     </script>
@@ -637,7 +638,7 @@
     <script type="module" src="/src/z3-expression-evaluation.js"></script>
 
     <script src="src/petri-net-simulator.js"></script>
-
+    <script src="src/dpn_to_smt.js"></script>
     <script src="src/extensions/dpn-expression-validation.js"></script>
     <script src="src/extensions/dpn-model.js"></script>
     <script src="src/extensions/dpn-api.js"></script>
@@ -648,8 +649,8 @@
     <script src="src/extensions/dpn-verification-ui.js"></script>
     <script src="src/extensions/dpn-verification-trace-tracing.js"></script>
     <!-- <script src="src/extensions/hybride-verification.js"></script> -->
-    <script src="src/extensions/dpn-suvorov-lomazova-ui.js"></script>
-    <script src="src/extensions/dpn-suvorov-lomazova-trace-tracing.js"></script>
+    <script type="module" src="src/extensions/dpn-suvorov-lomazova-ui.js"></script>
+    <script type="module" src="src/extensions/dpn-suvorov-lomazova-trace-tracing.js"></script>
     <!-- <script src="src/extensions/LTL/expression-solver.js"></script>
     <script src="src/extensions/LTL/ltl-integration-layer.js"></script>  
     <script src="src/extensions/LTL/dpn-ltl-verification-enhanced.js"></script>
@@ -657,13 +658,200 @@
 
     <script src="app.js"></script>
 
+
+    <script>
+
+        // Clear any conflicting flags
+        window.dpnVerificationInitialized = false;
+        window.enhancedDpnVerification = null;
+        window.dpnVerification = null;
+        
+        document.debugObj = async function debugObj(target) {
+            const maxDepth = 2;
+
+            /**
+             * Recursively formats any value (including Promises) to a string.
+             *
+             * @param {*} value     The value to format.
+             * @param {number} depth  Current recursion depth.
+             * @return {Promise<string>}  Resolves to the formatted string.
+             */
+            async function formatValue(value, depth = 0) {
+                if (value instanceof Promise) {
+                    try {
+                        const resolved = await value;
+                        return `Promise → ${await formatValue(resolved, depth)}`;
+                    } catch (err) {
+                        return `Promise rejected → ${err}`;
+                    }
+                }
+                if (depth > maxDepth) {
+                    return Array.isArray(value) ? '[Array]' : '[Object]';
+                }
+                const type = typeof value;
+                if (value === null || ['undefined', 'boolean', 'number', 'string'].includes(type)) {
+                    return JSON.stringify(value);
+                }
+                if (type === 'function') {
+                    const sig = value.toString().split('\n')[0];
+                    return `[Function ${sig.length > 50 ? sig.slice(0, 47) + '...' : sig}]`;
+                }
+                if (Array.isArray(value)) {
+                    const items = await Promise.all(
+                        value.map(v => formatValue(v, depth + 1))
+                    );
+                    return `[${items.join(', ')}]`;
+                }
+                if (type === 'object') {
+                    const entries = await Promise.all(
+                        Object.getOwnPropertyNames(value).map(async key => {
+                            let val;
+                            try {
+                                val = value[key];
+                            } catch (err) {
+                                return `${key}: [Error accessing property]`;
+                            }
+                            const formatted = await formatValue(val, depth + 1);
+                            return `${key}: ${formatted}`;
+                        })
+                    );
+                    return `{ ${entries.join(', ')} }`;
+                }
+                return String(value);
+            }
+
+            console.group(`debugObj dump of ${target && target.constructor ? target.constructor.name : typeof target}`);
+            const props = Object.getOwnPropertyNames(target).sort();
+            for (const key of props) {
+                let rawValue;
+                try {
+                    rawValue = target[key];
+                } catch (err) {
+                    rawValue = `[Error accessing property: ${err}]`;
+                }
+                const formatted = await formatValue(rawValue, 0);
+                console.log(`${key} (${typeof rawValue}):`, formatted);
+            }
+            console.groupEnd();
+        };
+
+        function initializeSuvorovOnly() {
+
+            const allVerificationSections = document.querySelectorAll(
+                '#verification-section, #sl-verification-section, #enhanced-sl-verification-section, [id*="verification"]'
+            );
+
+            
+            // Check dependencies
+            if (!window.petriApp || !window.dataPetriNetIntegration) {
+                console.warn("❌ Dependencies not found, retrying...");
+                setTimeout(initializeSuvorovOnly, 500);
+                return;
+            }
+            
+            // Try Enhanced Suvorov first
+            if (window.EnhancedSuvorovLomazovaVerificationUI && !window.enhancedFormalVerifierUI) {
+                try {
+                    window.enhancedFormalVerifierUI = new window.EnhancedSuvorovLomazovaVerificationUI(window.petriApp);
+                    console.log("✅ Enhanced Suvorov verification UI initialized!");
+                    return;
+                } catch (error) {
+                    console.error("❌ Enhanced Suvorov failed:", error);
+                }
+            }
+            
+            // Fallback to basic Suvorov
+            if (window.SuvorovLomazovaVerificationUI && !window.formalVerifierUI) {
+                try {
+                    window.formalVerifierUI = new window.SuvorovLomazovaVerificationUI(window.petriApp);
+                    return;
+                } catch (error) {
+                    console.error("❌ Basic Suvorov failed:", error);
+                }
+            }
+            
+            console.error("❌ No Suvorov verification systems found!");
+        }
+
+        // Initialize after everything loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(initializeSuvorovOnly, 2000);
+            });
+        } else {
+            setTimeout(initializeSuvorovOnly, 2000);
+        }
+
+        window.forceSuvorovInit = function() {
+            console.log("🔄 Force re-initializing...");
+            initializeSuvorovOnly();
+        };
+    </script>
+
+
     <script>
         if (window.crossOriginIsolated) {
-            console.log("%c✔️ This page is cross-origin isolated.", "color: green; font-weight: bold;");
+            console.log("%c✅ This page is cross-origin isolated.", "color: green; font-weight: bold;");
         } else {
             console.warn("%c❌ This page is not cross-origin isolated. Some features may not work as expected.", "color: red; font-weight: bold;");
         }
     </script>
+
+
+    <!-- <script type="module">
+        
+        import { init } from 'z3-solver';
+        function getMethods(obj) {
+        var result = [];
+        for (var id in obj) {
+            try {
+            if (typeof(obj[id]) == "function") {
+                result.push(id + ": " + obj[id].toString());
+            }
+            } catch (err) {
+            result.push(id + ": inaccessible");
+            }
+        }
+        return result;
+        }
+
+        let _ctx = null;
+        let _z3 = null;
+
+        const { Context, Z3 } = await init();
+
+        _ctx = new Context('main2');
+        _z3 = Z3;
+        // console.log(`Z3 Context created: ${Object.keys(_ctx)} `);
+        let expression = "(assert (and (= org1 0) (= org2 0) (= statusLedig false) (= valueHistory false)))"
+        // console.log(getMethods(_z3));
+
+        let smt_template = `
+        (set-logic QF_LIA)                ; quantifier­free linear integer arithmetic + Bool
+        (declare-fun org1 () Int)
+        (declare-fun org2 () Int)
+        (declare-fun statusLedig () Bool)
+        (declare-fun valueHistory () Bool)
+
+        (assert
+        (and
+            (= org1 0)
+            (= org2 0)
+            (= statusLedig false)
+            (= valueHistory false)))
+        (check-sat)
+        `
+
+
+        const solver = new _ctx.Solver();
+
+        const ast   = _ctx.ast_from_string(smt_template);
+        console.log(`Z3 AST created: ${ast}`);
+        solver.add(ast);
+
+        const res = await solver.check();
+        console.log(`Z3 Solver check result: ${res}`);
+    </script> -->
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -847,7 +1035,7 @@
                     body.classList.toggle('fullscreen-mode');
                     
                     if (body.classList.contains('fullscreen-mode')) {
-                        fullscreenButton.innerHTML = '⤓';
+                        fullscreenButton.innerHTML = '⤣';
                         fullscreenButton.title = 'Exit Full Screen';
                         
                         setTimeout(() => {

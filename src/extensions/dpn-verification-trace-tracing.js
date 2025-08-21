@@ -1,3 +1,5 @@
+
+
 /**
  * Enhanced Data Petri Net Verification Extension with Integrated Detailed Analysis
  * 
@@ -2151,7 +2153,6 @@ document.addEventListener('DOMContentLoaded', () => {
         injectEnhancedIntegratedVerificationStyles();
         window.enhancedDpnVerification = new EnhancedDataPetriNetVerification(window.petriApp);
         window.dpnVerification = window.enhancedDpnVerification;
-        console.log("Enhanced Data Petri Net Verification initialized with integrated detailed analysis and int/float support");
       }
     } else {
       setTimeout(initEnhancedVerification, 500);

@@ -1,3 +1,4 @@
+
 /**
  * Data Petri Net Verification Extension
  * 
@@ -996,7 +997,6 @@ class DataPetriNetVerification {
     const initVerification = () => {
       // Check if enhanced verification is already initialized or will be
       if (window.dpnVerificationInitialized || window.enhancedDpnVerification) {
-        console.log("Enhanced verification detected, skipping basic verification initialization");
         return;
       }
       

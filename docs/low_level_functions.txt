@@ -1,0 +1,770 @@
+[
+  "mk_context: function(c)  
+  "mk_context_rc: function(c)  
+  "global_param_set: function(param_id, param_value)  
+  "global_param_reset_all: (...args) =>  
+  "global_param_get: function(param_id)  
+  "mk_config: (...args) =>  
+  "del_config: (...args) =>  
+  "set_param_value: function(c, param_id, param_value)  
+  "del_context: (...args) =>  
+  "inc_ref: (...args) =>  
+  "dec_ref: (...args) =>  
+  "update_param_value: function(c, param_id, param_value)  
+  "get_global_param_descrs: (...args) =>  
+  "interrupt: (...args) =>  
+  "enable_concurrent_dec_ref: (...args) =>  
+  "mk_params: (...args) =>  
+  "params_inc_ref: (...args) =>  
+  "params_dec_ref: (...args) =>  
+  "params_set_bool: (...args) =>  
+  "params_set_uint: (...args) =>  
+  "params_set_double: (...args) =>  
+  "params_set_symbol: (...args) =>  
+  "params_to_string: function(c, p)  
+  "params_validate: (...args) =>  
+  "param_descrs_inc_ref: (...args) =>  
+  "param_descrs_dec_ref: (...args) =>  
+  "param_descrs_get_kind: (...args) =>  
+  "param_descrs_size: function(c, p)  
+  "param_descrs_get_name: (...args) =>  
+  "param_descrs_get_documentation: function(c, p, s)  
+  "param_descrs_to_string: function(c, p)  
+  "mk_int_symbol: (...args) =>  
+  "mk_string_symbol: function(c, s)  
+  "mk_uninterpreted_sort: (...args) =>  
+  "mk_type_variable: (...args) =>  
+  "mk_bool_sort: (...args) =>  
+  "mk_int_sort: (...args) =>  
+  "mk_real_sort: (...args) =>  
+  "mk_bv_sort: (...args) =>  
+  "mk_finite_domain_sort: (...args) =>  
+  "mk_array_sort: (...args) =>  
+  "mk_array_sort_n: function(c, domain, range)  
+  "mk_tuple_sort: function(c, mk_tuple_name, field_names, field_sorts)  
+  "mk_enumeration_sort: function(c, name, enum_names)  
+  "mk_list_sort: function(c, name, elem_sort)  
+  "mk_constructor: function(c, name, recognizer, field_names, sorts, sort_refs)  
+  "constructor_num_fields: function(c, constr)  
+  "del_constructor: (...args) =>  
+  "mk_datatype: function(c, name, constructors)  
+  "mk_datatype_sort: (...args) =>  
+  "mk_constructor_list: function(c, constructors)  
+  "del_constructor_list: (...args) =>  
+  "mk_datatypes: function(c, sort_names, constructor_lists)  
+  "query_constructor: function(c, constr, num_fields)  
+  "mk_func_decl: function(c, s, domain, range)  
+  "mk_app: function(c, d, args)  
+  "mk_const: (...args) =>  
+  "mk_fresh_func_decl: function(c, prefix, domain, range)  
+  "mk_fresh_const: function(c, prefix, ty)  
+  "mk_rec_func_decl: function(c, s, domain, range)  
+  "add_rec_def: function(c, f, args, body)  
+  "mk_true: (...args) =>  
+  "mk_false: (...args) =>  
+  "mk_eq: (...args) =>  
+  "mk_distinct: function(c, args)  
+  "mk_not: (...args) =>  
+  "mk_ite: (...args) =>  
+  "mk_iff: (...args) =>  
+  "mk_implies: (...args) =>  
+  "mk_xor: (...args) =>  
+  "mk_and: function(c, args)  
+  "mk_or: function(c, args)  
+  "mk_add: function(c, args)  
+  "mk_mul: function(c, args)  
+  "mk_sub: function(c, args)  
+  "mk_unary_minus: (...args) =>  
+  "mk_div: (...args) =>  
+  "mk_mod: (...args) =>  
+  "mk_rem: (...args) =>  
+  "mk_power: (...args) =>  
+  "mk_abs: (...args) =>  
+  "mk_lt: (...args) =>  
+  "mk_le: (...args) =>  
+  "mk_gt: (...args) =>  
+  "mk_ge: (...args) =>  
+  "mk_divides: (...args) =>  
+  "mk_int2real: (...args) =>  
+  "mk_real2int: (...args) =>  
+  "mk_is_int: (...args) =>  
+  "mk_bvnot: (...args) =>  
+  "mk_bvredand: (...args) =>  
+  "mk_bvredor: (...args) =>  
+  "mk_bvand: (...args) =>  
+  "mk_bvor: (...args) =>  
+  "mk_bvxor: (...args) =>  
+  "mk_bvnand: (...args) =>  
+  "mk_bvnor: (...args) =>  
+  "mk_bvxnor: (...args) =>  
+  "mk_bvneg: (...args) =>  
+  "mk_bvadd: (...args) =>  
+  "mk_bvsub: (...args) =>  
+  "mk_bvmul: (...args) =>  
+  "mk_bvudiv: (...args) =>  
+  "mk_bvsdiv: (...args) =>  
+  "mk_bvurem: (...args) =>  
+  "mk_bvsrem: (...args) =>  
+  "mk_bvsmod: (...args) =>  
+  "mk_bvult: (...args) =>  
+  "mk_bvslt: (...args) =>  
+  "mk_bvule: (...args) =>  
+  "mk_bvsle: (...args) =>  
+  "mk_bvuge: (...args) =>  
+  "mk_bvsge: (...args) =>  
+  "mk_bvugt: (...args) =>  
+  "mk_bvsgt: (...args) =>  
+  "mk_concat: (...args) =>  
+  "mk_extract: (...args) =>  
+  "mk_sign_ext: (...args) =>  
+  "mk_zero_ext: (...args) =>  
+  "mk_repeat: (...args) =>  
+  "mk_bit2bool: (...args) =>  
+  "mk_bvshl: (...args) =>  
+  "mk_bvlshr: (...args) =>  
+  "mk_bvashr: (...args) =>  
+  "mk_rotate_left: (...args) =>  
+  "mk_rotate_right: (...args) =>  
+  "mk_ext_rotate_left: (...args) =>  
+  "mk_ext_rotate_right: (...args) =>  
+  "mk_int2bv: (...args) =>  
+  "mk_bv2int: (...args) =>  
+  "mk_bvadd_no_overflow: (...args) =>  
+  "mk_bvadd_no_underflow: (...args) =>  
+  "mk_bvsub_no_overflow: (...args) =>  
+  "mk_bvsub_no_underflow: (...args) =>  
+  "mk_bvsdiv_no_overflow: (...args) =>  
+  "mk_bvneg_no_overflow: (...args) =>  
+  "mk_bvmul_no_overflow: (...args) =>  
+  "mk_bvmul_no_underflow: (...args) =>  
+  "mk_select: (...args) =>  
+  "mk_select_n: function(c, a, idxs)  
+  "mk_store: (...args) =>  
+  "mk_store_n: function(c, a, idxs, v)  
+  "mk_const_array: (...args) =>  
+  "mk_map: function(c, f, args)  
+  "mk_array_default: (...args) =>  
+  "mk_as_array: (...args) =>  
+  "mk_set_has_size: (...args) =>  
+  "mk_set_sort: (...args) =>  
+  "mk_empty_set: (...args) =>  
+  "mk_full_set: (...args) =>  
+  "mk_set_add: (...args) =>  
+  "mk_set_del: (...args) =>  
+  "mk_set_union: function(c, args)  
+  "mk_set_intersect: function(c, args)  
+  "mk_set_difference: (...args) =>  
+  "mk_set_complement: (...args) =>  
+  "mk_set_member: (...args) =>  
+  "mk_set_subset: (...args) =>  
+  "mk_array_ext: (...args) =>  
+  "mk_numeral: function(c, numeral, ty)  
+  "mk_real: (...args) =>  
+  "mk_real_int64: (...args) =>  
+  "mk_int: (...args) =>  
+  "mk_unsigned_int: (...args) =>  
+  "mk_int64: (...args) =>  
+  "mk_unsigned_int64: (...args) =>  
+  "mk_bv_numeral: function(c, bits)  
+  "mk_seq_sort: (...args) =>  
+  "is_seq_sort: function(c, s)  
+  "get_seq_sort_basis: (...args) =>  
+  "mk_re_sort: (...args) =>  
+  "is_re_sort: function(c, s)  
+  "get_re_sort_basis: (...args) =>  
+  "mk_string_sort: (...args) =>  
+  "mk_char_sort: (...args) =>  
+  "is_string_sort: function(c, s)  
+  "is_char_sort: function(c, s)  
+  "mk_string: function(c, s)  
+  "mk_lstring: function(c, len, s)  
+  "mk_u32string: function(c, chars)  
+  "is_string: function(c, s)  
+  "get_string: function(c, s)  
+  "get_string_length: function(c, s)  
+  "get_string_contents: function(c, s, length)  
+  "mk_seq_empty: (...args) =>  
+  "mk_seq_unit: (...args) =>  
+  "mk_seq_concat: function(c, args)  
+  "mk_seq_prefix: (...args) =>  
+  "mk_seq_suffix: (...args) =>  
+  "mk_seq_contains: (...args) =>  
+  "mk_str_lt: (...args) =>  
+  "mk_str_le: (...args) =>  
+  "mk_seq_extract: (...args) =>  
+  "mk_seq_replace: (...args) =>  
+  "mk_seq_at: (...args) =>  
+  "mk_seq_nth: (...args) =>  
+  "mk_seq_length: (...args) =>  
+  "mk_seq_index: (...args) =>  
+  "mk_seq_last_index: (...args) =>  
+  "mk_seq_map: (...args) =>  
+  "mk_seq_mapi: (...args) =>  
+  "mk_seq_foldl: (...args) =>  
+  "mk_seq_foldli: (...args) =>  
+  "mk_str_to_int: (...args) =>  
+  "mk_int_to_str: (...args) =>  
+  "mk_string_to_code: (...args) =>  
+  "mk_string_from_code: (...args) =>  
+  "mk_ubv_to_str: (...args) =>  
+  "mk_sbv_to_str: (...args) =>  
+  "mk_seq_to_re: (...args) =>  
+  "mk_seq_in_re: (...args) =>  
+  "mk_re_plus: (...args) =>  
+  "mk_re_star: (...args) =>  
+  "mk_re_option: (...args) =>  
+  "mk_re_union: function(c, args)  
+  "mk_re_concat: function(c, args)  
+  "mk_re_range: (...args) =>  
+  "mk_re_allchar: (...args) =>  
+  "mk_re_loop: (...args) =>  
+  "mk_re_power: (...args) =>  
+  "mk_re_intersect: function(c, args)  
+  "mk_re_complement: (...args) =>  
+  "mk_re_diff: (...args) =>  
+  "mk_re_empty: (...args) =>  
+  "mk_re_full: (...args) =>  
+  "mk_char: (...args) =>  
+  "mk_char_le: (...args) =>  
+  "mk_char_to_int: (...args) =>  
+  "mk_char_to_bv: (...args) =>  
+  "mk_char_from_bv: (...args) =>  
+  "mk_char_is_digit: (...args) =>  
+  "mk_linear_order: (...args) =>  
+  "mk_partial_order: (...args) =>  
+  "mk_piecewise_linear_order: (...args) =>  
+  "mk_tree_order: (...args) =>  
+  "mk_transitive_closure: (...args) =>  
+  "mk_pattern: function(c, terms)  
+  "mk_bound: (...args) =>  
+  "mk_forall: function(c, weight, patterns, sorts, decl_names, body)  
+  "mk_exists: function(c, weight, patterns, sorts, decl_names, body)  
+  "mk_quantifier: function(c, is_forall, weight, patterns, sorts, decl_names, body)  
+  "mk_quantifier_ex: function(c, is_forall, weight, quantifier_id, skolem_id, patterns, no_patterns, sorts, decl_names, body)  
+  "mk_forall_const: function(c, weight, bound, patterns, body)  
+  "mk_exists_const: function(c, weight, bound, patterns, body)  
+  "mk_quantifier_const: function(c, is_forall, weight, bound, patterns, body)  
+  "mk_quantifier_const_ex: function(c, is_forall, weight, quantifier_id, skolem_id, bound, patterns, no_patterns, body)  
+  "mk_lambda: function(c, sorts, decl_names, body)  
+  "mk_lambda_const: function(c, bound, body)  
+  "get_symbol_kind: (...args) =>  
+  "get_symbol_int: (...args) =>  
+  "get_symbol_string: function(c, s)  
+  "get_sort_name: (...args) =>  
+  "get_sort_id: function(c, s)  
+  "sort_to_ast: (...args) =>  
+  "is_eq_sort: function(c, s1, s2)  
+  "get_sort_kind: (...args) =>  
+  "get_bv_sort_size: function(c, t)  
+  "get_finite_domain_sort_size: function(c, s)  
+  "get_array_arity: function(c, s)  
+  "get_array_sort_domain: (...args) =>  
+  "get_array_sort_domain_n: (...args) =>  
+  "get_array_sort_range: (...args) =>  
+  "get_tuple_sort_mk_decl: (...args) =>  
+  "get_tuple_sort_num_fields: function(c, t)  
+  "get_tuple_sort_field_decl: (...args) =>  
+  "is_recursive_datatype_sort: function(c, s)  
+  "get_datatype_sort_num_constructors: function(c, t)  
+  "get_datatype_sort_constructor: (...args) =>  
+  "get_datatype_sort_recognizer: (...args) =>  
+  "get_datatype_sort_constructor_accessor: (...args) =>  
+  "datatype_update_field: (...args) =>  
+  "get_relation_arity: function(c, s)  
+  "get_relation_column: (...args) =>  
+  "mk_atmost: function(c, args, k)  
+  "mk_atleast: function(c, args, k)  
+  "mk_pble: function(c, args, coeffs, k)  
+  "mk_pbge: function(c, args, coeffs, k)  
+  "mk_pbeq: function(c, args, coeffs, k)  
+  "func_decl_to_ast: (...args) =>  
+  "is_eq_func_decl: function(c, f1, f2)  
+  "get_func_decl_id: function(c, f)  
+  "get_decl_name: (...args) =>  
+  "get_decl_kind: (...args) =>  
+  "get_domain_size: function(c, d)  
+  "get_arity: function(c, d)  
+  "get_domain: (...args) =>  
+  "get_range: (...args) =>  
+  "get_decl_num_parameters: function(c, d)  
+  "get_decl_parameter_kind: (...args) =>  
+  "get_decl_int_parameter: (...args) =>  
+  "get_decl_double_parameter: (...args) =>  
+  "get_decl_symbol_parameter: (...args) =>  
+  "get_decl_sort_parameter: (...args) =>  
+  "get_decl_ast_parameter: (...args) =>  
+  "get_decl_func_decl_parameter: (...args) =>  
+  "get_decl_rational_parameter: function(c, d, idx)  
+  "app_to_ast: (...args) =>  
+  "get_app_decl: (...args) =>  
+  "get_app_num_args: function(c, a)  
+  "get_app_arg: (...args) =>  
+  "is_eq_ast: function(c, t1, t2)  
+  "get_ast_id: function(c, t)  
+  "get_ast_hash: function(c, a)  
+  "get_sort: (...args) =>  
+  "is_well_sorted: function(c, t)  
+  "get_bool_value: (...args) =>  
+  "get_ast_kind: (...args) =>  
+  "is_app: function(c, a)  
+  "is_ground: function(c, a)  
+  "get_depth: function(c, a)  
+  "is_numeral_ast: function(c, a)  
+  "is_algebraic_number: function(c, a)  
+  "to_app: (...args) =>  
+  "to_func_decl: (...args) =>  
+  "get_numeral_string: function(c, a)  
+  "get_numeral_binary_string: function(c, a)  
+  "get_numeral_decimal_string: function(c, a, precision)  
+  "get_numeral_double: (...args) =>  
+  "get_numerator: (...args) =>  
+  "get_denominator: (...args) =>  
+  "get_numeral_small: function(c, a)  
+  "get_numeral_int: function(c, v)  
+  "get_numeral_uint: function(c, v)  
+  "get_numeral_uint64: function(c, v)  
+  "get_numeral_int64: function(c, v)  
+  "get_numeral_rational_int64: function(c, v)  
+  "get_algebraic_number_lower: (...args) =>  
+  "get_algebraic_number_upper: (...args) =>  
+  "pattern_to_ast: (...args) =>  
+  "get_pattern_num_terms: function(c, p)  
+  "get_pattern: (...args) =>  
+  "get_index_value: function(c, a)  
+  "is_quantifier_forall: function(c, a)  
+  "is_quantifier_exists: function(c, a)  
+  "is_lambda: function(c, a)  
+  "get_quantifier_weight: function(c, a)  
+  "get_quantifier_skolem_id: (...args) =>  
+  "get_quantifier_id: (...args) =>  
+  "get_quantifier_num_patterns: function(c, a)  
+  "get_quantifier_pattern_ast: (...args) =>  
+  "get_quantifier_num_no_patterns: function(c, a)  
+  "get_quantifier_no_pattern_ast: (...args) =>  
+  "get_quantifier_num_bound: function(c, a)  
+  "get_quantifier_bound_name: (...args) =>  
+  "get_quantifier_bound_sort: (...args) =>  
+  "get_quantifier_body: (...args) =>  
+  "simplify: function(c, a)  
+  "simplify_ex: function(c, a, p)  
+  "simplify_get_help: function(c)  
+  "simplify_get_param_descrs: (...args) =>  
+  "update_term: function(c, a, args)  
+  "substitute: function(c, a, from, to)  
+  "substitute_vars: function(c, a, to)  
+  "substitute_funs: function(c, a, from, to)  
+  "translate: (...args) =>  
+  "mk_model: (...args) =>  
+  "model_inc_ref: (...args) =>  
+  "model_dec_ref: (...args) =>  
+  "model_eval: function(c, m, t, model_completion)  
+  "model_get_const_interp: (...args) =>  
+  "model_has_interp: function(c, m, a)  
+  "model_get_func_interp: (...args) =>  
+  "model_get_num_consts: function(c, m)  
+  "model_get_const_decl: (...args) =>  
+  "model_get_num_funcs: function(c, m)  
+  "model_get_func_decl: (...args) =>  
+  "model_get_num_sorts: function(c, m)  
+  "model_get_sort: (...args) =>  
+  "model_get_sort_universe: (...args) =>  
+  "model_translate: (...args) =>  
+  "is_as_array: function(c, a)  
+  "get_as_array_func_decl: (...args) =>  
+  "add_func_interp: (...args) =>  
+  "add_const_interp: (...args) =>  
+  "func_interp_inc_ref: (...args) =>  
+  "func_interp_dec_ref: (...args) =>  
+  "func_interp_get_num_entries: function(c, f)  
+  "func_interp_get_entry: (...args) =>  
+  "func_interp_get_else: (...args) =>  
+  "func_interp_set_else: (...args) =>  
+  "func_interp_get_arity: function(c, f)  
+  "func_interp_add_entry: (...args) =>  
+  "func_entry_inc_ref: (...args) =>  
+  "func_entry_dec_ref: (...args) =>  
+  "func_entry_get_value: (...args) =>  
+  "func_entry_get_num_args: function(c, e)  
+  "func_entry_get_arg: (...args) =>  
+  "open_log: function(filename)  
+  "append_log: function(string)  
+  "close_log: (...args) =>  
+  "toggle_warning_messages: (...args) =>  
+  "set_ast_print_mode: (...args) =>  
+  "ast_to_string: function(c, a)  
+  "pattern_to_string: function(c, p)  
+  "sort_to_string: function(c, s)  
+  "func_decl_to_string: function(c, d)  
+  "model_to_string: function(c, m)  
+  "benchmark_to_smtlib_string: function(c, name, logic, status, attributes, assumptions, formula)  
+  "parse_smtlib2_string: function(c, str, sort_names, sorts, decl_names, decls)  
+  "parse_smtlib2_file: function(c, file_name, sort_names, sorts, decl_names, decls)  
+  "eval_smtlib2_string: async function(c, str)  
+  "mk_parser_context: (...args) =>  
+  "parser_context_inc_ref: (...args) =>  
+  "parser_context_dec_ref: (...args) =>  
+  "parser_context_add_sort: (...args) =>  
+  "parser_context_add_decl: (...args) =>  
+  "parser_context_from_string: function(c, pc, s)  
+  "get_error_code: (...args) =>  
+  "set_error: (...args) =>  
+  "get_error_msg: function(c, err)  
+  "get_version: function()  
+  "get_full_version: function()  
+  "enable_trace: function(tag)  
+  "disable_trace: function(tag)  
+  "reset_memory: (...args) =>  
+  "finalize_memory: (...args) =>  
+  "mk_goal: (...args) =>  
+  "goal_inc_ref: (...args) =>  
+  "goal_dec_ref: (...args) =>  
+  "goal_precision: (...args) =>  
+  "goal_assert: (...args) =>  
+  "goal_inconsistent: function(c, g)  
+  "goal_depth: function(c, g)  
+  "goal_reset: (...args) =>  
+  "goal_size: function(c, g)  
+  "goal_formula: (...args) =>  
+  "goal_num_exprs: function(c, g)  
+  "goal_is_decided_sat: function(c, g)  
+  "goal_is_decided_unsat: function(c, g)  
+  "goal_translate: (...args) =>  
+  "goal_convert_model: (...args) =>  
+  "goal_to_string: function(c, g)  
+  "goal_to_dimacs_string: function(c, g, include_names)  
+  "mk_tactic: function(c, name)  
+  "tactic_inc_ref: (...args) =>  
+  "tactic_dec_ref: (...args) =>  
+  "mk_probe: function(c, name)  
+  "probe_inc_ref: (...args) =>  
+  "probe_dec_ref: (...args) =>  
+  "tactic_and_then: (...args) =>  
+  "tactic_or_else: (...args) =>  
+  "tactic_par_or: function(c, ts)  
+  "tactic_par_and_then: (...args) =>  
+  "tactic_try_for: (...args) =>  
+  "tactic_when: (...args) =>  
+  "tactic_cond: (...args) =>  
+  "tactic_repeat: (...args) =>  
+  "tactic_skip: (...args) =>  
+  "tactic_fail: (...args) =>  
+  "tactic_fail_if: (...args) =>  
+  "tactic_fail_if_not_decided: (...args) =>  
+  "tactic_using_params: (...args) =>  
+  "mk_simplifier: function(c, name)  
+  "simplifier_inc_ref: (...args) =>  
+  "simplifier_dec_ref: (...args) =>  
+  "solver_add_simplifier: (...args) =>  
+  "simplifier_and_then: (...args) =>  
+  "simplifier_using_params: (...args) =>  
+  "get_num_simplifiers: function(c)  
+  "get_simplifier_name: function(c, i)  
+  "simplifier_get_help: function(c, t)  
+  "simplifier_get_param_descrs: (...args) =>  
+  "simplifier_get_descr: function(c, name)  
+  "probe_const: (...args) =>  
+  "probe_lt: (...args) =>  
+  "probe_gt: (...args) =>  
+  "probe_le: (...args) =>  
+  "probe_ge: (...args) =>  
+  "probe_eq: (...args) =>  
+  "probe_and: (...args) =>  
+  "probe_or: (...args) =>  
+  "probe_not: (...args) =>  
+  "get_num_tactics: function(c)  
+  "get_tactic_name: function(c, i)  
+  "get_num_probes: function(c)  
+  "get_probe_name: function(c, i)  
+  "tactic_get_help: function(c, t)  
+  "tactic_get_param_descrs: (...args) =>  
+  "tactic_get_descr: function(c, name)  
+  "probe_get_descr: function(c, name)  
+  "probe_apply: (...args) =>  
+  "tactic_apply: function(c, t, g)  
+  "tactic_apply_ex: function(c, t, g, p)  
+  "apply_result_inc_ref: (...args) =>  
+  "apply_result_dec_ref: (...args) =>  
+  "apply_result_to_string: function(c, r)  
+  "apply_result_get_num_subgoals: function(c, r)  
+  "apply_result_get_subgoal: (...args) =>  
+  "mk_solver: (...args) =>  
+  "mk_simple_solver: (...args) =>  
+  "mk_solver_for_logic: (...args) =>  
+  "mk_solver_from_tactic: (...args) =>  
+  "solver_translate: (...args) =>  
+  "solver_import_model_converter: (...args) =>  
+  "solver_get_help: function(c, s)  
+  "solver_get_param_descrs: (...args) =>  
+  "solver_set_params: (...args) =>  
+  "solver_inc_ref: (...args) =>  
+  "solver_dec_ref: (...args) =>  
+  "solver_interrupt: (...args) =>  
+  "solver_push: (...args) =>  
+  "solver_pop: (...args) =>  
+  "solver_reset: (...args) =>  
+  "solver_get_num_scopes: function(c, s)  
+  "solver_assert: (...args) =>  
+  "solver_assert_and_track: (...args) =>  
+  "solver_from_file: function(c, s, file_name)  
+  "solver_from_string: function(c, s, str)  
+  "solver_get_assertions: (...args) =>  
+  "solver_get_units: (...args) =>  
+  "solver_get_trail: (...args) =>  
+  "solver_get_non_units: (...args) =>  
+  "solver_get_levels: function(c, s, literals, levels)  
+  "solver_congruence_root: (...args) =>  
+  "solver_congruence_next: (...args) =>  
+  "solver_congruence_explain: (...args) =>  
+  "solver_solve_for: (...args) =>  
+  "solver_next_split: function(c, cb, t, idx, phase)  
+  "solver_propagate_declare: function(c, name, domain, range)  
+  "solver_propagate_register: (...args) =>  
+  "solver_propagate_register_cb: (...args) =>  
+  "solver_propagate_consequence: function(c, cb, fixed, eq_lhs, eq_rhs, conseq)  
+  "solver_set_initial_value: (...args) =>  
+  "solver_check: function(c, s)  
+  "solver_check_assumptions: async function(c, s, assumptions)  
+  "get_implied_equalities: function(c, s, terms)  
+  "solver_get_consequences: function(c, s, assumptions, variables, consequences)  
+  "solver_cube: function(c, s, vars, backtrack_level)  
+  "solver_get_model: (...args) =>  
+  "solver_get_proof: (...args) =>  
+  "solver_get_unsat_core: (...args) =>  
+  "solver_get_reason_unknown: function(c, s)  
+  "solver_get_statistics: (...args) =>  
+  "solver_to_string: function(c, s)  
+  "solver_to_dimacs_string: function(c, s, include_names)  
+  "stats_to_string: function(c, s)  
+  "stats_inc_ref: (...args) =>  
+  "stats_dec_ref: (...args) =>  
+  "stats_size: function(c, s)  
+  "stats_get_key: function(c, s, idx)  
+  "stats_is_uint: function(c, s, idx)  
+  "stats_is_double: function(c, s, idx)  
+  "stats_get_uint_value: function(c, s, idx)  
+  "stats_get_double_value: (...args) =>  
+  "get_estimated_alloc_size: (...args) =>  
+  "algebraic_is_value: function(c, a)  
+  "algebraic_is_pos: function(c, a)  
+  "algebraic_is_neg: function(c, a)  
+  "algebraic_is_zero: function(c, a)  
+  "algebraic_sign: (...args) =>  
+  "algebraic_add: (...args) =>  
+  "algebraic_sub: (...args) =>  
+  "algebraic_mul: (...args) =>  
+  "algebraic_div: (...args) =>  
+  "algebraic_root: (...args) =>  
+  "algebraic_power: (...args) =>  
+  "algebraic_lt: function(c, a, b)  
+  "algebraic_gt: function(c, a, b)  
+  "algebraic_le: function(c, a, b)  
+  "algebraic_ge: function(c, a, b)  
+  "algebraic_eq: function(c, a, b)  
+  "algebraic_neq: function(c, a, b)  
+  "algebraic_roots: async function(c, p, a)  
+  "algebraic_eval: async function(c, p, a)  
+  "algebraic_get_poly: (...args) =>  
+  "algebraic_get_i: function(c, a)  
+  "mk_ast_vector: (...args) =>  
+  "ast_vector_inc_ref: (...args) =>  
+  "ast_vector_dec_ref: (...args) =>  
+  "ast_vector_size: function(c, v)  
+  "ast_vector_get: (...args) =>  
+  "ast_vector_set: (...args) =>  
+  "ast_vector_resize: (...args) =>  
+  "ast_vector_push: (...args) =>  
+  "ast_vector_translate: (...args) =>  
+  "ast_vector_to_string: function(c, v)  
+  "mk_ast_map: (...args) =>  
+  "ast_map_inc_ref: (...args) =>  
+  "ast_map_dec_ref: (...args) =>  
+  "ast_map_contains: function(c, m, k)  
+  "ast_map_find: (...args) =>  
+  "ast_map_insert: (...args) =>  
+  "ast_map_erase: (...args) =>  
+  "ast_map_reset: (...args) =>  
+  "ast_map_size: function(c, m)  
+  "ast_map_keys: (...args) =>  
+  "ast_map_to_string: function(c, m)  
+  "mk_fixedpoint: (...args) =>  
+  "fixedpoint_inc_ref: (...args) =>  
+  "fixedpoint_dec_ref: (...args) =>  
+  "fixedpoint_add_rule: (...args) =>  
+  "fixedpoint_add_fact: function(c, d, r, args)  
+  "fixedpoint_assert: (...args) =>  
+  "fixedpoint_query: function(c, d, query)  
+  "fixedpoint_query_relations: async function(c, d, relations)  
+  "fixedpoint_get_answer: (...args) =>  
+  "fixedpoint_get_reason_unknown: function(c, d)  
+  "fixedpoint_update_rule: (...args) =>  
+  "fixedpoint_get_num_levels: function(c, d, pred)  
+  "fixedpoint_get_cover_delta: (...args) =>  
+  "fixedpoint_add_cover: (...args) =>  
+  "fixedpoint_get_statistics: (...args) =>  
+  "fixedpoint_register_relation: (...args) =>  
+  "fixedpoint_set_predicate_representation: function(c, d, f, relation_kinds)  
+  "fixedpoint_get_rules: (...args) =>  
+  "fixedpoint_get_assertions: (...args) =>  
+  "fixedpoint_set_params: (...args) =>  
+  "fixedpoint_get_help: function(c, f)  
+  "fixedpoint_get_param_descrs: (...args) =>  
+  "fixedpoint_to_string: function(c, f, queries)  
+  "fixedpoint_from_string: function(c, f, s)  
+  "fixedpoint_from_file: function(c, f, s)  
+  "mk_fpa_rounding_mode_sort: (...args) =>  
+  "mk_fpa_round_nearest_ties_to_even: (...args) =>  
+  "mk_fpa_rne: (...args) =>  
+  "mk_fpa_round_nearest_ties_to_away: (...args) =>  
+  "mk_fpa_rna: (...args) =>  
+  "mk_fpa_round_toward_positive: (...args) =>  
+  "mk_fpa_rtp: (...args) =>  
+  "mk_fpa_round_toward_negative: (...args) =>  
+  "mk_fpa_rtn: (...args) =>  
+  "mk_fpa_round_toward_zero: (...args) =>  
+  "mk_fpa_rtz: (...args) =>  
+  "mk_fpa_sort: (...args) =>  
+  "mk_fpa_sort_half: (...args) =>  
+  "mk_fpa_sort_16: (...args) =>  
+  "mk_fpa_sort_single: (...args) =>  
+  "mk_fpa_sort_32: (...args) =>  
+  "mk_fpa_sort_double: (...args) =>  
+  "mk_fpa_sort_64: (...args) =>  
+  "mk_fpa_sort_quadruple: (...args) =>  
+  "mk_fpa_sort_128: (...args) =>  
+  "mk_fpa_nan: (...args) =>  
+  "mk_fpa_inf: (...args) =>  
+  "mk_fpa_zero: (...args) =>  
+  "mk_fpa_fp: (...args) =>  
+  "mk_fpa_numeral_float: (...args) =>  
+  "mk_fpa_numeral_double: (...args) =>  
+  "mk_fpa_numeral_int: (...args) =>  
+  "mk_fpa_numeral_int_uint: (...args) =>  
+  "mk_fpa_numeral_int64_uint64: (...args) =>  
+  "mk_fpa_abs: (...args) =>  
+  "mk_fpa_neg: (...args) =>  
+  "mk_fpa_add: (...args) =>  
+  "mk_fpa_sub: (...args) =>  
+  "mk_fpa_mul: (...args) =>  
+  "mk_fpa_div: (...args) =>  
+  "mk_fpa_fma: (...args) =>  
+  "mk_fpa_sqrt: (...args) =>  
+  "mk_fpa_rem: (...args) =>  
+  "mk_fpa_round_to_integral: (...args) =>  
+  "mk_fpa_min: (...args) =>  
+  "mk_fpa_max: (...args) =>  
+  "mk_fpa_leq: (...args) =>  
+  "mk_fpa_lt: (...args) =>  
+  "mk_fpa_geq: (...args) =>  
+  "mk_fpa_gt: (...args) =>  
+  "mk_fpa_eq: (...args) =>  
+  "mk_fpa_is_normal: (...args) =>  
+  "mk_fpa_is_subnormal: (...args) =>  
+  "mk_fpa_is_zero: (...args) =>  
+  "mk_fpa_is_infinite: (...args) =>  
+  "mk_fpa_is_nan: (...args) =>  
+  "mk_fpa_is_negative: (...args) =>  
+  "mk_fpa_is_positive: (...args) =>  
+  "mk_fpa_to_fp_bv: (...args) =>  
+  "mk_fpa_to_fp_float: (...args) =>  
+  "mk_fpa_to_fp_real: (...args) =>  
+  "mk_fpa_to_fp_signed: (...args) =>  
+  "mk_fpa_to_fp_unsigned: (...args) =>  
+  "mk_fpa_to_ubv: (...args) =>  
+  "mk_fpa_to_sbv: (...args) =>  
+  "mk_fpa_to_real: (...args) =>  
+  "fpa_get_ebits: function(c, s)  
+  "fpa_get_sbits: function(c, s)  
+  "fpa_is_numeral_nan: function(c, t)  
+  "fpa_is_numeral_inf: function(c, t)  
+  "fpa_is_numeral_zero: function(c, t)  
+  "fpa_is_numeral_normal: function(c, t)  
+  "fpa_is_numeral_subnormal: function(c, t)  
+  "fpa_is_numeral_positive: function(c, t)  
+  "fpa_is_numeral_negative: function(c, t)  
+  "fpa_get_numeral_sign_bv: (...args) =>  
+  "fpa_get_numeral_significand_bv: (...args) =>  
+  "fpa_get_numeral_sign: function(c, t)  
+  "fpa_get_numeral_significand_string: function(c, t)  
+  "fpa_get_numeral_significand_uint64: function(c, t)  
+  "fpa_get_numeral_exponent_string: function(c, t, biased)  
+  "fpa_get_numeral_exponent_int64: function(c, t, biased)  
+  "fpa_get_numeral_exponent_bv: (...args) =>  
+  "mk_fpa_to_ieee_bv: (...args) =>  
+  "mk_fpa_to_fp_int_real: (...args) =>  
+  "mk_optimize: (...args) =>  
+  "optimize_inc_ref: (...args) =>  
+  "optimize_dec_ref: (...args) =>  
+  "optimize_assert: (...args) =>  
+  "optimize_assert_and_track: (...args) =>  
+  "optimize_assert_soft: function(c, o, a, weight, id)  
+  "optimize_maximize: function(c, o, t)  
+  "optimize_minimize: function(c, o, t)  
+  "optimize_push: (...args) =>  
+  "optimize_pop: (...args) =>  
+  "optimize_set_initial_value: (...args) =>  
+  "optimize_check: async function(c, o, assumptions)  
+  "optimize_get_reason_unknown: function(c, d)  
+  "optimize_get_model: (...args) =>  
+  "optimize_get_unsat_core: (...args) =>  
+  "optimize_set_params: (...args) =>  
+  "optimize_get_param_descrs: (...args) =>  
+  "optimize_get_lower: (...args) =>  
+  "optimize_get_upper: (...args) =>  
+  "optimize_get_lower_as_vector: (...args) =>  
+  "optimize_get_upper_as_vector: (...args) =>  
+  "optimize_to_string: function(c, o)  
+  "optimize_from_string: function(c, o, s)  
+  "optimize_from_file: function(c, o, s)  
+  "optimize_get_help: function(c, t)  
+  "optimize_get_statistics: (...args) =>  
+  "optimize_get_assertions: (...args) =>  
+  "optimize_get_objectives: (...args) =>  
+  "polynomial_subresultants: function(c, p, q, x)  
+  "rcf_del: (...args) =>  
+  "rcf_mk_rational: function(c, val)  
+  "rcf_mk_small_int: (...args) =>  
+  "rcf_mk_pi: (...args) =>  
+  "rcf_mk_e: (...args) =>  
+  "rcf_mk_infinitesimal: (...args) =>  
+  "rcf_mk_roots: function(c, a)  
+  "rcf_add: (...args) =>  
+  "rcf_sub: (...args) =>  
+  "rcf_mul: (...args) =>  
+  "rcf_div: (...args) =>  
+  "rcf_neg: (...args) =>  
+  "rcf_inv: (...args) =>  
+  "rcf_power: (...args) =>  
+  "rcf_lt: function(c, a, b)  
+  "rcf_gt: function(c, a, b)  
+  "rcf_le: function(c, a, b)  
+  "rcf_ge: function(c, a, b)  
+  "rcf_eq: function(c, a, b)  
+  "rcf_neq: function(c, a, b)  
+  "rcf_num_to_string: function(c, a, compact, html)  
+  "rcf_num_to_decimal_string: function(c, a, prec)  
+  "rcf_get_numerator_denominator: function(c, a)  
+  "rcf_is_rational: function(c, a)  
+  "rcf_is_algebraic: function(c, a)  
+  "rcf_is_infinitesimal: function(c, a)  
+  "rcf_is_transcendental: function(c, a)  
+  "rcf_extension_index: function(c, a)  
+  "rcf_transcendental_name: (...args) =>  
+  "rcf_infinitesimal_name: (...args) =>  
+  "rcf_num_coefficients: function(c, a)  
+  "rcf_coefficient: (...args) =>  
+  "rcf_num_sign_conditions: function(c, a)  
+  "rcf_sign_condition_sign: (...args) =>  
+  "rcf_num_sign_condition_coefficients: function(c, a, i)  
+  "rcf_sign_condition_coefficient: (...args) =>  
+  "fixedpoint_query_from_lvl: function(c, d, query, lvl)  
+  "fixedpoint_get_ground_sat_answer: (...args) =>  
+  "fixedpoint_get_rules_along_trace: (...args) =>  
+  "fixedpoint_get_rule_names_along_trace: (...args) =>  
+  "fixedpoint_add_invariant: (...args) =>  
+  "fixedpoint_get_reachable: (...args) =>  
+  "qe_model_project: function(c, m, bound, body)  
+  "qe_model_project_skolem: function(c, m, bound, body, map)  
+  "qe_model_project_with_witness: function(c, m, bound, body, map)  
+  "model_extrapolate: (...args) =>  
+  "qe_lite: (...args) =>  
+]

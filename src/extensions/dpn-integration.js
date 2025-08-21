@@ -7,7 +7,6 @@ class DataPetriNetIntegration {
   constructor(app, callback) {
 
     if (DataPetriNetIntegration.initialized) {
-      console.log("Data Petri Net Integration already initialized");
       if (typeof callback === 'function') {
         callback(window.dataPetriNetIntegration);
       }

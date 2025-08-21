@@ -1,0 +1,104 @@
+{
+  "id": "fba566ca-c945-44fe-ba0e-cff7868cd88a",
+  "name": "New Petri Net",
+  "description": "",
+  "places": [
+    {
+      "id": "570b69a8-c5c4-40cb-8ed3-3451fb19ac8d",
+      "position": { "x": 570, "y": 360 },
+      "label": "Start",
+      "tokens": 1,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "a128782b-0277-4fc6-b853-5abafca965c7",
+      "position": { "x": 920, "y": 360 },
+      "label": "P2",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "0787c67c-2c5d-495f-ae30-aac51eef0abc",
+      "position": { "x": 1200, "y": 360 },
+      "label": "P3",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "247269ff-d00e-4712-b59a-b11c0c5852f9",
+      "position": { "x": 720, "y": 360 },
+      "label": "T1",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "",
+      "postcondition": "x'=10"
+    },
+    {
+      "id": "0d49c07a-eee2-4333-8f30-79d58f9114d5",
+      "position": { "x": 1050, "y": 360 },
+      "label": "T2",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "x<0",
+      "postcondition": ""
+    }
+  ],
+  "arcs": [
+    {
+      "id": "e96bfc91-ce9d-4346-acc5-2fa3a70493c3",
+      "source": "570b69a8-c5c4-40cb-8ed3-3451fb19ac8d",
+      "target": "247269ff-d00e-4712-b59a-b11c0c5852f9",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "49806b4d-914b-4777-b2ec-3e4f752ceddf",
+      "source": "247269ff-d00e-4712-b59a-b11c0c5852f9",
+      "target": "a128782b-0277-4fc6-b853-5abafca965c7",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "ee73182a-da4e-40cd-871e-6c90a0ff3fa8",
+      "source": "a128782b-0277-4fc6-b853-5abafca965c7",
+      "target": "0d49c07a-eee2-4333-8f30-79d58f9114d5",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "3417e583-44d9-4de7-bbbb-8e3f73b8bbad",
+      "source": "0d49c07a-eee2-4333-8f30-79d58f9114d5",
+      "target": "0787c67c-2c5d-495f-ae30-aac51eef0abc",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    }
+  ],
+  "dataVariables": [
+    {
+      "id": "09791278-d865-4f0e-9f0e-a552d9e620ad",
+      "name": "x",
+      "type": "int",
+      "currentValue": 10,
+      "description": ""
+    }
+  ]
+}

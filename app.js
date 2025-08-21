@@ -26,6 +26,10 @@ class PetriNetApp {
     this.autoRunDelay = 1000; // ms
     this.gridEnabled = true;
 
+    // Add properties for simulation reset functionality
+    this.initialState = null;
+    this.simulationStarted = false;
+
 
     this.canvas = document.getElementById("petri-canvas");
     if (!this.canvas) {
@@ -75,6 +79,81 @@ class PetriNetApp {
   }
 
   /**
+   * Captures the current state as the initial state for simulation reset
+   */
+  captureInitialState() {
+    this.initialState = {
+      places: new Map(),
+      dataVariables: null
+    };
+
+    // Capture place tokens
+    for (const [id, place] of this.api.petriNet.places) {
+      this.initialState.places.set(id, place.tokens);
+    }
+
+    // Capture data variables if DPN integration is available
+    if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataVariables) {
+      this.initialState.dataVariables = new Map();
+      for (const [name, variable] of window.dataPetriNetIntegration.dataVariables) {
+        this.initialState.dataVariables.set(name, {
+          value: variable.value,
+          type: variable.type
+        });
+      }
+    }
+
+    this.simulationStarted = true;
+    console.log("Initial state captured for simulation reset");
+  }
+
+  /**
+   * Restores the simulation to its initial captured state
+   */
+  restoreInitialState() {
+    if (!this.initialState) {
+      console.warn("No initial state captured - cannot reset simulation");
+      return false;
+    }
+
+    // Restore place tokens
+    for (const [id, initialTokens] of this.initialState.places) {
+      const place = this.api.petriNet.places.get(id);
+      if (place) {
+        place.tokens = initialTokens;
+      }
+    }
+
+    // Restore data variables if they exist
+    if (this.initialState.dataVariables && window.dataPetriNetIntegration) {
+      for (const [name, initialVar] of this.initialState.dataVariables) {
+        const variable = window.dataPetriNetIntegration.dataVariables.get(name);
+        if (variable) {
+          variable.value = initialVar.value;
+        }
+      }
+      
+      // Update data variables display if available
+      if (window.dataPetriNetIntegration.updateDataValuesDisplay) {
+        window.dataPetriNetIntegration.updateDataValuesDisplay();
+      }
+    }
+
+    // Update displays
+    this.updateTokensDisplay();
+    this.updateSelectedElementProperties();
+    this.editor.render();
+
+    // Update transition status if an element is selected
+    if (this.editor.selectedElement && this.editor.selectedElement.type === 'transition') {
+      this.updateTransitionStatus(this.editor.selectedElement.id);
+    }
+
+    console.log("Simulation reset to initial state");
+    return true;
+  }
+
+  /**
    * Adds an initial place to the editor when it starts
    */
   addInitialPlace() {
@@ -96,90 +175,117 @@ class PetriNetApp {
   /**
    * Initialize all UI event handlers
    */
-  initEventHandlers() {
+initEventHandlers() {
+  // Clear any existing app-level event listeners first
+  this.cleanupAppEventListeners();
 
-    const btnSelect = document.getElementById("btn-select");
-    if (btnSelect) {
-      btnSelect.addEventListener("click", () => {
-        this.editor.setMode("select");
-        this.updateActiveButton("btn-select");
-      });
+  const btnSelect = document.getElementById("btn-select");
+  if (btnSelect) {
+    const handler = () => {
+      this.editor.setMode("select");
+      this.updateActiveButton("btn-select");
+    };
+    btnSelect.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnSelect]);
+  }
+
+  const btnAddPlace = document.getElementById("btn-add-place");
+  if (btnAddPlace) {
+    const handler = () => {
+      this.editor.setMode("addPlace");
+      this.updateActiveButton("btn-add-place");
+    };
+    btnAddPlace.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnAddPlace]);
+  }
+
+  const btnAddTransition = document.getElementById("btn-add-transition");
+  if (btnAddTransition) {
+    const handler = () => {
+      this.editor.setMode("addTransition");
+      this.updateActiveButton("btn-add-transition");
+    };
+    btnAddTransition.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnAddTransition]);
+  }
+
+  const btnFitToCanvas = document.getElementById("btn-fit-to-canvas");
+  if (btnFitToCanvas) {
+    const handler = () => {
+      this.fitNetworkToCanvas();
+    };
+    btnFitToCanvas.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnFitToCanvas]);
+  }
+
+  const btnAddArc = document.getElementById("btn-add-arc");
+  if (btnAddArc) {
+    const handler = () => {
+      this.editor.setMode("addArc");
+      this.updateActiveButton("btn-add-arc");
+    };
+    btnAddArc.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnAddArc]);
+  }
+
+  // Space key handlers for arc mode
+  const keydownHandler = (e) => {
+    if (e.key === ' ' && this.editor && this.editor.mode !== 'addArc') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.editor.setMode('addArc');
+      this.updateActiveButton("btn-add-arc");
     }
+  };
 
-    const btnAddPlace = document.getElementById("btn-add-place");
-    if (btnAddPlace) {
-      btnAddPlace.addEventListener("click", () => {
-        this.editor.setMode("addPlace");
-        this.updateActiveButton("btn-add-place");
-      });
+  const keyupHandler = (e) => {
+    if (e.key === ' ' && this.editor) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.editor.setMode('select');
+      this.updateActiveButton("btn-select");
     }
+  };
 
-    const btnAddTransition = document.getElementById("btn-add-transition");
-    if (btnAddTransition) {
-      btnAddTransition.addEventListener("click", () => {
-        this.editor.setMode("addTransition");
-        this.updateActiveButton("btn-add-transition");
-      });
-    }
+  document.addEventListener('keydown', keydownHandler);
+  document.addEventListener('keyup', keyupHandler);
+  this.appEventListeners.push(['keydown', keydownHandler, document]);
+  this.appEventListeners.push(['keyup', keyupHandler, document]);
 
-    const btnAddArc = document.getElementById("btn-add-arc");
-    if (btnAddArc) {
-      btnAddArc.addEventListener("click", () => {
-        this.editor.setMode("addArc");
-        this.updateActiveButton("btn-add-arc");
-      });
-    }
+  const btnDelete = document.getElementById("btn-delete");
+  if (btnDelete) {
+    const handler = () => {
+      this.editor.deleteSelected();
+    };
+    btnDelete.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnDelete]);
+  }
 
-    // Set the editor mode to 'addArc' when the Space key is held down
-    document.addEventListener('keydown', (e) => {
-      if (e.key === ' ' && this.editor && this.editor.mode !== 'addArc') {
-          e.preventDefault();
-          e.stopPropagation();
-          this.editor.setMode('addArc');
-          this.updateActiveButton("btn-add-arc");
+  const btnClear = document.getElementById("btn-clear");
+  if (btnClear) {
+    const handler = () => {
+      if (confirm("Are you sure you want to clear the entire Petri net?")) {
+        this.resetPetriNet();
       }
-    });
+    };
+    btnClear.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnClear]);
+  }
 
-    document.addEventListener('keyup', (e) => {
-        if (e.key === ' ' && this.editor) {
-            e.preventDefault();
-            e.stopPropagation();
-            this.editor.setMode('select');
-            this.updateActiveButton("btn-select");
-        }
-    });
-
-    const btnDelete = document.getElementById("btn-delete");
-    if (btnDelete) {
-      btnDelete.addEventListener("click", () => {
-        this.editor.deleteSelected();
-      });
-    }
-
-    const btnClear = document.getElementById("btn-clear");
-    if (btnClear) {
-      btnClear.addEventListener("click", () => {
-        if (confirm("Are you sure you want to clear the entire Petri net?")) {
-          this.resetPetriNet();
-        }
-      });
-    }
-
-
-    const btnGrid = document.getElementById("btn-grid");
-    if (btnGrid) {
-      btnGrid.addEventListener("click", () => {
-        this.gridEnabled = !this.gridEnabled;
-        this.editor.setSnapToGrid(this.gridEnabled);
-        btnGrid.classList.toggle("active", this.gridEnabled);
-      });
-    }
-
+  const btnGrid = document.getElementById("btn-grid");
+  if (btnGrid) {
+    const handler = () => {
+      this.gridEnabled = !this.gridEnabled;
+      this.editor.setSnapToGrid(this.gridEnabled);
+      btnGrid.classList.toggle("active", this.gridEnabled);
+    };
+    btnGrid.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnGrid]);
+  }
 
   const btnAuto = document.getElementById("btn-auto-layout");
   if (btnAuto) {
-    btnAuto.addEventListener("click", async () => {
-      // Show loading state
+    const handler = async () => {
       const originalText = btnAuto.textContent;
       btnAuto.textContent = "Laying out...";
       btnAuto.disabled = true;
@@ -194,118 +300,153 @@ class PetriNetApp {
       } catch (error) {
         console.error("Layout error:", error);
       } finally {
-        // Restore button state
         btnAuto.textContent = originalText;
         btnAuto.disabled = false;
       }
-    });
+    };
+    btnAuto.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnAuto]);
   }
 
+  const btnZoomIn = document.getElementById("btn-zoom-in");
+  if (btnZoomIn) {
+    const handler = () => {
+      const centerX = this.canvas.width / 2;
+      const centerY = this.canvas.height / 2;
+      this.editor.renderer.adjustZoom(1.2, centerX, centerY);
+      this.editor.render();
+      this.updateZoomDisplay();
+    };
+    btnZoomIn.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnZoomIn]);
+  }
 
-    const btnZoomIn = document.getElementById("btn-zoom-in");
-    if (btnZoomIn) {
-      btnZoomIn.addEventListener("click", () => {
+  const btnZoomOut = document.getElementById("btn-zoom-out");
+  if (btnZoomOut) {
+    const handler = () => {
+      const centerX = this.canvas.width / 2;
+      const centerY = this.canvas.height / 2;
+      this.editor.renderer.adjustZoom(0.8, centerX, centerY);
+      this.editor.render();
+      this.updateZoomDisplay();
+    };
+    btnZoomOut.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnZoomOut]);
+  }
 
-        const centerX = this.canvas.width / 2;
-        const centerY = this.canvas.height / 2;
-        this.editor.renderer.adjustZoom(1.2, centerX, centerY);
-        this.editor.render();
-        this.updateZoomDisplay();
-      });
-    }
+  const btnResetView = document.getElementById("btn-reset-view");
+  if (btnResetView) {
+    const handler = () => {
+      this.editor.resetView();
+      this.updateZoomDisplay();
+    };
+    btnResetView.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnResetView]);
+  }
 
-    const btnZoomOut = document.getElementById("btn-zoom-out");
-    if (btnZoomOut) {
-      btnZoomOut.addEventListener("click", () => {
+  const templateSelect = document.getElementById("template-select");
+  if (templateSelect) {
+    const handler = (e) => {
+      const template = e.target.value;
+      if (template) {
+        this.loadTemplate(template);
+      }
+    };
+    templateSelect.addEventListener("change", handler);
+    this.appEventListeners.push(['change', handler, templateSelect]);
+  }
 
-        const centerX = this.canvas.width / 2;
-        const centerY = this.canvas.height / 2;
-        this.editor.renderer.adjustZoom(0.8, centerX, centerY);
-        this.editor.render();
-        this.updateZoomDisplay();
-      });
-    }
+  const btnStep = document.getElementById("btn-step");
+  if (btnStep) {
+    const handler = () => {
+      if (!this.simulationStarted) {
+        this.captureInitialState();
+      }
+      this.stepSimulation();
+    };
+    btnStep.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnStep]);
+  }
 
-    const btnResetView = document.getElementById("btn-reset-view");
-    if (btnResetView) {
-      btnResetView.addEventListener("click", () => {
-        this.editor.resetView();
-        this.updateZoomDisplay();
-      });
-    }
-
-
-    const templateSelect = document.getElementById("template-select");
-    if (templateSelect) {
-      templateSelect.addEventListener("change", (e) => {
-        const template = e.target.value;
-        if (template) {
-          this.loadTemplate(template);
+  const btnAutoRun = document.getElementById("btn-auto-run");
+  if (btnAutoRun) {
+    const handler = () => {
+      if (this.autoRunInterval) {
+        this.stopAutoRun();
+        btnAutoRun.textContent = "Auto Run";
+      } else {
+        if (!this.simulationStarted) {
+          this.captureInitialState();
         }
-      });
-    }
+        this.startAutoRun();
+        btnAutoRun.textContent = "Stop";
+      }
+    };
+    btnAutoRun.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnAutoRun]);
+  }
 
-
-    const btnStep = document.getElementById("btn-step");
-    if (btnStep) {
-      btnStep.addEventListener("click", () => {
-        this.stepSimulation();
-      });
-    }
-
-    const btnAutoRun = document.getElementById("btn-auto-run");
-    if (btnAutoRun) {
-      btnAutoRun.addEventListener("click", () => {
-        if (this.autoRunInterval) {
-          this.stopAutoRun();
+  const btnReset = document.getElementById("btn-reset");
+  if (btnReset) {
+    const handler = () => {
+      if (this.autoRunInterval) {
+        this.stopAutoRun();
+        const btnAutoRun = document.getElementById("btn-auto-run");
+        if (btnAutoRun) {
           btnAutoRun.textContent = "Auto Run";
-        } else {
-          this.startAutoRun();
-          btnAutoRun.textContent = "Stop";
         }
-      });
-    }
-
-    const btnReset = document.getElementById("btn-reset");
-    if (btnReset) {
-      btnReset.addEventListener("click", () => {
-        this.resetSimulation();
-      });
-    }
-
-
-    const btnSave = document.getElementById("btn-save");
-    if (btnSave) {
-      btnSave.addEventListener("click", () => {
-        this.saveToFile();
-      });
-    }
-
-    const btnLoad = document.getElementById("btn-load");
-    if (btnLoad) {
-      btnLoad.addEventListener("click", () => {
-        document.getElementById("file-input")?.click();
-      });
-    }
-
-    const fileInput = document.getElementById("file-input");
-    if (fileInput) {
-      fileInput.addEventListener("change", (event) => {
-        const input = event.target;
-        if (input.files && input.files.length > 0) {
-          console.log(input.files[0]);
-          this.loadFromFile(input.files[0]);
-        }
-      });
-    }
-
-    const btnExportPnml = document.getElementById("btn-export-pnml");
-    if (btnExportPnml) {
-      btnExportPnml.addEventListener("click", () => {
-        this.exportToPNML();
-      });
-    }
+      }
+      
+      if (this.restoreInitialState()) {
+        console.log("Simulation reset successfully");
+      } else {
+        console.warn("Could not reset simulation - no initial state captured");
+      }
+    };
+    btnReset.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnReset]);
   }
+
+  const btnSave = document.getElementById("btn-save");
+  if (btnSave) {
+    const handler = () => {
+      this.saveToFile();
+    };
+    btnSave.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnSave]);
+  }
+
+  const btnLoad = document.getElementById("btn-load");
+  if (btnLoad) {
+    const handler = () => {
+      document.getElementById("file-input")?.click();
+    };
+    btnLoad.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnLoad]);
+  }
+
+  const fileInput = document.getElementById("file-input");
+  if (fileInput) {
+    const handler = (event) => {
+      const input = event.target;
+      if (input.files && input.files.length > 0) {
+        console.log(input.files[0]);
+        this.loadFromFile(input.files[0]);
+      }
+    };
+    fileInput.addEventListener("change", handler);
+    this.appEventListeners.push(['change', handler, fileInput]);
+  }
+
+  const btnExportPnml = document.getElementById("btn-export-pnml");
+  if (btnExportPnml) {
+    const handler = () => {
+      this.exportToPNML();
+    };
+    btnExportPnml.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnExportPnml]);
+  }
+}
 
   /**
    * Updates the active state of toolbar buttons
@@ -419,6 +560,26 @@ class PetriNetApp {
       });
     }
   }
+  
+  /**
+   * Fits the Petri net to the canvas viewport
+   */
+  fitNetworkToCanvas() {
+    if (this.api && this.api.fitToCanvas) {
+      this.api.fitToCanvas();
+      this.updateZoomDisplay();
+    }
+  }
+
+  /**
+   * Updates the zoom display
+   */
+  updateZoomDisplay() {
+    if (this.zoomDisplay && this.editor && this.editor.renderer) {
+      const zoomPercent = Math.round(this.editor.renderer.zoomFactor * 100);
+      this.zoomDisplay.textContent = `${zoomPercent}%`;
+    }
+  }
 
   /**
    * Displays properties for a selected transition
@@ -491,6 +652,15 @@ class PetriNetApp {
     }
   }
 
+  updateSelectedElementProperties() {
+    if (this.editor.selectedElement) {
+      this.handleElementSelected(
+        this.editor.selectedElement.id,
+        this.editor.selectedElement.type
+      );
+    }
+  }
+
   /**
    * Updates only the status portion of the transition properties panel
    */
@@ -529,9 +699,15 @@ class PetriNetApp {
       const fireButton = document.getElementById("btn-fire-transition");
       if (fireButton) {
         fireButton.addEventListener("click", async () => {
+          // Capture initial state on first transition fire
+          if (!this.simulationStarted) {
+            this.captureInitialState();
+          }
+          
           if (await this.fireTransition(id)) {
             this.updateTokensDisplay();
             this.updateTransitionStatus(id);
+            this.updateSelectedElementProperties();
           }
         });
       }
@@ -588,18 +764,11 @@ class PetriNetApp {
       <div class="form-group">
         <label for="arc-type">Type</label>
         <select id="arc-type">
-          <option value="regular" ${
-            arc.type === "regular" ? "selected" : ""
-          }>Regular</option>
-          <option value="inhibitor" ${
-            arc.type === "inhibitor" ? "selected" : ""
-          }>Inhibitor</option>
-          <option value="reset" ${
-            arc.type === "reset" ? "selected" : ""
-          }>Reset</option>
-          <option value="read" ${
-            arc.type === "read" ? "selected" : ""
-          }>Read</option>
+          <option value="regular" ${arc.type === "regular" ? "selected" : ""}>Regular</option>
+          <option value="inhibitor" ${arc.type === "inhibitor" ? "selected" : ""}>Inhibitor</option>
+          <option value="reset" ${arc.type === "reset" ? "selected" : ""}>Reset</option>
+          <option value="read" ${arc.type === "read" ? "selected" : ""}>Read</option>
+          <option value="modifier" ${arc.type === "modifier" ? "selected" : ""}>Modifier</option>
         </select>
       </div>
       <div class="form-group">
@@ -742,15 +911,17 @@ class PetriNetApp {
       return;
     }
 
-
+    // Sort by priority
     enabledTransitions.sort((a, b) => {
       const transA = this.api.petriNet.transitions.get(a);
       const transB = this.api.petriNet.transitions.get(b);
       return (transB?.priority || 0) - (transA?.priority || 0);
     });
 
-
     await this.api.fireTransition(enabledTransitions[0]);
+    
+    this.updateTokensDisplay();
+    this.updateSelectedElementProperties();
   }
 
   /**
@@ -805,6 +976,10 @@ class PetriNetApp {
     // IMPORTANT: Re-establish the app reference after reset
     this.editor.app = this;
 
+    // Reset simulation state tracking
+    this.initialState = null;
+    this.simulationStarted = false;
+
     // Re-initialize event handlers for the new editor
     this.initEventHandlers();
 
@@ -823,38 +998,85 @@ class PetriNetApp {
    * Clean up all app-level event listeners
    */
   cleanupAppEventListeners() {
-    this.appEventListeners.forEach(([event, handler]) => {
-      document.removeEventListener(event, handler);
+    this.appEventListeners?.forEach(([eventType, handler, element]) => {
+      element.removeEventListener(eventType, handler);
     });
     this.appEventListeners = [];
   }
-    destroyCurrentEditor() {
-    // Clean up app-level event listeners first
+
+  destroyCurrentEditor() {
+    // Stop any ongoing pan/zoom or drag operations immediately
+    if (this.editor) {
+      this.editor.stopAllInteractions();
+    }
+    
+    // Clean up all app-level event listeners
     this.cleanupAppEventListeners();
     
-    // Clean up editor event listeners
+    // Clean up the editor's internal event listeners
     if (this.editor) {
       this.editor.destroy();
       this.editor = null;
     }
     
-    // Clear any remaining references
+    // Clear the API reference
     this.api = null;
+  }
+
+  /**
+   * New method to stop all ongoing interactions
+   */
+  stopAllInteractions() {
+    if (this.editor) {
+      // Reset all interaction states
+      this.editor.isPanning = false;
+      this.editor.lastPanPosition = null;
+      this.editor.dragStart = null;
+      this.editor.dragOffset = null;
+      this.editor.arcDrawing = null;
+      this.editor.selectedElement = null;
+      this.editor.ghostElement = null;
+      this.editor.ghostPosition = null;
+      this.editor.isShiftPressed = false;
+      
+      // Reset canvas cursor
+      if (this.canvas) {
+        this.canvas.style.cursor = 'default';
+      }
+    }
   }
   /**
    * Resets the Petri net completely
    */
-  resetPetriNet() {
-    this.stopAutoRun();
+resetPetriNet() {
+  this.stopAutoRun();
+  this.stopAllInteractions();
 
-    // IMPORTANT: Completely destroy the old editor and clean up all references
-    this.destroyCurrentEditor();
+  // Clear any pending timeouts
+  if (this.fitCanvasTimeout) {
+    clearTimeout(this.fitCanvasTimeout);
+    this.fitCanvasTimeout = null;
+  }
 
+  // Completely destroy the old editor and clean up all references
+  this.destroyCurrentEditor();
+
+  setTimeout(() => {
     this.api = new PetriNetAPI();
     this.editor = this.api.attachEditor(this.canvas);
 
-    // IMPORTANT: Re-establish the app reference after reset
+    // Re-establish the app reference after reset
     this.editor.app = this;
+
+    // Reset simulation state tracking
+    this.initialState = null;
+    this.simulationStarted = false;
+
+    // Ensure renderer starts with clean state
+    if (this.editor.renderer) {
+      this.editor.renderer.panOffset = { x: 0, y: 0 };
+      this.editor.renderer.zoomFactor = 1.0;
+    }
 
     // Re-initialize event handlers for the new editor
     this.initEventHandlers();
@@ -872,13 +1094,14 @@ class PetriNetApp {
     this.updateTokensDisplay();
     this.updateZoomDisplay();
     this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
-  }
+  }, 10);
+}
 
   /**
    * Creates a File object from JSON data
    */
   createFileFromJSON(jsonData, fileName = "data.json") {
-    console.log(jsonData);
+
     const jsonString =
       typeof jsonData === "object"
         ? JSON.stringify(jsonData, null, 2)
@@ -904,6 +1127,10 @@ class PetriNetApp {
       .then((jsonData) => {
         const file = this.createFileFromJSON(jsonData);
         return this.loadFromFile(file);
+      }).then(() => {
+        setTimeout(() => {
+          this.fitNetworkToCanvas();
+        }, 100);
       })
       .catch((error) => {
         console.error("Error loading template:", error);
@@ -934,31 +1161,50 @@ class PetriNetApp {
     reader.onload = (e) => {
       try {
         const json = e.target?.result;
-        console.log(json);
-        
-        // IMPORTANT: Completely destroy the old editor and clean up all references
+        if (!json) return;
+
+        // 1. Stop any ongoing simulations or interactions
+        this.stopAutoRun();
+        this.stopAllInteractions();
+
+        // 2. Clear any pending timeouts that might interfere with the new layout
+        if (this.fitCanvasTimeout) {
+            clearTimeout(this.fitCanvasTimeout);
+        }
+
         this.destroyCurrentEditor();
-        
-        this.api = PetriNetAPI.importFromJSON(json);
-        this.editor = this.api.attachEditor(this.canvas);
 
-        // IMPORTANT: Re-establish the app reference after loading
-        this.editor.app = this;
+        // Use a brief timeout to ensure the DOM has processed the cleanup
+        setTimeout(() => {
+            // 4. Create new API and Editor instances from the loaded file
+            this.api = PetriNetAPI.importFromJSON(json);
+            this.editor = this.api.attachEditor(this.canvas);
+    
+            // 5. Re-establish the app reference and re-initialize all handlers for the new editor
+            this.editor.app = this;
+            this.initEventHandlers();
+    
+            // 6. Reset UI and simulation state for the newly loaded model
+            this.initialState = null;
+            this.simulationStarted = false;
+            this.editor.setSnapToGrid(this.gridEnabled);
+            this.editor.setMode("select");
+            this.updateActiveButton("btn-select");
+            this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+    
+            // 7. Render the new network and update all displays
+            this.editor.render();
+            this.updateTokensDisplay();
+            this.updateZoomDisplay();
+    
+            // 8. Fit the new model to the canvas after a short delay to ensure it's fully rendered
+            this.fitCanvasTimeout = setTimeout(() => {
+                this.fitNetworkToCanvas();
+            }, 150);
+        }, 10); // A small timeout of 10ms is usually sufficient
 
-        // Re-initialize event handlers for the new editor
-        this.initEventHandlers();
-
-        this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
-        this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
-        this.editor.setSnapToGrid(this.gridEnabled);
-        this.editor.setMode("select");
-        this.updateActiveButton("btn-select");
-
-        this.editor.render();
-        this.updateTokensDisplay();
-        this.updateZoomDisplay();
-        this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
       } catch (error) {
+        console.error("Error loading file:", error);
         alert("Error loading file: " + error);
       }
     };

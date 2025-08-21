@@ -406,136 +406,177 @@ class DataPetriNetUI {
     }
   }
 
-  /**
-   * Show dialog to add a new data variable
-   */
-  showAddVariableDialog() {
-    // Create the dialog
-    const dialogId = 'add-variable-dialog';
-    const dialog = document.createElement('div');
-    dialog.className = 'modal-overlay';
-    dialog.id = dialogId;
-    
-    dialog.innerHTML = `
-      <div class="modal-container">
-        <div class="modal-header">
-          <h2>Add Data Variable</h2>
-          <button class="close-btn">&times;</button>
+/**
+ * Show dialog to add a new data variable
+ */
+showAddVariableDialog() {
+  // Create the dialog
+  const dialogId = 'add-variable-dialog';
+  const dialog = document.createElement('div');
+  dialog.className = 'modal-overlay';
+  dialog.id = dialogId;
+  
+  dialog.innerHTML = `
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2>Add Data Variable</h2>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="variable-name">Name</label>
+          <input type="text" id="variable-name" required>
+          <small>Use a valid identifier (letters, numbers, underscore)</small>
         </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label for="variable-name">Name</label>
-            <input type="text" id="variable-name" required>
-            <small>Use a valid identifier (letters, numbers, underscore)</small>
-          </div>
-          <div class="form-group">
-            <label for="variable-type">Type</label>
-            <select id="variable-type">
-              <option value="int">Integer</option>
-              <option value="float">Float</option>
-              <option value="string">String</option>
-              <option value="boolean">Boolean</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="variable-initial-value">Initial Value</label>
-            <input type="text" id="variable-initial-value">
-          </div>
-          <div class="form-group">
-            <label for="variable-description">Description</label>
-            <textarea id="variable-description" rows="2"></textarea>
+        <div class="form-group">
+          <label for="variable-type">Type</label>
+          <select id="variable-type">
+            <option value="int">Integer</option>
+            <option value="float">Float</option>
+            <option value="string">String</option>
+            <option value="boolean">Boolean</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="variable-initial-value">Initial Value</label>
+          <div id="initial-value-container">
+            <input type="number" id="variable-initial-value" step="1" placeholder="Enter an integer">
           </div>
         </div>
-        <div class="modal-footer">
-          <button id="btn-save-variable">Save</button>
-          <button id="btn-cancel-variable">Cancel</button>
+        <div class="form-group">
+          <label for="variable-description">Description</label>
+          <textarea id="variable-description" rows="2"></textarea>
         </div>
       </div>
-    `;
+      <div class="modal-footer">
+        <button id="btn-save-variable">Save</button>
+        <button id="btn-cancel-variable">Cancel</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(dialog);
+  
+  // Function to update the initial value input based on selected type
+  const updateInitialValueInput = (type) => {
+    const container = document.getElementById('initial-value-container');
+    let inputHtml = '';
     
-    document.body.appendChild(dialog);
+    switch(type) {
+      case 'int':
+        inputHtml = '<input type="number" id="variable-initial-value" step="1" placeholder="Enter an integer">';
+        break;
+      case 'float':
+        inputHtml = '<input type="number" id="variable-initial-value" step="any" placeholder="Enter a decimal number">';
+        break;
+      case 'string':
+        inputHtml = '<input type="text" id="variable-initial-value" placeholder="Enter text">';
+        break;
+      case 'boolean':
+        inputHtml = `
+          <select id="variable-initial-value">
+            <option value="">Select a value</option>
+            <option value="true">true</option>
+            <option value="false">false</option>
+          </select>
+        `;
+        break;
+    }
     
-    // Add event listeners for the buttons
-    const closeButton = dialog.querySelector('.close-btn');
-    closeButton.addEventListener('click', () => {
-      document.body.removeChild(dialog);
-    });
+    container.innerHTML = inputHtml;
+  };
+  
+  // Add event listener for type change
+  const typeSelect = document.getElementById('variable-type');
+  typeSelect.addEventListener('change', (e) => {
+    updateInitialValueInput(e.target.value);
+  });
+  
+  // Initialize with default type (int)
+  updateInitialValueInput('int');
+  
+  // Add event listeners for the buttons
+  const closeButton = dialog.querySelector('.close-btn');
+  closeButton.addEventListener('click', () => {
+    document.body.removeChild(dialog);
+  });
+  
+  const cancelButton = dialog.querySelector('#btn-cancel-variable');
+  cancelButton.addEventListener('click', () => {
+    document.body.removeChild(dialog);
+  });
+  
+  const saveButton = dialog.querySelector('#btn-save-variable');
+  saveButton.addEventListener('click', () => {
+    // Get the form values
+    const name = document.getElementById('variable-name').value;
+    const type = document.getElementById('variable-type').value;
+    const initialValueElement = document.getElementById('variable-initial-value');
+    const initialValueStr = initialValueElement.value;
+    const description = document.getElementById('variable-description').value;
     
-    const cancelButton = dialog.querySelector('#btn-cancel-variable');
-    cancelButton.addEventListener('click', () => {
-      document.body.removeChild(dialog);
-    });
+    // Validate the name
+    if (!name) {
+      alert('Variable name is required');
+      return;
+    }
     
-    const saveButton = dialog.querySelector('#btn-save-variable');
-    saveButton.addEventListener('click', () => {
-      // Get the form values
-      const name = document.getElementById('variable-name').value;
-      const type = document.getElementById('variable-type').value;
-      const initialValueStr = document.getElementById('variable-initial-value').value;
-      const description = document.getElementById('variable-description').value;
-      
-      // Validate the name
-      if (!name) {
-        alert('Variable name is required');
+    // Check if it's a valid identifier
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      alert('Variable name must be a valid identifier (start with letter or underscore, contain only letters, numbers, or underscores)');
+      return;
+    }
+    
+    // Check for duplicate names
+    for (const [, variable] of this.app.api.petriNet.dataVariables) {
+      if (variable.name === name) {
+        alert(`A variable with name "${name}" already exists`);
         return;
       }
-      
-      // Check if it's a valid identifier
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-        alert('Variable name must be a valid identifier (start with letter or underscore, contain only letters, numbers, or underscores)');
-        return;
-      }
-      
-      // Check for duplicate names
-      for (const [, variable] of this.app.api.petriNet.dataVariables) {
-        if (variable.name === name) {
-          alert(`A variable with name "${name}" already exists`);
-          return;
-        }
-      }
-      
-      // Parse the initial value based on the type
-      let initialValue = null;
-      if (initialValueStr) {
-        try {
-          if (type === 'int') {
-            initialValue = parseInt(initialValueStr, 10);
-            if (isNaN(initialValue)) {
-              throw new Error('Not a valid integer');
-            }
-          } else if (type === 'float') {
-            initialValue = parseFloat(initialValueStr);
-            if (isNaN(initialValue)) {
-              throw new Error('Not a valid float');
-            }
-          } else if (type === 'boolean') {
-            if (initialValueStr.toLowerCase() === 'true') {
-              initialValue = true;
-            } else if (initialValueStr.toLowerCase() === 'false') {
-              initialValue = false;
-            } else {
-              throw new Error('Boolean must be true or false');
-            }
-          } else { // string
-            initialValue = initialValueStr;
+    }
+    
+    // Parse the initial value based on the type
+    let initialValue = null;
+    if (initialValueStr) {
+      try {
+        if (type === 'int') {
+          initialValue = parseInt(initialValueStr, 10);
+          if (isNaN(initialValue)) {
+            throw new Error('Not a valid integer');
           }
-        } catch (error) {
-          alert(`Invalid initial value: ${error.message}`);
-          return;
+        } else if (type === 'float') {
+          initialValue = parseFloat(initialValueStr);
+          if (isNaN(initialValue)) {
+            throw new Error('Not a valid float');
+          }
+        } else if (type === 'boolean') {
+          if (initialValueStr === 'true') {
+            initialValue = true;
+          } else if (initialValueStr === 'false') {
+            initialValue = false;
+          } else {
+            throw new Error('Boolean must be true or false');
+          }
+        } else { // string
+          initialValue = initialValueStr;
         }
+      } catch (error) {
+        alert(`Invalid initial value: ${error.message}`);
+        return;
       }
-      
-      // Create the variable
-      this.app.api.createDataVariable(name, type, initialValue, description);
-      
-      // Close the dialog
-      document.body.removeChild(dialog);
-      
-      // Update displays
-      this.updateDataVariablesDisplay();
-      this.updateDataValuesDisplay();
-    });
-  }
+    }
+    
+    // Create the variable
+    this.app.api.createDataVariable(name, type, initialValue, description);
+    
+    // Close the dialog
+    document.body.removeChild(dialog);
+    
+    // Update displays
+    this.updateDataVariablesDisplay();
+    this.updateDataValuesDisplay();
+  });
+}
 
   /**
    * Show dialog to edit an existing data variable
