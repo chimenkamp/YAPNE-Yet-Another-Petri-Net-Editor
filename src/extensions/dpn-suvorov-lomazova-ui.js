@@ -4,22 +4,39 @@
  */
 class SmtFromDpnGenerator {
   /**
-   * Generate an SMT-LIB2 string for a Data Petri Net with bounded unrolling, τ-transitions,
-   * per-step data variables/markings, enabling, frame conditions, τ-guards (as ¬∃W.(pre ∧ post)),
-   * incidence-based marking updates, optional final marking and coverage, and a concluding (check-sat).
+   * Generate an SMT-LIB2 encoding aligned with the paper’s step semantics.
+   * Key points:
+   *  - Per-step data variables v_i and markings M_p_i are declared for i=0..K.
+   *  - For each step i < K and each transition t, a fire flag f_t_i is declared.
+   *    If τ-transitions are NOT explicitly present in the DPN, we also declare
+   *    f_tau_t_i and use the paper’s τ-guard:
+   *        guard(τ(t)) := ¬∃W(t).( pre_t ∧ post_t )
+   *    Variables in τ do not change when τ fires.
+   *  - Enabling: token availability on input places; data guard via
+   *    (pre with reads at i) and (post with writes at i+1). This exactly matches
+   *    the paper’s “guard(t)” shape when projecting to step i/i+1.
+   *  - Frame conditions: for a visible t, variables not written by t remain equal
+   *    across i→i+1; for τ(t), ALL variables remain equal.
+   *  - Marking update uses incidence (+outflow - inflow) for both visible and τ.
+   *  - Firing policy is configurable:
+   *      - 'atMostOne' (default): at most one of {f_*, f_tau_*[, idle_i]} is true.
+   *      - 'exactlyOne': exactly one is true per step.
+   *      - 'free': no mutual-exclusion constraint is imposed.
+   *    If 'atMostOne' policy is used, we also provide an `idle_i` (no-op) that
+   *    keeps both data and markings unchanged on steps with no firing.
+   *  - Final marking and (optional) coverage are asserted at step K. Coverage
+   *    excludes τ-transitions by default.
    *
-   * This version ensures postconditions with primed variables (e.g., x' > 0, y' = x + 15) are
-   * rewritten to valid SMT symbols (step-indexed variables), so no apostrophes remain in the output.
-   *
-   * :param petriNetObj: Object matching the provided interfaces (places[], transitions[], arcs[], dataVariables[]).
-   * :param params: Optional settings:
-   *   {
-   *     K?: number,
-   *     logic?: string,
-   *     coverage?: boolean,
-   *     finalMarking?: { [placeId]: number },
-   *     initialData?: { [varName]: number|boolean },
-   *     sortsOverride?: { [key: string]: "Int"|"Real"|"Bool" }
+   * :param petriNetObj: Petri net object {places[], transitions[], arcs[], dataVariables[]}.
+   * :param params: Optional {
+   *      K?: number,
+   *      logic?: string,                // default: "ALL"
+   *      finalMarking?: { [placeId]: number },
+   *      initialData?: { [varName]: number|boolean },
+   *      sortsOverride?: { [key: string]: "Int"|"Real"|"Bool" },
+   *      coverage?: boolean,            // if true: each non-τ transition fires at least once
+   *      coverageIncludesTau?: boolean, // default false
+   *      firing?: "atMostOne"|"exactlyOne"|"free" // default "atMostOne"
    *   }
    * :return : of objects.
    * :return: SMT-LIB2 string.
@@ -27,108 +44,244 @@ class SmtFromDpnGenerator {
   generateSMT(petriNetObj, params = {}) {
     const cfg = this._normalizeConfig(petriNetObj, params);
     const {
-      logic, K, placeIds, transIds, arcsIn, arcsOut, dataVarsMap, dataVarsList,
-      initialMarking, finalMarking, initialData, coverage
+      logic,
+      K,
+      placeIds,
+      transIds,
+      arcsIn,
+      arcsOut,
+      dataVarsMap,
+      dataVarsList,
+      initialMarking,
+      finalMarking,
+      initialData,
+      coverage,
     } = cfg;
+
+    const coverageIncludesTau = params.coverageIncludesTau === true;
+    const firingPolicy = params.firing || "atMostOne"; // "atMostOne"|"exactlyOne"|"free"
+
+    // Detect explicit τ transitions (by id prefix "tau_")
+    const isTauId = (id) => String(id).startsWith("tau_");
+    const hasExplicitTau = transIds.some(isTauId);
 
     const lines = [];
     const out = (s) => lines.push(s);
 
-    out(`(set-logic ${logic})`);
-    out(`(define-fun K () Int ${K})`);
-
-    for (let i = 0; i <= K; i++) {
-      for (const [vName, sort] of dataVarsList) out(`(declare-const ${this._vStep(vName, i)} ${sort})`);
-    }
-
-    for (let i = 0; i <= K; i++) {
-      for (const p of placeIds) out(`(declare-const ${this._mStep(p, i)} Int)`);
-    }
-
-    for (let i = 0; i < K; i++) {
-      for (const t of transIds) {
-        out(`(declare-const ${this._fStep(t, i)} Bool)`);
-        out(`(declare-const ${this._ftStep(t, i)} Bool)`);
-      }
-    }
-
+    // --- Header & helpers
+    out(`(set-logic ${logic || "ALL"})`);
+    out(`(define-fun K () Int ${Number.isInteger(K) ? K : 6})`);
     out(`(define-fun b2i ((b Bool)) Int (ite b 1 0))`);
     out(`(define-fun nonneg ((x Int)) Bool (>= x 0))`);
 
-    for (const p of placeIds) out(`(assert (= ${this._mStep(p, 0)} ${initialMarking[p] || 0}))`);
-
-    for (const [vName, sort] of dataVarsList) {
-      const val = (vName in initialData) ? initialData[vName] : undefined;
-      if (typeof val !== "undefined") out(`(assert (= ${this._vStep(vName, 0)} ${this._lit(val, sort)}))`);
-    }
-
+    // --- Declarations for data variables v_i, markings M_p_i
     for (let i = 0; i <= K; i++) {
-      const c = placeIds.map((p) => `(nonneg ${this._mStep(p, i)})`).join(" ");
-      out(`(assert (and ${c}))`);
+      for (const [vName, sort] of dataVarsList) {
+        out(`(declare-const ${this._vStep(vName, i)} ${sort})`);
+      }
+    }
+    for (let i = 0; i <= K; i++) {
+      for (const p of placeIds) {
+        out(`(declare-const ${this._mStep(p, i)} Int)`);
+      }
     }
 
+    // --- Firing flags (and optional τ flags if τ not explicit)
     for (let i = 0; i < K; i++) {
-      const sumFlags = transIds.map((t) => `(+ (b2i ${this._fStep(t, i)}) (b2i ${this._ftStep(t, i)}))`).join(" ");
-      out(`(assert (= (+ ${sumFlags}) 1))`);
-
       for (const t of transIds) {
-        const firedOrTau = `(or ${this._fStep(t, i)} ${this._ftStep(t, i)})`;
-        const inArcs = arcsIn.get(t) || [];
-        for (const [p, w] of inArcs) out(`(assert (=> ${firedOrTau} (>= ${this._mStep(p, i)} ${w})))`);
+        out(`(declare-const ${this._fStep(t, i)} Bool)`);
+        if (!hasExplicitTau && !isTauId(t)) {
+          out(`(declare-const ${this._ftStep(t, i)} Bool)`);
+        }
+      }
+      if (firingPolicy !== "free") {
+        out(`(declare-const idle_${i} Bool)`);
+      }
+    }
+
+    // --- Initial marking & data
+    for (const p of placeIds) {
+      out(`(assert (= ${this._mStep(p, 0)} ${initialMarking[p] || 0}))`);
+    }
+    for (const [vName, sort] of dataVarsList) {
+      if (Object.prototype.hasOwnProperty.call(initialData, vName)) {
+        out(
+          `(assert (= ${this._vStep(vName, 0)} ${this._lit(
+            initialData[vName],
+            sort
+          )}))`
+        );
+      }
+    }
+
+    // --- Marking non-negativity at all steps
+    for (let i = 0; i <= K; i++) {
+      const conj = placeIds
+        .map((p) => `(nonneg ${this._mStep(p, i)})`)
+        .join(" ");
+      out(`(assert (and ${conj}))`);
+    }
+
+    // --- Per-step constraints
+    for (let i = 0; i < K; i++) {
+      // 1) Firing policy
+      if (firingPolicy !== "free") {
+        const flags = [];
+        for (const t of transIds) {
+          flags.push(`(b2i ${this._fStep(t, i)})`);
+          if (!hasExplicitTau && !isTauId(t))
+            flags.push(`(b2i ${this._ftStep(t, i)})`);
+        }
+        if (firingPolicy === "atMostOne") {
+          const idle = `(b2i idle_${i})`;
+          out(`(assert (<= (+ ${flags.join(" ")} ${idle}) 1))`);
+        } else if (firingPolicy === "exactlyOne") {
+          const idle = `(b2i idle_${i})`;
+          out(`(assert (= (+ ${flags.join(" ")} ${idle}) 1))`);
+        }
       }
 
+      // 2) Token enabling for any firing (visible or τ)
       for (const t of transIds) {
+        const fired = this._fStep(t, i);
+        const firedTau =
+          !hasExplicitTau && !isTauId(t) ? this._ftStep(t, i) : null;
+        const firedOrTau = firedTau ? `(or ${fired} ${firedTau})` : fired;
+
+        const inArcs = arcsIn.get(t) || [];
+        for (const [p, w] of inArcs) {
+          out(`(assert (=> ${firedOrTau} (>= ${this._mStep(p, i)} ${w}))`);
+        }
+      }
+
+      // 3) Data guards & frame conditions
+      for (const t of transIds) {
+        const isTauTransition = isTauId(t);
         const preStr = cfg.transitionPre.get(t) || "";
         const postStr = cfg.transitionPost.get(t) || "";
 
+        const fVis = this._fStep(t, i);
+        const fTau =
+          !hasExplicitTau && !isTauTransition ? this._ftStep(t, i) : null;
+
+        // Visible guard: pre at step i, post at step i+1
         const preVis = this._rewriteGuard(preStr, i, dataVarsList, false);
         const postVis = this._rewriteGuard(postStr, i, dataVarsList, true);
+        if (preVis) out(`(assert (=> ${fVis} ${preVis}))`);
+        if (postVis) out(`(assert (=> ${fVis} ${postVis}))`);
 
-        if (preVis) out(`(assert (=> ${this._fStep(t, i)} ${preVis}))`);
-        if (postVis) out(`(assert (=> ${this._fStep(t, i)} ${postVis}))`);
-
+        // Frame for variables not written by t under visible firing
         const writes = this._writtenVars(postStr, dataVarsList);
         for (const [vName] of dataVarsList) {
-          if (!writes.has(vName)) out(`(assert (=> ${this._fStep(t, i)} (= ${this._vStep(vName, i + 1)} ${this._vStep(vName, i)})))`);
+          if (!writes.has(vName)) {
+            out(
+              `(assert (=> ${fVis} (= ${this._vStep(
+                vName,
+                i + 1
+              )} ${this._vStep(vName, i)})))`
+            );
+          }
         }
 
-        const tauInner = this._tauGuard(preStr, postStr, i, dataVarsList);
-        if (tauInner) out(`(assert (=> ${this._ftStep(t, i)} ${tauInner}))`);
-        for (const [vName] of dataVarsList) out(`(assert (=> ${this._ftStep(t, i)} (= ${this._vStep(vName, i + 1)} ${this._vStep(vName, i)})))`);
+        // τ semantics:
+        //  - If τ is explicit (id starts with "tau_"), we just apply its (pre/post) as with visible.
+        //  - If τ is implicit (ftStep used), assert the computed τ-guard and variable stuttering.
+        if (fTau) {
+          const tauInner = this._tauGuard(preStr, postStr, i, dataVarsList); // ¬∃W.(pre∧post)
+          if (tauInner) out(`(assert (=> ${fTau} ${tauInner}))`);
+          for (const [vName] of dataVarsList) {
+            out(
+              `(assert (=> ${fTau} (= ${this._vStep(
+                vName,
+                i + 1
+              )} ${this._vStep(vName, i)})))`
+            );
+          }
+        }
+
+        // If τ is explicit, treat it like any other transition (no data change if post is empty)
+        if (hasExplicitTau && isTauTransition) {
+          // If author provided postcondition for τ, we respect it; otherwise, enforce stutter.
+          const hasPost = String(postStr || "").trim().length > 0;
+          if (!hasPost) {
+            for (const [vName] of dataVarsList) {
+              out(
+                `(assert (=> ${fVis} (= ${this._vStep(
+                  vName,
+                  i + 1
+                )} ${this._vStep(vName, i)})))`
+              );
+            }
+          }
+        }
       }
 
+      // 4) Marking update (incidence) for visible and τ firings; idle => stutter
       for (const p of placeIds) {
         const inflow = [];
         const outflow = [];
         for (const t of transIds) {
-          for (const [pp, w] of (arcsOut.get(t) || [])) if (pp === p) {
-            inflow.push(`(* ${w} (b2i ${this._fStep(t, i)}))`);
-            inflow.push(`(* ${w} (b2i ${this._ftStep(t, i)}))`);
+          const vis = this._fStep(t, i);
+          const tau =
+            !hasExplicitTau && !isTauId(t) ? this._ftStep(t, i) : null;
+
+          for (const [pp, w] of arcsOut.get(t) || []) {
+            if (pp === p) {
+              inflow.push(`(* ${w} (b2i ${vis}))`);
+              if (tau) inflow.push(`(* ${w} (b2i ${tau}))`);
+            }
           }
-          for (const [pp, w] of (arcsIn.get(t) || [])) if (pp === p) {
-            outflow.push(`(* ${w} (b2i ${this._fStep(t, i)}))`);
-            outflow.push(`(* ${w} (b2i ${this._ftStep(t, i)}))`);
+          for (const [pp, w] of arcsIn.get(t) || []) {
+            if (pp === p) {
+              outflow.push(`(* ${w} (b2i ${vis}))`);
+              if (tau) outflow.push(`(* ${w} (b2i ${tau}))`);
+            }
           }
         }
+
         const infl = inflow.length ? `(+ ${inflow.join(" ")})` : "0";
         const outf = outflow.length ? `(+ ${outflow.join(" ")})` : "0";
-        out(`(assert (= ${this._mStep(p, i + 1)} (+ ${this._mStep(p, i)} ${infl} (- ${outf}))))`);
+        out(
+          `(assert (= ${this._mStep(p, i + 1)} (+ ${this._mStep(
+            p,
+            i
+          )} ${infl} (- ${outf}))))`
+        );
+      }
+
+      // 5) Idle step (for 'atMostOne' or 'exactlyOne'): stutter data & markings
+      if (firingPolicy !== "free") {
+        const eqMs = placeIds
+          .map((p) => `(= ${this._mStep(p, i + 1)} ${this._mStep(p, i)})`)
+          .join(" ");
+        const eqVs = dataVarsList
+          .map(([v]) => `(= ${this._vStep(v, i + 1)} ${this._vStep(v, i)})`)
+          .join(" ");
+        out(`(assert (=> idle_${i} (and ${eqMs} ${eqVs})))`);
       }
     }
 
+    // --- Final marking (if provided) at step K
     if (finalMarking) {
-      for (const p of placeIds) out(`(assert (= ${this._mStep(p, K)} ${finalMarking[p] || 0}))`);
+      for (const p of placeIds) {
+        out(`(assert (= ${this._mStep(p, K)} ${finalMarking[p] || 0}))`);
+      }
     }
 
+    // --- Coverage (default excludes τ)
     if (coverage && transIds.length > 0) {
       for (const t of transIds) {
-        const ors = Array.from({ length: K }, (_, i) => this._fStep(t, i)).join(" ");
-        out(`(assert (or ${ors}))`);
+        if (!coverageIncludesTau && isTauId(t)) continue;
+        const ors = Array.from({ length: K }, (_, i) => this._fStep(t, i)).join(
+          " "
+        );
+        if (ors.length) out(`(assert (or ${ors}))`);
       }
     }
 
     out(`(check-sat)`);
 
+    // Final sanitize: drop any stray apostrophes in identifiers
     const smt = lines.join("\n");
     return this._sanitizePrimes(smt);
   }
@@ -153,7 +306,10 @@ class SmtFromDpnGenerator {
 
     const arcsIn = new Map();
     const arcsOut = new Map();
-    for (const t of transIds) { arcsIn.set(t, []); arcsOut.set(t, []); }
+    for (const t of transIds) {
+      arcsIn.set(t, []);
+      arcsOut.set(t, []);
+    }
     for (const a of pn.arcs || []) {
       const s = this._sym(a.source);
       const tg = this._sym(a.target);
@@ -166,10 +322,15 @@ class SmtFromDpnGenerator {
     const dataVarsMap = new Map();
     for (const dv of pn.dataVariables || []) {
       const v = this._sym(dv.name || dv.id);
-      const sort = this._toSort(String(dv.type || "real").toLowerCase(), sortsOverride);
+      const sort = this._toSort(
+        String(dv.type || "real").toLowerCase(),
+        sortsOverride
+      );
       dataVarsMap.set(v, sort);
     }
-    const dataVarsList = Array.from(dataVarsMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    const dataVarsList = Array.from(dataVarsMap.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0])
+    );
 
     const transitionPre = new Map();
     const transitionPost = new Map();
@@ -179,53 +340,93 @@ class SmtFromDpnGenerator {
     }
 
     const initialMarking = {};
-    for (const p of pn.places || []) initialMarking[this._sym(p.id)] = Number(p.tokens) || 0;
+    for (const p of pn.places || [])
+      initialMarking[this._sym(p.id)] = Number(p.tokens) || 0;
 
     let finalMarking = params.finalMarking || null;
 
     const initialData = {};
     for (const dv of pn.dataVariables || []) {
       const v = this._sym(dv.name || dv.id);
-      if (typeof dv.currentValue !== "undefined" && dv.currentValue !== null) initialData[v] = dv.currentValue;
+      if (typeof dv.currentValue !== "undefined" && dv.currentValue !== null)
+        initialData[v] = dv.currentValue;
     }
     Object.assign(initialData, params.initialData || {});
 
     const coverage = Boolean(params.coverage);
 
     return {
-      logic, K, placeIds, transIds, arcsIn, arcsOut,
-      dataVarsMap, dataVarsList, transitionPre, transitionPost,
-      initialMarking, finalMarking, initialData, coverage
+      logic,
+      K,
+      placeIds,
+      transIds,
+      arcsIn,
+      arcsOut,
+      dataVarsMap,
+      dataVarsList,
+      transitionPre,
+      transitionPost,
+      initialMarking,
+      finalMarking,
+      initialData,
+      coverage,
     };
   }
 
   /**
-   * Create τ-guard = ¬∃W.(pre_i ∧ post_i(with W)), ensuring all primes are replaced.
+   * Create the τ-guard for transition t at step i:
+   *   guard_τ(t,i) := ¬∃W_t . ( pre_i ∧ post_i[W_t] )
+   * where:
+   *   - pre_i is the precondition with reads mapped to step i variables,
+   *   - post_i[W_t] is the postcondition with each written v' replaced by a fresh bound
+   *     variable W_v, and all unprimed reads mapped to step i variables,
+   *   - W_t is the set of variables written by t.
    *
-   * :param preStr: Precondition string.
-   * :param postStr: Postcondition string.
+   * This method performs only a *syntactic* construction suitable for embedding in SMT;
+   * it does not run QE here (the quantifier remains explicit in the returned string).
+   *
+   * :param preStr: Raw precondition of t.
+   * :param postStr: Raw postcondition of t.
    * :param i: Step index.
-   * :param dataVarsList: List of [varName, sort].
+   * :param dataVarsList: Array<[varName, sort]> of all data variables.
    * :return : of objects.
-   * :return: SMT-LIB2 string for τ-guard or empty string.
+   * :return: SMT-LIB2 string for the τ-guard at step i (never contains apostrophes).
    */
   _tauGuard(preStr, postStr, i, dataVarsList) {
-    const pre = this._rewriteGuard(preStr, i, dataVarsList, false) || "true";
+    // pre at step i (reads → i)
+    const pre =
+      this._rewriteGuard(preStr, i, dataVarsList, /*isPost=*/ false) || "true";
+
+    // Identify written variables (v' occurs in post)
     const writes = this._writtenVars(postStr, dataVarsList);
 
-    const boundDecls = [];
-    for (const [vName, sort] of dataVarsList) if (writes.has(vName)) boundDecls.push(`(${this._wVar(vName)} ${sort})`);
-
+    // Replace each v' in post with its bound write symbol W_v; then map reads to step i
     let postBody = String(postStr || "").trim();
     for (const [vName] of dataVarsList) {
       const rePrime = new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g");
-      postBody = postBody.replace(rePrime, this._wVar(vName));
+      postBody = postBody.replace(rePrime, this._wVar(vName)); // v' → v_w (bound name)
+    }
+    const post =
+      this._rewriteGuard(postBody, i, dataVarsList, /*isPost=*/ false) ||
+      "true";
+
+    // Simple simplifications when no writes are present
+    if (writes.size === 0) {
+      if (pre === "true" && post === "true") return "false"; // ¬(true ∧ true)
+      if (post === "true") return `(not ${pre})`; // ¬(pre)
+      if (pre === "true") return `(not ${post})`; // ¬(post)
+      return `(not (and ${pre} ${post}))`; // ¬(pre ∧ post)
     }
 
-    const post = this._rewriteGuard(postBody, i, dataVarsList, false) || "true";
-    const decls = boundDecls.length ? boundDecls.join(" ") : `(dummy_w Int)`;
-    const postAdj = boundDecls.length ? post : "true";
-    return `(not (exists (${decls}) (and ${pre} ${postAdj})))`;
+    // Build ∃W_t. (pre ∧ post) where W_t = { v_w | v ∈ writes }
+    const boundDecls = [];
+    for (const [vName, sort] of dataVarsList) {
+      if (writes.has(vName)) boundDecls.push(`(${this._wVar(vName)} ${sort})`);
+    }
+    const decls = boundDecls.length ? boundDecls.join(" ") : "(dummy_w Int)"; // should not happen because writes.size>0
+
+    // (not (exists (W_t) (and pre post)))
+    return `(not (exists (${decls}) (and ${pre} ${post})))`;
   }
 
   /**
@@ -288,14 +489,16 @@ class SmtFromDpnGenerator {
   _infixToSmt(expr) {
     const e = expr.trim();
     if (!e) return "";
-    const norm = e.replace(/\s+/g, " ")
+    const norm = e
+      .replace(/\s+/g, " ")
       .replace(/\band\b/gi, "and")
       .replace(/\bor\b/gi, "or")
       .replace(/\bnot\b/gi, "not");
 
     const splitTop = (s, op) => {
       const parts = [];
-      let depth = 0, buf = [];
+      let depth = 0,
+        buf = [];
       const tokens = s.split(" ");
       for (let i = 0; i < tokens.length; i++) {
         const tok = tokens[i];
@@ -318,7 +521,8 @@ class SmtFromDpnGenerator {
     const rec = (s) => {
       const t = s.trim();
       if (!t) return "true";
-      if (t.startsWith("(") && t.endsWith(")")) return `(${rec(t.slice(1, -1))})`;
+      if (t.startsWith("(") && t.endsWith(")"))
+        return `(${rec(t.slice(1, -1))})`;
       const andParts = splitTop(t, "and");
       if (andParts.length > 1) return `(and ${andParts.map(rec).join(" ")})`;
       const orParts = splitTop(t, "or");
@@ -330,7 +534,8 @@ class SmtFromDpnGenerator {
         const rhs = rec(cmp[3]);
         const op = cmp[2] === "!=" ? "distinct" : cmp[2];
         if (op === "distinct") return `(distinct ${lhs} ${rhs})`;
-        if (["=", "<", "<=", ">", ">="].includes(op)) return `(${op} ${lhs} ${rhs})`;
+        if (["=", "<", "<=", ">", ">="].includes(op))
+          return `(${op} ${lhs} ${rhs})`;
       }
       return t;
     };
@@ -351,7 +556,8 @@ class SmtFromDpnGenerator {
     const set = new Set();
     const s = String(postStr || "");
     for (const [vName] of dataVarsList) {
-      if (new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g").test(s)) set.add(vName);
+      if (new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g").test(s))
+        set.add(vName);
     }
     return set;
   }
@@ -439,7 +645,10 @@ class SmtFromDpnGenerator {
    * :return: Sanitized SMT-LIB string.
    */
   _sanitizePrimes(smt) {
-    return smt.replace(/([A-Za-z_][A-Za-z0-9_]*)\s*'/g, (_, id) => `${id}_prime`);
+    return smt.replace(
+      /([A-Za-z_][A-Za-z0-9_]*)\s*'/g,
+      (_, id) => `${id}_prime`
+    );
   }
 
   /**
@@ -498,7 +707,7 @@ class LabeledTransitionSystem {
       marking: marking,
       formula: formula,
       outgoingEdges: [],
-      incomingEdges: []
+      incomingEdges: [],
     };
     this.nodes.set(nodeId, node);
     return nodeId;
@@ -510,10 +719,10 @@ class LabeledTransitionSystem {
       id: edgeId,
       source: sourceId,
       target: targetId,
-      transition: transition
+      transition: transition,
     };
     this.edges.set(edgeId, edge);
-    
+
     // Update node references
     if (this.nodes.has(sourceId)) {
       this.nodes.get(sourceId).outgoingEdges.push(edgeId);
@@ -521,7 +730,7 @@ class LabeledTransitionSystem {
     if (this.nodes.has(targetId)) {
       this.nodes.get(targetId).incomingEdges.push(edgeId);
     }
-    
+
     return edgeId;
   }
 
@@ -548,9 +757,15 @@ class LabeledTransitionSystem {
 
         if (!indices.has(targetId)) {
           strongConnect(targetId);
-          lowLinks.set(nodeId, Math.min(lowLinks.get(nodeId), lowLinks.get(targetId)));
+          lowLinks.set(
+            nodeId,
+            Math.min(lowLinks.get(nodeId), lowLinks.get(targetId))
+          );
         } else if (onStack.has(targetId)) {
-          lowLinks.set(nodeId, Math.min(lowLinks.get(nodeId), indices.get(targetId)));
+          lowLinks.set(
+            nodeId,
+            Math.min(lowLinks.get(nodeId), indices.get(targetId))
+          );
         }
       }
 
@@ -575,50 +790,210 @@ class LabeledTransitionSystem {
     return sccs;
   }
 
+  /**
+   * Find a maximal set of node-disjoint elementary cycles (paper-aligned).
+   * Strategy:
+   *  1) Compute SCCs (only SCCs with ≥2 nodes or a self-loop can contain cycles).
+   *  2) For each such SCC, enumerate elementary cycles using Johnson’s algorithm
+   *     restricted to the SCC’s subgraph (to avoid duplicates and reduce cost).
+   *  3) From all discovered cycles, select a maximal disjoint subset by greedy
+   *     choice (longest-first), as required by the refinement step.
+   *  4) For each selected cycle, compute:
+   *       - transitions: IDs of LTS edges whose source and target are both in the cycle
+   *       - exitTransitions: IDs of LTS edges that leave the cycle’s node set
+   *
+   * :return : of objects.
+   * :return: Array<{ nodes: string[], transitions: Set<string>, exitTransitions: Set<string> }>
+   */
   findMaximalDisjointCycles() {
-    const sccs = this.findStronglyConnectedComponents();
-    const cycles = [];
+    // --- Build adjacency lists once ---
+    const adj = new Map(); // nodeId -> nodeId[]
+    const selfLoop = new Set(); // nodes with an explicit self-loop edge
 
-    for (const scc of sccs) {
-      if (scc.length > 1) {
-        // This is a non-trivial SCC (cycle)
-        const cycle = {
-          nodes: scc,
-          transitions: new Set(),
-          exitTransitions: new Set()
-        };
+    for (const [nid, node] of this.nodes) {
+      const outs = [];
+      for (const eid of node.outgoingEdges || []) {
+        const e = this.edges.get(eid);
+        if (!e) continue;
+        outs.push(e.target);
+        if (e.target === nid) selfLoop.add(nid);
+      }
+      adj.set(nid, outs);
+    }
 
-        // Find transitions within the cycle
-        for (const nodeId of scc) {
-          const node = this.nodes.get(nodeId);
-          for (const edgeId of node.outgoingEdges) {
-            const edge = this.edges.get(edgeId);
-            if (scc.includes(edge.target)) {
-              cycle.transitions.add(edge.transition);
-            } else {
-              cycle.exitTransitions.add(edge.transition);
+    // --- Helper: subgraph induced by a set of nodes ---
+    const inducedAdj = (nodeSet) => {
+      const sub = new Map();
+      for (const n of nodeSet) {
+        const outs = (adj.get(n) || []).filter((t) => nodeSet.has(t));
+        sub.set(n, outs);
+      }
+      return sub;
+    };
+
+    // --- Johnson’s algorithm for elementary cycles on a directed graph (restricted to subgraph) ---
+    const elementaryCycles = (subNodesSet) => {
+      const nodesArr = Array.from(subNodesSet);
+      // Sort for stable iteration order
+      nodesArr.sort((a, b) => String(a).localeCompare(String(b)));
+
+      const subAdj0 = inducedAdj(subNodesSet);
+
+      const unblock = (u, blocked, B) => {
+        if (!blocked.has(u)) return;
+        blocked.delete(u);
+        const Bu = B.get(u) || new Set();
+        B.set(u, new Set());
+        for (const w of Bu) unblock(w, blocked, B);
+      };
+
+      const cycles = [];
+      const stack = [];
+
+      // We follow the original scheme: for each start index s, work on the
+      // subgraph induced by nodes >= s (by position in nodesArr).
+      for (let sIdx = 0; sIdx < nodesArr.length; sIdx++) {
+        const start = nodesArr[sIdx];
+        const allowed = new Set(nodesArr.slice(sIdx));
+        const subAdj = inducedAdj(allowed);
+
+        const blocked = new Set();
+        const B = new Map();
+        for (const v of allowed) B.set(v, new Set());
+        stack.length = 0;
+
+        const circuit = (v, startV) => {
+          let foundCycle = false;
+          stack.push(v);
+          blocked.add(v);
+
+          for (const w of subAdj.get(v) || []) {
+            if (w === startV) {
+              // Found an elementary cycle (copy stack)
+              cycles.push([...stack]);
+              foundCycle = true;
+            } else if (!blocked.has(w)) {
+              if (circuit(w, startV)) foundCycle = true;
             }
           }
-        }
 
-        cycles.push(cycle);
+          if (foundCycle) {
+            unblock(v, blocked, B);
+          } else {
+            for (const w of subAdj.get(v) || []) {
+              const Bw = B.get(w);
+              if (Bw) Bw.add(v);
+            }
+          }
+
+          stack.pop();
+          return foundCycle;
+        };
+
+        circuit(start, start);
+      }
+
+      // Deduplicate cycles up to rotation (normalize by lexicographically minimal rotation)
+      const normKey = (cyc) => {
+        const m = cyc.length;
+        let best = null;
+        for (let i = 0; i < m; i++) {
+          const rot = [...cyc.slice(i), ...cyc.slice(0, i)];
+          const key = rot.join("->");
+          if (best === null || key < best) best = key;
+        }
+        return best;
+      };
+      const seen = new Set();
+      const uniq = [];
+      for (const c of cycles) {
+        if (c.length === 1) {
+          // keep single-node cycle only if explicit self-loop exists
+          if (!selfLoop.has(c[0])) continue;
+        }
+        const k = normKey(c);
+        if (!seen.has(k)) {
+          seen.add(k);
+          uniq.push(c);
+        }
+      }
+      return uniq;
+    };
+
+    // --- Find SCCs and enumerate cycles per SCC ---
+    const sccs = this.findStronglyConnectedComponents();
+    const allCycles = [];
+    for (const comp of sccs) {
+      if (comp.length > 1) {
+        for (const cyc of elementaryCycles(new Set(comp))) {
+          allCycles.push(cyc);
+        }
+      } else if (comp.length === 1 && selfLoop.has(comp[0])) {
+        // Single-node SCC with a self-loop is a valid cycle
+        allCycles.push([comp[0]]);
       }
     }
 
-    return cycles;
+    if (allCycles.length === 0) return [];
+
+    // --- Select a maximal disjoint subset (greedy, longest-first) ---
+    allCycles.sort(
+      (a, b) => b.length - a.length || a.join().localeCompare(b.join())
+    );
+    const used = new Set();
+    const selected = [];
+
+    const disjointWithUsed = (cycle) => cycle.every((n) => !used.has(n));
+
+    for (const cyc of allCycles) {
+      if (!disjointWithUsed(cyc)) continue;
+      selected.push(cyc);
+      for (const n of cyc) used.add(n);
+    }
+
+    // --- Build cycle descriptors with transitions and exitTransitions ---
+    const result = [];
+    for (const cyc of selected) {
+      const nodeSet = new Set(cyc);
+      const transitions = new Set();
+      const exitTransitions = new Set();
+
+      // Collect transitions on edges inside the cycle, and exits leaving it
+      for (const nid of cyc) {
+        const node = this.nodes.get(nid);
+        if (!node) continue;
+        for (const eid of node.outgoingEdges || []) {
+          const e = this.edges.get(eid);
+          if (!e) continue;
+          if (nodeSet.has(e.target)) {
+            transitions.add(String(e.transition));
+          } else {
+            exitTransitions.add(String(e.transition));
+          }
+        }
+      }
+
+      result.push({
+        nodes: [...nodeSet],
+        transitions,
+        exitTransitions,
+      });
+    }
+
+    return result;
   }
 
   getReachableNodes(startNodeId) {
     const visited = new Set();
     const queue = [startNodeId];
-    
+
     while (queue.length > 0) {
       const nodeId = queue.shift();
       if (visited.has(nodeId)) continue;
-      
+
       visited.add(nodeId);
       const node = this.nodes.get(nodeId);
-      
+
       for (const edgeId of node.outgoingEdges) {
         const edge = this.edges.get(edgeId);
         if (!visited.has(edge.target)) {
@@ -626,7 +1001,7 @@ class LabeledTransitionSystem {
         }
       }
     }
-    
+
     return Array.from(visited);
   }
 }
@@ -647,13 +1022,13 @@ class DPNRefinementEngine {
 
     while (refined && iteration < maxIterations) {
       console.log(`Refinement iteration ${iteration + 1}`);
-      
+
       // Step 1: Construct LTS for current DPN
       const lts = await this.constructLTS(currentDPN);
-      
+
       // Step 2: Find maximal disjoint cycles
       const cycles = lts.findMaximalDisjointCycles();
-      
+
       if (cycles.length === 0) {
         console.log("No cycles found, refinement complete");
         break;
@@ -661,7 +1036,7 @@ class DPNRefinementEngine {
 
       // Step 3: Refine transitions
       const refinedDPN = await this.refineTransitions(currentDPN, cycles, lts);
-      
+
       // Check if any refinement occurred
       refined = this.hasRefinementOccurred(currentDPN, refinedDPN);
       currentDPN = refinedDPN;
@@ -672,47 +1047,156 @@ class DPNRefinementEngine {
     return currentDPN;
   }
 
+  /**
+   * Canonicalize a constraint formula using Z3 simplification.
+   *
+   * :param formula: Raw SMT-LIB (or infix already normalized upstream).
+   * :return : of objects.
+   * :return: Canonical SMT-LIB string ("true"/"false" or simplified).
+   */
+  async canonicalizeFormula(formula) {
+    const f = String(formula || "true").trim() || "true";
+    if (f === "true" || f === "false") {
+      return f;
+    }
+    try {
+      await Z3Solver.initialize();
+      const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
+      const astVec = _z3.parse_smtlib2_string(
+        _context,
+        buildScript(f),
+        [],
+        [],
+        [],
+        []
+      );
+      
+      const vecSize = _z3.ast_vector_size(_context, astVec);
+      console.log(`Canonicalizing formula: ${f} (size: ${vecSize})`, astVec);
+      if (vecSize === 0) return "true"; // empty input means true
+      
+      const goal = _z3.mk_goal(_context, true, false, false);
+      for (let i = 0; i < vecSize; i++) {
+        _z3.goal_assert(
+          _context,
+          goal,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
+      }
+      const apply = async (g, name) => {
+        const t = _z3.mk_tactic(_context, name);
+        
+        const r = await _z3.tactic_apply(_context, t, g);
+
+        const n = _z3.apply_result_get_num_subgoals(_context, r);
+        return n === 0 ? g : _z3.apply_result_get_subgoal(_context, r, 0);
+      };
+      let g = await apply(goal, "simplify");
+      g = await apply(g, "solve-eqs");
+      g = await apply(g, "propagate-values");
+      const sz = _z3.goal_size(_context, g);
+      if (sz === 0) return "true";
+      if (sz === 1)
+        return _z3
+          .ast_to_string(_context, _z3.goal_formula(_context, g, 0))
+          .replace(/\s+/g, " ")
+          .trim();
+      const parts = [];
+      for (let i = 0; i < sz; i++)
+        parts.push(
+          _z3.ast_to_string(_context, _z3.goal_formula(_context, g, i))
+        );
+      return `(and ${parts.join(" ")})`.replace(/\s+/g, " ").trim();
+    } catch {
+      return f.replace(/\s+/g, " ").trim();
+    }
+  }
+
+  /**
+   * Logical equivalence check for formulas over the same variable set.
+   *
+   * :param f1: First formula.
+   * :param f2: Second formula.
+   * :return : of objects.
+   * :return: Whether f1 ⇔ f2.
+   */
+  async equivalentFormulas(f1, f2) {
+    const a = String(f1 || "true").trim() || "true";
+    const b = String(f2 || "true").trim() || "true";
+    if (a === b) return true;
+    const sat1 = await Z3Solver.isSatisfiable(`(and ${a} (not ${b}))`);
+    if (sat1) return false;
+    const sat2 = await Z3Solver.isSatisfiable(`(and ${b} (not ${a}))`);
+    return !sat2;
+  }
+
+  /**
+   * Construct LTS (Algorithm 2), merging states up to logical equivalence of constraints.
+   * Nodes are ⟨marking, φ⟩ where φ is canonicalized. Edges labeled by transition ids.
+   *
+   * :param dpn: Normalized DPN.
+   * :return : of objects.
+   * :return: LabeledTransitionSystem instance.
+   */
   async constructLTS(dpn) {
     const lts = new LabeledTransitionSystem();
+    const maxNodes = 5000;
+
+    // Initial state (canonicalized)
+    const initM = this.getInitialMarking(dpn);
+    const initF = await this.canonicalizeFormula(this.getInitialFormula(dpn));
+    const initId = lts.addNode(initM, initF);
+
+    // Indices
+    const queue = [initId];
     const processed = new Set();
-    const queue = [];
+    const byMarking = new Map(); // markingKey -> nodeId[]
+    const markingKey = (M) =>
+      Object.entries(M)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join(",");
 
-    // Create initial state
-    const initialMarking = this.getInitialMarking(dpn);
-    const initialFormula = this.getInitialFormula(dpn);
-    const initialNodeId = lts.addNode(initialMarking, initialFormula);
-    
-    queue.push(initialNodeId);
+    byMarking.set(markingKey(initM), [initId]);
 
-    while (queue.length > 0) {
-      const currentNodeId = queue.shift();
-      const stateKey = this.getStateKey(lts.nodes.get(currentNodeId));
-      
-      if (processed.has(stateKey)) continue;
-      processed.add(stateKey);
+    while (queue.length && lts.nodes.size < maxNodes) {
+      const nid = queue.shift();
+      const node = lts.nodes.get(nid);
+      const keyHere = this.getStateKey(node);
+      if (processed.has(keyHere)) continue;
+      processed.add(keyHere);
 
-      const currentNode = lts.nodes.get(currentNodeId);
-      
-      // Try firing each transition
-      for (const transition of dpn.transitions) {
-        const successorState = await this.computeSuccessorState(
-          currentNode.marking, 
-          currentNode.formula, 
-          transition,
+      for (const t of dpn.transitions || []) {
+        const succ = await this.computeSuccessorState(
+          node.marking,
+          node.formula,
+          t,
           dpn
         );
+        if (!succ) continue;
+        if (!(await Z3Solver.isSatisfiable(succ.formula))) continue;
 
-        if (successorState && await this.isSatisfiable(successorState.formula)) {
-          // Check if this state already exists
-          let targetNodeId = this.findExistingNode(lts, successorState);
-          
-          if (!targetNodeId) {
-            targetNodeId = lts.addNode(successorState.marking, successorState.formula);
-            queue.push(targetNodeId);
+        // Canonicalize successor constraint
+        succ.formula = await this.canonicalizeFormula(succ.formula);
+
+        // Try to reuse an existing node with same marking and equivalent φ
+        const mkey = markingKey(succ.marking);
+        let targetId = null;
+        const candIds = byMarking.get(mkey) || [];
+        for (const cid of candIds) {
+          const cnode = lts.nodes.get(cid);
+          if (await this.equivalentFormulas(cnode.formula, succ.formula)) {
+            targetId = cid;
+            break;
           }
-
-          lts.addEdge(currentNodeId, targetNodeId, transition.id);
         }
+        if (!targetId) {
+          targetId = lts.addNode(succ.marking, succ.formula);
+          if (!byMarking.has(mkey)) byMarking.set(mkey, []);
+          byMarking.get(mkey).push(targetId);
+          queue.push(targetId);
+        }
+        lts.addEdge(nid, targetId, t.id);
       }
     }
 
@@ -727,248 +1211,626 @@ class DPNRefinementEngine {
 
     // Compute new marking
     const newMarking = this.computeNewMarking(marking, transition, dpn);
-    
+
     // Compute new formula using ⊕ operation (Algorithm 1 from paper)
     const newFormula = await this.computeNewFormula(formula, transition, dpn);
 
     return {
       marking: newMarking,
-      formula: newFormula
+      formula: newFormula,
     };
   }
 
-async computeNewFormula(stateFormula, transition, dpn) {
-  const getSortOf = (name) => {
-    const dv = (dpn.dataVariables || []).find(v => (v.name || v.id) === name);
-    const t = (dv && (dv.type || '').toLowerCase()) || 'real';
-    if (t === 'int' || t === 'integer') return 'Int';
-    if (t === 'bool' || t === 'boolean') return 'Bool';
-    return 'Real';
-  };
+  /**
+   * Compute successor-state constraint φ ⊕ t (Algorithm 1, paper-aligned).
+   * Steps:
+   *  1) Partition variables into reads (suffix _r) and writes (suffix _w) for transition t:
+   *       - In φ (stateFormula) and pre(t): v  → v_r
+   *       - In post(t): v' → v_w, unprimed v on RHS → v_r
+   *  2) Build body := pre_r ∧ post_rw ∧ φ_r
+   *  3) Existentially quantify W := { v_w | v is written by t }:
+   *       ψ := ∃ W . body
+   *  4) Quantifier elimination (QE) to stay within the image-closed fragment Φ
+   *  5) Project back to base variable names by dropping _r/_w suffixes
+   *  6) Canonicalize/simplify the result; if UNSAT at any step, return "false"
+   *
+   * :param stateFormula: Current node’s constraint φ over base variables.
+   * :param transition:   Transition object { precondition, postcondition, ... }.
+   * :param dpn:          Normalized DPN with dataVariables [{id,name,type},...].
+   * :return : of objects.
+   * :return: SMT-LIB formula string for successor state constraint.
+   */
+  async computeNewFormula(stateFormula, transition, dpn) {
+    // ---- Helpers -------------------------------------------------------------
 
-  const toPrefixArithmetic = (s) => {
-    let out = s;
+    const dataVars = Array.isArray(dpn.dataVariables) ? dpn.dataVariables : [];
+    const varNames = dataVars.map((v) => String(v.name || v.id));
+    const nameSet = new Set(varNames);
 
-    // Normalize boolean ops first (binary only, shallow). Repeat to catch chains.
-    const binBool = [
-      { re: /([^()\s][^()]*?)\s*\|\|\s*([^()\s][^()]*)/ },
-      { re: /([^()\s][^()]*?)\s*&&\s*([^()\s][^()]*)/ }
-    ];
-    let guard = 0;
-    while (guard++ < 8) {
-      const before = out;
-      out = out
-        .replace(/([^()\s][^()]*?)\s*\|\|\s*([^()\s][^()]*)/g, '(or $1 $2)')
-        .replace(/([^()\s][^()]*?)\s*&&\s*([^()\s][^()]*)/g, '(and $1 $2)');
-      if (out === before) break;
-    }
+    const getSortOf = (name) => {
+      const dv = dataVars.find((v) => (v.name || v.id) === name);
+      const t = (dv && (dv.type || "").toLowerCase()) || "real";
+      if (t === "int" || t === "integer") return "Int";
+      if (t === "bool" || t === "boolean") return "Bool";
+      return "Real";
+    };
 
-    // Unary not over infix atoms like (not x<0) or not x<0
-    out = out.replace(/\(?\s*not\s+([A-Za-z_][\w]*\s*(?:=|<=|>=|<|>)\s*[^()\s]+)\s*\)?/g, '(not $1)');
+    const escapeReg = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Arithmetic: iteratively rewrite infix +, -, *, /
-    const binArith = [
-      { op: '+', re: /([^()\s]+)\s*\+\s*([^()\s]+)/g, tpl: '(+ $1 $2)' },
-      { op: '-', re: /([^()\s]+)\s*-\s*([^()\s]+)/g, tpl: '(- $1 $2)' },
-      { op: '*', re: /([^()\s]+)\s*\*\s*([^()\s]+)/g, tpl: '(* $1 $2)' },
-      { op: '\/', re: /([^()\s]+)\s*\/\s*([^()\s]+)/g, tpl: '(/ $1 $2)' }
-    ];
-    for (let k = 0; k < 8; k++) {
-      let changed = false;
-      for (const r of binArith) {
-        const tmp = out.replace(r.re, r.tpl);
-        if (tmp !== out) {
-          out = tmp;
-          changed = true;
+    // Replace whole-word occurrences of a base variable with a mapper; preserves already suffixed names.
+    const mapVars = (s, mapper) => {
+      let r = ` ${String(s || "")} `;
+      // Protect already-suffixed tokens (_r/_w)
+      for (const v of varNames) {
+        const tokR = `__TOK_${v}_r__`;
+        const tokW = `__TOK_${v}_w__`;
+        r = r.replace(new RegExp(`\\b${escapeReg(v)}_r\\b`, "g"), tokR);
+        r = r.replace(new RegExp(`\\b${escapeReg(v)}_w\\b`, "g"), tokW);
+      }
+      // Map bare names
+      for (const v of varNames) {
+        r = r.replace(new RegExp(`\\b${escapeReg(v)}\\b`, "g"), mapper(v));
+      }
+      // Restore protected tokens
+      for (const v of varNames) {
+        const tokR = `__TOK_${v}_r__`;
+        const tokW = `__TOK_${v}_w__`;
+        r = r.replace(new RegExp(tokR, "g"), `${v}_r`);
+        r = r.replace(new RegExp(tokW, "g"), `${v}_w`);
+      }
+      return r.trim();
+    };
+
+    // Minimal infix → SMT prefix for boolean/arithmetic (kept consistent with the generator)
+    const toPrefix = (expr) => {
+      const e0 = String(expr || "").trim();
+      if (!e0) return "true";
+      let e = e0
+        .replace(/\bAND\b/gi, "and")
+        .replace(/\bOR\b/gi, "or")
+        .replace(/\bNOT\b/gi, "not")
+        .replace(/\|\|/g, "or")
+        .replace(/&&/g, "and");
+
+      // Parenthesis-safe split utility
+      const splitTop = (s, op) => {
+        const parts = [];
+        let depth = 0,
+          cur = [];
+        const toks = s.split(/\s+/);
+        for (const t of toks) {
+          for (const ch of t) {
+            if (ch === "(") depth++;
+            else if (ch === ")") depth--;
+          }
+          if (depth === 0 && t === op) {
+            parts.push(cur.join(" ").trim());
+            cur = [];
+          } else cur.push(t);
+        }
+        const last = cur.join(" ").trim();
+        if (last) parts.push(last);
+        return parts;
+      };
+
+      const rec = (s) => {
+        const t = s.trim();
+        if (!t) return "true";
+        if (t.startsWith("(") && t.endsWith(")"))
+          return `(${rec(t.slice(1, -1))})`;
+        const a = splitTop(t, "and");
+        if (a.length > 1) return `(and ${a.map(rec).join(" ")})`;
+        const o = splitTop(t, "or");
+        if (o.length > 1) return `(or ${o.map(rec).join(" ")})`;
+        if (t.startsWith("not ")) return `(not ${rec(t.slice(4))})`;
+        const m = t.match(/^(.+?)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
+        if (m) {
+          const op = m[2] === "!=" ? "distinct" : m[2];
+          const L = rec(m[1]),
+            R = rec(m[3]);
+          return op === "distinct"
+            ? `(distinct ${L} ${R})`
+            : `(${op} ${L} ${R})`;
+        }
+        // Arithmetic shims: a+b, a-b, a*b, a/b (greedy, not fully general)
+        const ar = t
+          .replace(/([^()\s]+)\s*\+\s*([^()\s]+)/g, "(+ $1 $2)")
+          .replace(/([^()\s]+)\s*-\s*([^()\s]+)/g, "(- $1 $2)")
+          .replace(/([^()\s]+)\s*\*\s*([^()\s]+)/g, "(* $1 $2)")
+          .replace(/([^()\s]+)\s*\/\s*([^()\s]+)/g, "(/ $1 $2)");
+        return ar.startsWith("(") ? ar : `(${ar})`;
+      };
+
+      const res = rec(e).replace(/\s+/g, " ").trim();
+      return res || "true";
+    };
+
+    // Written variables of t (appear as v' or explicitly as *_w)
+    const writtenOf = (post) => {
+      const set = new Set();
+      const s = String(post || "");
+      for (const v of varNames) {
+        if (
+          new RegExp(`\\b${escapeReg(v)}\\s*'\\b`).test(s) ||
+          new RegExp(`\\b${escapeReg(v)}_w\\b`).test(s)
+        ) {
+          set.add(v);
         }
       }
-      if (!changed) break;
-    }
+      return set;
+    };
 
-    // Comparisons and equality (catch compact forms like x_r<0 and spaced forms)
-    out = out
-      .replace(/([A-Za-z_][\w]*)\s*<=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g, '(<= $1 $2)')
-      .replace(/([A-Za-z_][\w]*)\s*>=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g, '(>= $1 $2)')
-      .replace(/([A-Za-z_][\w]*)\s*<\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,  '(< $1 $2)')
-      .replace(/([A-Za-z_][\w]*)\s*>\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,  '(> $1 $2)')
-      .replace(/([A-Za-z_][\w]*)\s*=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w\(\)\/\*\+\-]+)/g, '(= $1 $2)');
+    // Project suffixes back to base names
+    const dropSuffixes = (s) => {
+      let r = String(s || "true");
+      // Remove _r/_w only for known variables
+      for (const v of varNames) {
+        r = r.replace(new RegExp(`\\b${escapeReg(v)}_(?:r|w)\\b`, "g"), v);
+      }
+      return r;
+    };
 
-    // Clean extra spaces around parentheses
-    out = out.replace(/\s+/g, ' ').trim();
-    return out;
-  };
+    // Quick UNSAT check
+    const isFalse = async (f) => !(await Z3Solver.isSatisfiable(f));
 
-  const normalizePre = (expr) => {
-    if (!expr) return '';
-    let s = String(expr).trim();
+    // ---- 1) Normalize pieces to read/write spaces --------------------------------
 
-    // Map base variables to read copy: x -> x_r (word boundary)
-    for (const v of (dpn.dataVariables || [])) {
-      const name = v.name || v.id;
-      s = s.replace(new RegExp(`\\b${name}\\b`, 'g'), `${name}_r`);
-    }
+    const phi_r = toPrefix(mapVars(stateFormula || "true", (v) => `${v}_r`));
 
-    // Convert common infix into prefix
-    s = toPrefixArithmetic(s);
-
-    // If it already looks like a parenthesized formula, leave as-is; else wrap
-    if (!s.startsWith('(')) s = `(${s})`;
-    return s;
-  };
-
-  const normalizePost = (expr) => {
-    if (!expr) return '';
-    let s = String(expr).trim();
-
-    // 1) Primed -> write copy
-    s = s.replace(/([A-Za-z_][\w]*)'/g, '$1_w');
-
-    // 2) Unprimed occurrences refer to old values on RHS: map base names to _r
-    for (const v of (dpn.dataVariables || [])) {
-      const name = v.name || v.id;
-      // Avoid touching already-suffixed names (_r/_w)
-      s = s.replace(new RegExp(`\\b${name}\\b`, 'g'), `${name}_r`);
-      s = s.replace(new RegExp(`\\b${name}_(?:r|w)\\b`, 'g'), (m) => m); // no-op, for clarity
-    }
-
-    // 3) Convert infix to prefix, including "x_w=10" etc.
-    s = toPrefixArithmetic(s);
-
-    if (!s.startsWith('(')) s = `(${s})`;
-    return s;
-  };
-
-  // Step 1: convert state formula’s free occurrences to read space and fix trivial infix (= without parens)
-  let extendedStateFormula = String(stateFormula || '').trim();
-  for (const v of (dpn.dataVariables || [])) {
-    const name = v.name || v.id;
-    extendedStateFormula = extendedStateFormula.replace(new RegExp(`\\b${name}\\b`, 'g'), `${name}_r`);
-  }
-  // Patch common malformed "x_prime=10" or "x_r<0" inside the state formula
-  extendedStateFormula = extendedStateFormula
-    .replace(/([A-Za-z_][\w]*)_prime\s*=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g, '(= $1_prime $2)')
-    .replace(/([A-Za-z_][\w]*)_r\s*([<>]=?)\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g, '($2 $1_r $3)');
-
-  // Step 2: normalize transition constraints
-  const preSMT  = normalizePre(transition.precondition || '');
-  const postSMT = normalizePost(transition.postcondition || '');
-
-  // Build (and ...) only with non-empty parts
-  const parts = [extendedStateFormula, preSMT, postSMT].filter(s => s && s.length > 0);
-  const combinedFormula = parts.length === 1 ? parts[0] : `(and ${parts.join(' ')})`;
-
-  // Step 3: Identify written variables (expects base names, e.g., "x")
-  const writtenVars = this.getWrittenVariables(transition, dpn) || [];
-
-  // Step 4: Existentially quantify written variables with correct sorts
-  let resultFormula = combinedFormula;
-  if (writtenVars.length > 0) {
-    const quantifiedVars = writtenVars
-      .map(v => `(${v}_w ${getSortOf(v)})`)
-      .join(' ');
-    const existential = `(exists (${quantifiedVars}) ${combinedFormula})`;
-    resultFormula = await this.eliminateQuantifiers(existential);
-  }
-
-  // Step 5: Convert back to state constraint language (drop _r/_w with safe word boundaries)
-  for (const v of (dpn.dataVariables || [])) {
-    const name = v.name || v.id;
-    resultFormula = resultFormula.replace(new RegExp(`\\b${name}_(?:r|w)\\b`, 'g'), name);
-  }
-
-  return resultFormula;
-}
-
-
-  async refineTransitions(dpn, cycles, lts) {
-    const refinedDPN = this.cloneDPN(dpn);
-    const newTransitions = [];
-
-    for (const transition of dpn.transitions) {
-      const refinedTransitionsForT = await this.refineTransition(transition, cycles, dpn);
-      newTransitions.push(...refinedTransitionsForT);
-    }
-
-    refinedDPN.transitions = newTransitions;
-    return refinedDPN;
-  }
-
-  async refineTransition(transition, cycles, dpn) {
-    // Find cycles containing this transition
-    const containingCycles = cycles.filter(cycle => 
-      cycle.transitions.has(transition.id)
+    // precondition: all reads → _r
+    const pre_r = toPrefix(
+      mapVars(transition.precondition || "true", (v) => `${v}_r`)
     );
 
-    if (containingCycles.length === 0) {
-      return [transition]; // No refinement needed
+    // postcondition: v' → v_w ; bare v (on RHS) → v_r
+    let post_rw = String(transition.postcondition || "").trim();
+    // Replace primed occurrences first
+    for (const v of varNames) {
+      post_rw = post_rw.replace(
+        new RegExp(`\\b${escapeReg(v)}\\s*'\\b`, "g"),
+        `${v}_w`
+      );
+    }
+    // Then map bare names to _r
+    post_rw = toPrefix(mapVars(post_rw, (v) => `${v}_r`));
+
+    // ---- 2) Compose body ----------------------------------------------------------
+
+    const body_rw = `(and ${pre_r} ${post_rw} ${phi_r})`;
+
+    // ---- 3) Existentially quantify writes W --------------------------------------
+
+    const W = Array.from(writtenOf(transition.postcondition));
+    let psi_rw = body_rw;
+    if (W.length > 0) {
+      const binders = W.map((v) => `(${v}_w ${getSortOf(v)})`).join(" ");
+      psi_rw = `(exists (${binders}) ${body_rw})`;
     }
 
-    const refinedTransitions = [];
+    // ---- 4) QE --------------------------------------------------------------------
 
-    // Get all exit transitions from containing cycles
-    const exitTransitions = new Set();
-    for (const cycle of containingCycles) {
-      for (const exitTrans of cycle.exitTransitions) {
-        exitTransitions.add(exitTrans);
+    let qe;
+    try {
+      qe = await this.eliminateQuantifiers(psi_rw);
+    } catch (_e) {
+      // Fallback: keep non-quantified body (sound under-approx for successor enabling)
+      qe = body_rw;
+    }
+
+    // ---- 5) Project back to base names -------------------------------------------
+
+    let phi_next = dropSuffixes(qe);
+
+    // ---- 6) Canonicalize & final sanity ------------------------------------------
+
+    phi_next = await this.canonicalizeFormula(phi_next);
+
+    if (await isFalse(phi_next)) return "false";
+    return phi_next;
+  }
+
+  /**
+   * Refine all transitions according to Algorithm 4 (Suvorov–Lomazova).
+   * - For each transition t that belongs to at least one maximal disjoint cycle,
+   *   collect exit transitions of those cycles.
+   * - Build a disjoint partition of exit predicates (evaluated AFTER t fires).
+   * - For each case, compute a precondition over the current state:
+   *     ∃W(t).( pre_t(r) ∧ post_t(r,w) ∧ case_after_t(r,w) )
+   *   using quantifier elimination, then create a refined copy tr with that pre,
+   *   keeping post_t unchanged.
+   * - Duplicate all arcs incident to t to each refined copy, then remove t.
+   *
+   * @param {Object} dpn
+   * @param {Array<{nodes:string[], transitions:Set<string>, exitTransitions:Set<string>}>} cycles
+   * @param {LabeledTransitionSystem} lts
+   * @returns {Promise<Object>} refined DPN (N_R)
+   */
+  async refineTransitions(dpn, cycles, lts) {
+    this.logStep("Refinement", "Starting Algorithm 4 refinement over cycles");
+
+    const dpnR = this.cloneDPN(dpn);
+    const inCycle = new Set();
+    const exitsByInCycle = new Map(); // t.id -> Set(exitTransitionId)
+
+    // Collect which transitions are inside cycles and their exit transitions
+    for (const c of cycles || []) {
+      for (const tid of c.transitions || []) {
+        inCycle.add(tid);
+        if (!exitsByInCycle.has(tid)) exitsByInCycle.set(tid, new Set());
+        for (const eid of c.exitTransitions || []) {
+          exitsByInCycle.get(tid).add(eid);
+        }
       }
     }
 
-    if (exitTransitions.size === 0) {
-      return [transition]; // No exit transitions, no refinement
+    const newTransitions = [];
+    const newArcs = [];
+
+    // Pre-index arcs by source/target for efficient rewiring
+    const arcsIn = new Map(); // t.id -> [arc objects where arc.target === t.id]
+    const arcsOut = new Map(); // t.id -> [arc objects where arc.source === t.id]
+    for (const a of dpnR.arcs || []) {
+      if (a.target && inCycle.has(a.target)) {
+        if (!arcsIn.has(a.target)) arcsIn.set(a.target, []);
+        arcsIn.get(a.target).push(a);
+      }
+      if (a.source && inCycle.has(a.source)) {
+        if (!arcsOut.has(a.source)) arcsOut.set(a.source, []);
+        arcsOut.get(a.source).push(a);
+      }
     }
 
-    // Create refined transitions based on exit conditions
-    for (const exitTransId of exitTransitions) {
-      const exitTransition = dpn.transitions.find(t => t.id === exitTransId);
-      if (!exitTransition) continue;
+    const transById = new Map(
+      (dpnR.transitions || []).map((t) => [String(t.id), t])
+    );
 
-      // Create positive and negative refinements
-      const positiveRefinement = this.createRefinedTransition(
-        transition, 
-        exitTransition, 
-        true, 
-        dpn
-      );
-      const negativeRefinement = this.createRefinedTransition(
-        transition, 
-        exitTransition, 
-        false, 
-        dpn
+    for (const t of dpnR.transitions || []) {
+      const tid = String(t.id);
+      if (!inCycle.has(tid)) {
+        // Not refined; keep as is
+        newTransitions.push(t);
+        // Keep its arcs
+        for (const a of dpnR.arcs || []) {
+          if (a.source === tid || a.target === tid) newArcs.push(a);
+        }
+        continue;
+      }
+
+      // Gather exit transitions for cycles containing t
+      const exitIds = Array.from(exitsByInCycle.get(tid) || []);
+      const exitTransitions = exitIds
+        .map((id) => transById.get(id))
+        .filter((x) => !!x);
+
+      // If no exits, keep t unchanged
+      if (exitTransitions.length === 0) {
+        newTransitions.push(t);
+        for (const a of dpnR.arcs || []) {
+          if (a.source === tid || a.target === tid) newArcs.push(a);
+        }
+        continue;
+      }
+
+      // Produce refined copies R(t)
+      const refinedCopies = await this.refineTransition(
+        t,
+        exitTransitions,
+        dpnR
       );
 
-      refinedTransitions.push(positiveRefinement, negativeRefinement);
+      // If refinement failed or empty, keep original t
+      if (!refinedCopies || refinedCopies.length === 0) {
+        newTransitions.push(t);
+        for (const a of dpnR.arcs || []) {
+          if (a.source === tid || a.target === tid) newArcs.push(a);
+        }
+        continue;
+      }
+
+      // Duplicate arcs to each refined copy and drop arcs of t
+      const inArcs =
+        arcsIn.get(tid) || (dpnR.arcs || []).filter((a) => a.target === tid);
+      const outArcs =
+        arcsOut.get(tid) || (dpnR.arcs || []).filter((a) => a.source === tid);
+
+      for (let i = 0; i < refinedCopies.length; i++) {
+        const tr = refinedCopies[i];
+        newTransitions.push(tr);
+
+        for (const a of inArcs) {
+          newArcs.push({
+            id: `${a.id}__to__${tr.id}`,
+            source: a.source,
+            target: tr.id,
+            weight: a.weight,
+            type: a.type,
+          });
+        }
+        for (const a of outArcs) {
+          newArcs.push({
+            id: `${tr.id}__to__${a.id}`,
+            source: tr.id,
+            target: a.target,
+            weight: a.weight,
+            type: a.type,
+          });
+        }
+      }
     }
 
-    return refinedTransitions.length > 0 ? refinedTransitions : [transition];
+    // Also keep arcs that do not touch any refined transition
+    for (const a of dpnR.arcs || []) {
+      const touchesRefinedSource = inCycle.has(a.source);
+      const touchesRefinedTarget = inCycle.has(a.target);
+      if (!touchesRefinedSource && !touchesRefinedTarget) {
+        newArcs.push(a);
+      }
+    }
+
+    // Rebuild DPN
+    const seenArcIds = new Set();
+    const dedupArcs = [];
+    for (const a of newArcs) {
+      const key = `${a.source}->${a.target}@${a.weight}:${a.type}`;
+      if (seenArcIds.has(key)) continue;
+      seenArcIds.add(key);
+      dedupArcs.push(a);
+    }
+
+    const out = this.cloneDPN(dpnR);
+    out.transitions = newTransitions;
+    out.arcs = dedupArcs;
+
+    this.logStep(
+      "Refinement",
+      `Refinement complete: ${dpnR.transitions.length} → ${out.transitions.length} transitions`
+    );
+    return out;
   }
 
-  createRefinedTransition(originalTransition, exitTransition, isPositive, dpn) {
-    const refinedId = `${originalTransition.id}_refined_${exitTransition.id}_${isPositive ? 'pos' : 'neg'}`;
-    
-    // Extract exit condition and negate if needed
-    let exitCondition = exitTransition.precondition || "true";
-    if (!isPositive) {
-      exitCondition = `(not ${exitCondition})`;
-    }
+  /**
+   * Refine a single transition t using exit predicates of cycles containing t.
+   * Builds a disjoint case partition over the exit predicates evaluated AFTER t.
+   * For each case C, computes:
+   *   pre_ref(C) := QE( ∃W(t). ( pre_t(r) ∧ post_t(r,w) ∧ C(r,w) ) ) projected to base variables,
+   * and creates a refined copy with pre_ref(C) and the same post_t.
+   *
+   * @param {Object} t
+   * @param {Array<Object>} exitTransitions
+   * @param {Object} dpn
+   * @returns {Promise<Array<Object>>}
+   */
+  async refineTransition(t, exitTransitions, dpn) {
+    this.logStep(
+      "Refinement",
+      `Refining transition ${t.id} with ${exitTransitions.length} exit predicate(s)`
+    );
 
-    // Adjust variable references (read -> write for updated variables)
-    const updatedVars = this.getWrittenVariables(originalTransition, dpn);
-    for (const varName of updatedVars) {
-      exitCondition = exitCondition.replace(
-        new RegExp(`\\b${varName}\\b`, 'g'),
-        `${varName}_w`
+    // Helpers pulled from computeNewFormula
+    const getSortOf = (name) => {
+      const dv = (dpn.dataVariables || []).find(
+        (v) => (v.name || v.id) === name
       );
+      const typ = (dv && (dv.type || "").toLowerCase()) || "real";
+      if (typ === "int" || typ === "integer") return "Int";
+      if (typ === "bool" || typ === "boolean") return "Bool";
+      return "Real";
+    };
+
+    const toPrefixArithmetic = (s) => {
+      let out = String(s || "");
+      // boolean chains
+      for (let g = 0; g < 8; g++) {
+        const before = out;
+        out = out
+          .replace(/([^()\s][^()]*?)\s*\|\|\s*([^()\s][^()]*)/g, "(or $1 $2)")
+          .replace(/([^()\s][^()]*?)\s*&&\s*([^()\s][^()]*)/g, "(and $1 $2)");
+        if (out === before) break;
+      }
+      // unary not
+      out = out.replace(
+        /\(?\s*not\s+([A-Za-z_][\w]*\s*(?:=|<=|>=|<|>)\s*[^()\s]+)\s*\)?/g,
+        "(not $1)"
+      );
+      // arithmetic ops
+      const rules = [
+        { re: /([^()\s]+)\s*\+\s*([^()\s]+)/g, tpl: "(+ $1 $2)" },
+        { re: /([^()\s]+)\s*-\s*([^()\s]+)/g, tpl: "(- $1 $2)" },
+        { re: /([^()\s]+)\s*\*\s*([^()\s]+)/g, tpl: "(* $1 $2)" },
+        { re: /([^()\s]+)\s*\/\s*([^()\s]+)/g, tpl: "(/ $1 $2)" },
+      ];
+      for (let k = 0; k < 8; k++) {
+        let changed = false;
+        for (const r of rules) {
+          const tmp = out.replace(r.re, r.tpl);
+          if (tmp !== out) {
+            out = tmp;
+            changed = true;
+          }
+        }
+        if (!changed) break;
+      }
+      // comparisons & equality
+      out = out
+        .replace(
+          /([A-Za-z_][\w]*)\s*<=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(<= $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*>=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(>= $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*<\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(< $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*>\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(> $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w\(\)\/\*\+\-]+)/g,
+          "(= $1 $2)"
+        );
+      return out.trim().startsWith("(") ? out.trim() : `(${out.trim()})`;
+    };
+
+    const normalizePre = (expr) => {
+      if (!expr) return "true";
+      let s = String(expr).trim();
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), `${name}_r`);
+      }
+      return toPrefixArithmetic(s);
+    };
+
+    const normalizePost = (expr) => {
+      if (!expr) return "true";
+      let s = String(expr).trim();
+      s = s.replace(/([A-Za-z_][\w]*)'/g, "$1_w");
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), `${name}_r`);
+      }
+      return toPrefixArithmetic(s);
+    };
+
+    const written = new Set(this.getWrittenVariables(t, dpn) || []);
+
+    const normalizeExitAfterT = (exitPre) => {
+      if (!exitPre || String(exitPre).trim() === "") return "true";
+      let s = String(exitPre).trim();
+      // Map base names to _w if written by t, else to _r
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        const rep = written.has(name) ? `${name}_w` : `${name}_r`;
+        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), rep);
+      }
+      // Any accidental primes in exit go to _w
+      s = s.replace(/([A-Za-z_][\w]*)'/g, "$1_w");
+      return toPrefixArithmetic(s);
+    };
+
+    // Build a disjoint partition of exit predicates (2^n). Guard against blow-up.
+    const MAX_CASES = 64;
+    const predicates = exitTransitions.map((et) =>
+      normalizeExitAfterT(et.precondition || "true")
+    );
+    let cases = ["true"];
+    for (const p of predicates) {
+      const next = [];
+      for (const c of cases) {
+        next.push(c === "true" ? p : `(and ${c} ${p})`);
+        next.push(c === "true" ? `(not ${p})` : `(and ${c} (not ${p}))`);
+      }
+      cases = next;
+      if (cases.length > MAX_CASES) break; // soft cap
     }
 
-    // Combine original constraint with exit condition
-    const originalConstraint = originalTransition.precondition || "true";
-    const combinedPrecondition = `(and ${originalConstraint} ${exitCondition})`;
+    // For each case, compute pre_ref(C) := QE(∃W. pre_r ∧ post_rw ∧ C_rw) → base vars
+    const pre_r = normalizePre(t.precondition || "true");
+    const post_rw = normalizePost(t.postcondition || "true");
 
+    const quantifiedBinder = () => {
+      if (written.size === 0) return "";
+      const binds = Array.from(written)
+        .map((v) => `(${v}_w ${getSortOf(v)})`)
+        .join(" ");
+      return `(exists (${binds}) `;
+    };
+
+    const projectToBase = (s) => {
+      let r = String(s || "true");
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        r = r.replace(new RegExp(`\\b${name}_(?:r|w)\\b`, "g"), name);
+      }
+      return r;
+    };
+
+    // Build refined copies and filter UNSAT / redundant (Flatten)
+    const candidates = [];
+
+    for (let i = 0; i < cases.length; i++) {
+      const c_rw = cases[i];
+      const body = `(and ${pre_r} ${post_rw} ${c_rw})`;
+      const existsOpen = quantifiedBinder();
+      const formulaRW = existsOpen ? `${existsOpen}${body})` : body;
+
+      // QE over writes
+      let preBase;
+      try {
+        const qe = await this.eliminateQuantifiers(formulaRW);
+        preBase = projectToBase(qe);
+      } catch (_e) {
+        // Fallback: keep a conservative precondition
+        preBase = projectToBase(`(and ${pre_r} ${c_rw})`);
+      }
+
+      // Drop clearly malformed outcomes
+      const simplified = preBase.trim() || "true";
+      const isSat = await Z3Solver.isSatisfiable(simplified);
+      if (!isSat) continue;
+
+      candidates.push({
+        idx: i,
+        pre: simplified,
+      });
+    }
+
+    // Flatten: remove redundant cases A implied by some B (if A ⇒ B, drop A)
+    const keep = new Array(candidates.length).fill(true);
+    for (let i = 0; i < candidates.length; i++) {
+      if (!keep[i]) continue;
+      for (let j = 0; j < candidates.length; j++) {
+        if (i === j || !keep[j]) continue;
+        const A = candidates[i].pre;
+        const B = candidates[j].pre;
+        const implies = !(await Z3Solver.isSatisfiable(
+          `(and ${A} (not ${B}))`
+        ));
+        if (implies) {
+          // A is subset of B → prefer the more general one (B); drop A
+          keep[i] = false;
+          break;
+        }
+      }
+    }
+
+    const refined = [];
+    let counter = 0;
+    for (let k = 0; k < candidates.length; k++) {
+      if (!keep[k]) continue;
+      const c = candidates[k];
+      const rid = `${t.id}_refined_case_${counter++}`;
+      refined.push(this.createRefinedTransition(t, c.pre, rid));
+    }
+
+    this.logStep(
+      "Refinement",
+      `Transition ${t.id}: ${refined.length} refined copy(ies)`
+    );
+    return refined.length ? refined : [t];
+  }
+
+  /**
+   * Create a single refined transition with a given precondition.
+   * Keeps the original postcondition, label/priority/delay/position are preserved.
+   *
+   * @param {Object} originalTransition
+   * @param {string} refinedPrecondition
+   * @param {string} newId
+   * @returns {Object}
+   */
+  createRefinedTransition(originalTransition, refinedPrecondition, newId) {
+    const baseLabel = originalTransition.label || originalTransition.id;
     return {
       ...originalTransition,
-      id: refinedId,
-      label: `${originalTransition.label || originalTransition.id}_ref`,
-      precondition: combinedPrecondition
+      id: newId,
+      label: `${baseLabel}_ref`,
+      precondition: refinedPrecondition || "true",
+      postcondition: originalTransition.postcondition || "",
     };
   }
 
@@ -989,26 +1851,130 @@ async computeNewFormula(stateFormula, transition, dpn) {
     const conditions = [];
     for (const variable of dpn.dataVariables || []) {
       const varName = variable.name || variable.id;
-      const value = variable.currentValue !== undefined ? variable.currentValue : 0;
+      const value =
+        variable.currentValue !== undefined ? variable.currentValue : 0;
       conditions.push(`(= ${varName} ${value})`);
     }
-    return conditions.length > 0 ? `(and ${conditions.join(' ')})` : "true";
+    return conditions.length > 0 ? `(and ${conditions.join(" ")})` : "true";
   }
 
+
+  /**
+   * Logical equivalence check for formulas over the same variable set.
+   *
+   * :param f1: First formula.
+   * :param f2: Second formula.
+   * :return : of objects.
+   * :return: Whether f1 ⇔ f2.
+   */
+  async equivalentFormulas(f1, f2) {
+    const a = String(f1 || "true").trim() || "true";
+    const b = String(f2 || "true").trim() || "true";
+    if (a === b) return true;
+    const sat1 = await Z3Solver.isSatisfiable(`(and ${a} (not ${b}))`);
+    if (sat1) return false;
+    const sat2 = await Z3Solver.isSatisfiable(`(and ${b} (not ${a}))`);
+    return !sat2;
+  }
+
+  /**
+   * Construct LTS (Algorithm 2), merging states up to logical equivalence of constraints.
+   * Nodes are ⟨marking, φ⟩ where φ is canonicalized. Edges labeled by transition ids.
+   *
+   * :param dpn: Normalized DPN.
+   * :return : of objects.
+   * :return: LabeledTransitionSystem instance.
+   */
+  async constructLTS(dpn) {
+    const lts = new LabeledTransitionSystem();
+    const maxNodes = 5000;
+
+    // Initial state (canonicalized)
+    const initM = this.getInitialMarking(dpn);
+    const initF = await this.canonicalizeFormula(this.getInitialFormula(dpn));
+    const initId = lts.addNode(initM, initF);
+
+    // Indices
+    const queue = [initId];
+    const processed = new Set();
+    const byMarking = new Map(); // markingKey -> nodeId[]
+    const markingKey = (M) =>
+      Object.entries(M)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join(",");
+
+    byMarking.set(markingKey(initM), [initId]);
+
+    while (queue.length && lts.nodes.size < maxNodes) {
+      const nid = queue.shift();
+      const node = lts.nodes.get(nid);
+      const keyHere = this.getStateKey(node);
+      if (processed.has(keyHere)) continue;
+      processed.add(keyHere);
+
+      for (const t of dpn.transitions || []) {
+        const succ = await this.computeSuccessorState(
+          node.marking,
+          node.formula,
+          t,
+          dpn
+        );
+        if (!succ) continue;
+        if (!(await Z3Solver.isSatisfiable(succ.formula))) continue;
+
+        // Canonicalize successor constraint
+        succ.formula = await this.canonicalizeFormula(succ.formula);
+
+        // Try to reuse an existing node with same marking and equivalent φ
+        const mkey = markingKey(succ.marking);
+        let targetId = null;
+        const candIds = byMarking.get(mkey) || [];
+        for (const cid of candIds) {
+          const cnode = lts.nodes.get(cid);
+          if (await this.equivalentFormulas(cnode.formula, succ.formula)) {
+            targetId = cid;
+            break;
+          }
+        }
+        if (!targetId) {
+          targetId = lts.addNode(succ.marking, succ.formula);
+          if (!byMarking.has(mkey)) byMarking.set(mkey, []);
+          byMarking.get(mkey).push(targetId);
+          queue.push(targetId);
+        }
+        lts.addEdge(nid, targetId, t.id);
+      }
+    }
+
+    return lts;
+  }
+
+  /**
+   * Stable state key used only after canonicalization.
+   *
+   * :param node: LTS node {marking, formula}.
+   * :return : of objects.
+   * :return: Key string.
+   */
   getStateKey(node) {
-
-
-    const markingKey = Object.entries(node.marking)
+    const mk = Object.entries(node.marking)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${k}:${v}`)
-      .join(',');
-    return `${markingKey}|${node.formula}`;
+      .join(",");
+    const ff = String(node.formula || "true")
+      .replace(/\s+/g, " ")
+      .trim();
+    return `${mk}|${ff}`;
   }
 
   isTransitionEnabled(marking, transition, dpn) {
     // Check if all input places have enough tokens
     for (const arc of dpn.arcs || []) {
-      if (arc.target === transition.id && marking[arc.source] < (arc.weight || 1)) {
+      if (
+        arc.target === transition.id &&
+        marking[arc.source] < (arc.weight || 1)
+      ) {
         return false;
       }
     }
@@ -1017,35 +1983,38 @@ async computeNewFormula(stateFormula, transition, dpn) {
 
   computeNewMarking(marking, transition, dpn) {
     const newMarking = { ...marking };
-    
+
     // Remove tokens from input places
     for (const arc of dpn.arcs || []) {
       if (arc.target === transition.id) {
-        newMarking[arc.source] -= (arc.weight || 1);
+        newMarking[arc.source] -= arc.weight || 1;
       }
     }
-    
+
     // Add tokens to output places
     for (const arc of dpn.arcs || []) {
       if (arc.source === transition.id) {
-        newMarking[arc.target] += (arc.weight || 1);
+        newMarking[arc.target] += arc.weight || 1;
       }
     }
-    
+
     return newMarking;
   }
 
   getWrittenVariables(transition, dpn) {
     const written = [];
     const postcondition = transition.postcondition || "";
-    
+
     for (const variable of dpn.dataVariables || []) {
       const varName = variable.name || variable.id;
-      if (postcondition.includes(`${varName}'`) || postcondition.includes(`${varName}_w`)) {
+      if (
+        postcondition.includes(`${varName}'`) ||
+        postcondition.includes(`${varName}_w`)
+      ) {
         written.push(varName);
       }
     }
-    
+
     return written;
   }
 
@@ -1060,10 +2029,14 @@ async computeNewFormula(stateFormula, transition, dpn) {
   }
 
   hasRefinementOccurred(originalDPN, refinedDPN) {
-    return originalDPN.transitions.length !== refinedDPN.transitions.length ||
-           !originalDPN.transitions.every(t1 => 
-             refinedDPN.transitions.some(t2 => t1.id === t2.id && t1.precondition === t2.precondition)
-           );
+    return (
+      originalDPN.transitions.length !== refinedDPN.transitions.length ||
+      !originalDPN.transitions.every((t1) =>
+        refinedDPN.transitions.some(
+          (t2) => t1.id === t2.id && t1.precondition === t2.precondition
+        )
+      )
+    );
   }
 
   async isSatisfiable(formula) {
@@ -1075,31 +2048,37 @@ async computeNewFormula(stateFormula, transition, dpn) {
     }
   }
 
-// Requires globals: `_z3` (Z3 low-level bindings) and `context` (Z3 context).
-
 async eliminateQuantifiers(formula) {
-  const sanitizePrimes = (s) => s.replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, '$1_prime');
-  const sanitized = sanitizePrimes(String(formula || '').trim());
+  const sanitizePrimes = (s) =>
+    s.replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
+  const sanitized = sanitizePrimes(String(formula || "").trim());
+
+  // Handle empty/trivial input early
+  if (!sanitized || sanitized === "true" || sanitized === "false") {
+    console.log({ originalFormula: String(formula || ""), result: sanitized || "true" });
+    return sanitized || "true";
+  }
 
   // --- Syntactic definitional QE: ∃v. (v = t) ∧ φ  ==>  φ[t/v]
   const syntacticDefQE = (input) => {
     let s = input;
-    const existsTop = /^\(\s*exists\s*\(\s*((?:\(\s*[A-Za-z_][\w]*\s+[A-Za-z_][\w]*\s*\)\s*)+)\)\s*(.+)\)$/s;
+    const existsTop =
+      /^\(\s*exists\s*\(\s*((?:\(\s*[A-Za-z_][\w]*\s+[A-Za-z_][\w]*\s*\)\s*)+)\)\s*(.+)\)$/s;
     const bindersRe = /\(\s*([A-Za-z_][\w]*)\s+[A-Za-z_][\w]*\s*\)/g;
 
     const replaceAll = (str, v, rhs) => {
-      const re = new RegExp(`\\b${v}\\b`, 'g');
+      const re = new RegExp(`\\b${v}\\b`, "g");
       return str.replace(re, rhs);
     };
 
     const stripTrueConj = (body) => {
       // Remove trivial (and true X) / (and X true) / nested ands
       let out = body
-        .replace(/\(\s*and\s+true\s+([^)]+)\)/g, '$1')
-        .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, '$1')
-        .replace(/\(\s*and\s+([^)]+)\s*\)/g, '$1')
+        .replace(/\(\s*and\s+true\s+([^)]+)\)/g, "$1")
+        .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, "$1")
+        .replace(/\(\s*and\s+([^)]+)\s*\)/g, "$1")
         .trim();
-      if (out === 'true') return 'true';
+      if (out === "true") return "true";
       return out;
     };
 
@@ -1136,13 +2115,15 @@ async eliminateQuantifiers(formula) {
 
         if (rhs && !new RegExp(`\\b${v}\\b`).test(rhs)) {
           // Substitute and drop the equality conjunct
-          const eqRe = mm[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          body = body.replace(new RegExp(`\\s*${eqRe}\\s*`), ' true ');
+          const eqRe = mm[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          body = body.replace(new RegExp(`\\s*${eqRe}\\s*`), " true ");
           body = replaceAll(body, v, rhs);
           removedAny = true;
 
           // Remove v from bindersBlob
-          bindersBlob = bindersBlob.replace(new RegExp(`\\(\\s*${v}\\s+[A-Za-z_][\\w]*\\s*\\)`), '').trim();
+          bindersBlob = bindersBlob
+            .replace(new RegExp(`\\(\\s*${v}\\s+[A-Za-z_][\\w]*\\s*\\)`), "")
+            .trim();
         }
       }
 
@@ -1150,11 +2131,13 @@ async eliminateQuantifiers(formula) {
 
       body = stripTrueConj(body);
       // If no binders remain, drop the quantifier
-      if (!bindersBlob.replace(/\s+/g, '')) {
+      if (!bindersBlob.replace(/\s+/g, "")) {
         s = body;
       } else {
         // Rebuild a compact binders list
-        const cleanedBinders = Array.from(bindersBlob.matchAll(bindersRe)).map(x => x[0]).join(' ');
+        const cleanedBinders = Array.from(bindersBlob.matchAll(bindersRe))
+          .map((x) => x[0])
+          .join(" ");
         s = `(exists (${cleanedBinders}) ${body})`;
       }
       changed = true;
@@ -1165,36 +2148,68 @@ async eliminateQuantifiers(formula) {
   // Try trivial definitional elimination first
   const preprocessed = syntacticDefQE(sanitized);
 
+  // Check if preprocessing eliminated all quantifiers
+  if (!/\(\s*(?:exists|forall)\b/.test(preprocessed)) {
+    console.log({ originalFormula: String(formula || ""), result: preprocessed });
+    return preprocessed;
+  }
+
   // --- Quantifier-aware symbol inference (free symbols only) ---
   const bound = new Set();
   const qre = /\(\s*(?:exists|forall)\s*\(\s*\(((?:\s*\([^)]+\)\s*)+)\)\s*/g;
   let mq;
   while ((mq = qre.exec(preprocessed)) !== null) {
     const blob = mq[1];
-    for (const mm of blob.matchAll(/\(\s*([A-Za-z_][\w]*)\s+[A-Za-z_][\w]*\s*\)/g)) bound.add(mm[1]);
+    for (const mm of blob.matchAll(
+      /\(\s*([A-Za-z_][\w]*)\s+[A-Za-z_][\w]*\s*\)/g
+    ))
+      bound.add(mm[1]);
   }
 
   const TOK = /[A-Za-z_][A-Za-z0-9_]*/g;
   const keywords = new Set([
-    'assert','and','or','not','=>','exists','forall','let','ite','distinct',
-    'true','false','Real','Int','Bool','div','mod','rem','xor','select','store','as'
+    "assert",
+    "and",
+    "or",
+    "not",
+    "=>",
+    "exists",
+    "forall",
+    "let",
+    "ite",
+    "distinct",
+    "true",
+    "false",
+    "Real",
+    "Int",
+    "Bool",
+    "div",
+    "mod",
+    "rem",
+    "xor",
+    "select",
+    "store",
+    "as",
   ]);
   const inferredSort = new Map();
 
   for (const re of [
     /\(=\s+([A-Za-z_][\w]*)\s+(?:true|false)\s*\)/g,
-    /\(\s*not\s+([A-Za-z_][\w]*)\s*\)/g
+    /\(\s*not\s+([A-Za-z_][\w]*)\s*\)/g,
   ]) {
-    let mb; while ((mb = re.exec(preprocessed)) !== null) inferredSort.set(mb[1], 'Bool');
+    let mb;
+    while ((mb = re.exec(preprocessed)) !== null)
+      inferredSort.set(mb[1], "Bool");
   }
   for (const re of [
     /\(\s*(?:=|<|>|<=|>=)\s+([A-Za-z_][\w]*)\s+[-+]?(?:\d+(?:\.\d*)?|\.\d+)\s*\)/g,
     /\(\s*(?:=|<|>|<=|>=)\s+[-+]?(?:\d+(?:\.\d*)?|\.\d+)\s+([A-Za-z_][\w]*)\s*\)/g,
     /\(\s*(?:\+|\-|\*|\/)\s+([A-Za-z_][\w]*)\b/g,
-    /\(\s*(?:\+|\-|\*|\/)\s+[^)]*\s+([A-Za-z_][\w]*)\b/g
+    /\(\s*(?:\+|\-|\*|\/)\s+[^)]*\s+([A-Za-z_][\w]*)\b/g,
   ]) {
-    let mn; while ((mn = re.exec(preprocessed)) !== null) {
-      if (inferredSort.get(mn[1]) !== 'Bool') inferredSort.set(mn[1], 'Real');
+    let mn;
+    while ((mn = re.exec(preprocessed)) !== null) {
+      if (inferredSort.get(mn[1]) !== "Bool") inferredSort.set(mn[1], "Real");
     }
   }
 
@@ -1209,95 +2224,157 @@ async eliminateQuantifiers(formula) {
 
   const decls = [];
   for (const s of symbols) {
-    const sort = inferredSort.get(s) || 'Real';
+    const sort = inferredSort.get(s) || "Real";
     decls.push(`(declare-fun ${s} () ${sort})`);
   }
 
-  const buildScript = (body) => ['(set-logic ALL)', ...decls, `(assert ${body})`].join('\n');
+  const buildScript = (body) =>
+    ["(set-logic ALL)", ...decls, `(assert ${body})`].join("\n");
 
   const prettyGoal = (g) => {
     const parts = [];
-    const sz = _z3.goal_size(context, g);
+    const sz = _z3.goal_size(_context, g);
     for (let i = 0; i < sz; i++) {
-      parts.push(_z3.ast_to_string(context, _z3.goal_formula(context, g, i)));
+      parts.push(_z3.ast_to_string(_context, _z3.goal_formula(_context, g, i)));
     }
-    if (parts.length === 0) return 'true';
+    if (parts.length === 0) return "true";
     if (parts.length === 1) return parts[0];
-    return `(and ${parts.join(' ')})`;
+    return `(and ${parts.join(" ")})`;
   };
 
-  const applyTactic = (g, name) => {
-    const t = _z3.mk_tactic(context, name);
-    const r = _z3.tactic_apply(context, t, g);
-    const n = _z3.apply_result_get_num_subgoals(context, r);
+  const applyTactic = async (g, name) => {
+    // Check if goal is empty before applying tactics
+    const goalSize = _z3.goal_size(_context, g);
+    if (goalSize === 0) {
+      console.log(`Skipping tactic ${name} on empty goal`);
+      return g;
+    }
+
+    const t = _z3.mk_tactic(_context, name);
+    console.log(`Applying tactic ${name} to goal with ${goalSize} formulas`);
+    
+    let r;
+    try {
+      r = await _z3.tactic_apply(_context, t, g);
+    } catch (e) {
+      console.error(`Tactic ${name} failed:`, e);
+      // For worker thread errors, return the original goal
+      return g;
+    }
+
+    const n = _z3.apply_result_get_num_subgoals(_context, r);
     if (n === 0) return g;
-    return _z3.apply_result_get_subgoal(context, r, 0);
+    return _z3.apply_result_get_subgoal(_context, r, 0);
   };
 
   try {
-    const astVec = _z3.parse_smtlib2_string(context, buildScript(preprocessed), [], [], [], []);
-    const goal = _z3.mk_goal(context, true, false, false);
-    for (let i = 0; i < _z3.ast_vector_size(context, astVec); i++) {
-      _z3.goal_assert(context, goal, _z3.ast_vector_get(context, astVec, i));
+    const script = buildScript(preprocessed);
+    console.log("Generated SMT script:", script);
+    
+    const astVec = _z3.parse_smtlib2_string(
+      _context,
+      script,
+      [],
+      [],
+      [],
+      []
+    );
+    
+    const vecSize = _z3.ast_vector_size(_context, astVec);
+    console.log(`Parsed AST vector size: ${vecSize}`);
+    
+    // Handle empty AST vector
+    if (vecSize === 0) {
+      console.log("Empty AST vector - returning 'true'");
+      const result = "true";
+      console.log({ originalFormula: String(formula || ""), result });
+      return result;
+    }
+
+    const goal = _z3.mk_goal(_context, true, false, false);
+    for (let i = 0; i < vecSize; i++) {
+      _z3.goal_assert(_context, goal, _z3.ast_vector_get(_context, astVec, i));
+    }
+
+    // Verify goal has formulas before proceeding
+    const initialGoalSize = _z3.goal_size(_context, goal);
+    console.log(`Initial goal size: ${initialGoalSize}`);
+    
+    if (initialGoalSize === 0) {
+      console.log("Goal is empty after assertions - returning 'true'");
+      const result = "true";
+      console.log({ originalFormula: String(formula || ""), result });
+      return result;
     }
 
     // Stronger pipeline: simplify → reduce-quantifiers → solve-eqs → qe_lite → qe → qe_rec
-    let g = applyTactic(goal, 'simplify');
-    g = applyTactic(g, 'reduce-quantifiers');
-    g = applyTactic(g, 'solve-eqs');
-    g = applyTactic(g, 'qe_lite');
-    g = applyTactic(g, 'qe');
+    let g = await applyTactic(goal, "simplify");
+    g = await applyTactic(g, "reduce-quantifiers");
+    g = await applyTactic(g, "solve-eqs");
+    g = await applyTactic(g, "qe_lite");
+    g = await applyTactic(g, "qe");
 
     let out = prettyGoal(g);
     if (/\(\s*(?:exists|forall)\b/.test(out)) {
-      g = applyTactic(g, 'qe_rec');
+      g = await applyTactic(g, "qe_rec");
       out = prettyGoal(g);
     }
 
     // Final cleanup
-    const av2 = _z3.parse_smtlib2_string(context, buildScript(out), [], [], [], []);
-    const gFin = _z3.mk_goal(context, true, false, false);
-    for (let i = 0; i < _z3.ast_vector_size(context, av2); i++) {
-      _z3.goal_assert(context, gFin, _z3.ast_vector_get(context, av2, i));
+    const av2 = _z3.parse_smtlib2_string(
+      _context,
+      buildScript(out),
+      [],
+      [],
+      [],
+      []
+    );
+    
+    if (_z3.ast_vector_size(_context, av2) === 0) {
+      console.log({ originalFormula: String(formula || ""), result: "true" });
+      return "true";
     }
-    const gS = applyTactic(gFin, 'simplify');
+    
+    const gFin = _z3.mk_goal(_context, true, false, false);
+    for (let i = 0; i < _z3.ast_vector_size(_context, av2); i++) {
+      _z3.goal_assert(_context, gFin, _z3.ast_vector_get(_context, av2, i));
+    }
+    const gS = await applyTactic(gFin, "simplify");
     const result = prettyGoal(gS);
 
-    console.log({ originalFormula: String(formula || ''), result });
+    console.log({ originalFormula: String(formula || ""), result });
     return result;
-  } catch (_e) {
+  } catch (e) {
     // Fall back to the preprocessed string; still log
-    console.log({ originalFormula: String(formula || ''), result: preprocessed });
+    console.error("Quantifier elimination failed, using fallback:", e);
+    console.log({
+      originalFormula: String(formula || ""),
+      result: preprocessed,
+    });
     return preprocessed;
   }
-}
-  
-
+  }
   async parseFormulaToAST(formula) {
     try {
       // Clean up the formula for parsing
       const cleanFormula = this.prepareFormulaForParsing(formula);
-      
-      // Use Z3's SMT-LIB parser to create AST
-      // We need to provide empty arrays for sort_names, sorts, decl_names, decls
-      // since we're not declaring custom sorts or functions
+
       const sortNames = [];
       const sorts = [];
       const declNames = [];
       const decls = [];
-      
+
       // Parse the formula
       const ast = _z3.parse_smtlib2_string(
-        _context, 
-        cleanFormula, 
-        sortNames, 
-        sorts, 
-        declNames, 
+        _context,
+        cleanFormula,
+        sortNames,
+        sorts,
+        declNames,
         decls
       );
-      
+
       return ast;
-      
     } catch (error) {
       console.warn("Failed to parse formula to AST:", error);
       return null;
@@ -1307,11 +2384,11 @@ async eliminateQuantifiers(formula) {
   prepareFormulaForParsing(formula) {
     // Prepare the formula for Z3's SMT-LIB parser
     // The parser expects a complete SMT-LIB script, so we need to wrap our formula
-    
+
     // Extract variable declarations from the existential quantifier
     const existsMatch = formula.match(/\(exists\s+\(([^)]+)\)/);
     let declarations = "";
-    
+
     if (existsMatch) {
       const varDecls = existsMatch[1];
       // Parse variable declarations like "(x Real) (y Int)"
@@ -1327,7 +2404,7 @@ async eliminateQuantifiers(formula) {
         }
       }
     }
-    
+
     // Wrap in a complete SMT-LIB script
     const script = `
       (set-logic ALL)
@@ -1335,38 +2412,38 @@ async eliminateQuantifiers(formula) {
       (assert ${formula})
       (check-sat)
     `;
-    
+
     return script;
   }
 
   fallbackQuantifierElimination(formula) {
     // Fallback syntactic quantifier elimination for when Z3 API fails
     console.log("Using fallback quantifier elimination");
-    
+
     // Handle simple existential quantifier patterns
     let result = formula;
-    
+
     // Pattern: (exists ((x Real) (y Int)) (and (> x 0) (< y x)))
     // Remove the existential wrapper and keep the body
     const existsPattern = /\(exists\s+\([^)]+\)\s*(.+)\)$/;
     const match = result.match(existsPattern);
-    
+
     if (match) {
       result = match[1];
-      
+
       // Remove any remaining parentheses that might be unbalanced
       result = this.balanceParentheses(result);
     }
-    
+
     // Handle universal quantifiers similarly
     const forallPattern = /\(forall\s+\([^)]+\)\s*(.+)\)$/;
     const forallMatch = result.match(forallPattern);
-    
+
     if (forallMatch) {
       result = forallMatch[1];
       result = this.balanceParentheses(result);
     }
-    
+
     return result || "true";
   }
 
@@ -1374,24 +2451,24 @@ async eliminateQuantifiers(formula) {
     // Simple parentheses balancing
     let openCount = 0;
     let result = formula;
-    
+
     for (let char of result) {
-      if (char === '(') openCount++;
-      if (char === ')') openCount--;
+      if (char === "(") openCount++;
+      if (char === ")") openCount--;
     }
-    
+
     // Add missing closing parentheses
     while (openCount > 0) {
-      result += ')';
+      result += ")";
       openCount--;
     }
-    
+
     // Remove excess closing parentheses
-    while (openCount < 0 && result.endsWith(')')) {
+    while (openCount < 0 && result.endsWith(")")) {
       result = result.slice(0, -1);
       openCount++;
     }
-    
+
     return result;
   }
 }
@@ -1412,11 +2489,14 @@ async function initializeZ3() {
     const { Context, Z3 } = await init({
       z3Path: "/assets/z3/z3-built.js",
       wasmURL: "/assets/z3/z3-built.wasm",
-      workerPath: "/z3/z3-built.js",
+      workerPath: "/assets/z3/z3-built.js",
     });
 
     _z3 = Z3;
     const config = _z3.mk_config();
+
+    _z3.set_param_value(config, "trace", "true");
+
     _context = _z3.mk_context(config);
     _solver = _z3.mk_solver(_context);
 
@@ -1445,121 +2525,311 @@ const Z3Solver = {
     }
   },
 
-async isSatisfiable(formula) {
-  await this.initialize();
+  /**
+   * Check satisfiability of a single formula body (not a full SMT script).
+   * Automatically declares free symbols (excluding bound variables) with sensible sorts:
+   *  - Uses Z3Solver._globalDataVariables when available (int|bool|real → Int|Bool|Real)
+   *  - Infers Bool if the symbol appears in boolean contexts (e.g., (= x true), (not x))
+   *  - Otherwise defaults to Real
+   *
+   * :param {string} formula - SMT-LIB term to assert (e.g., "(and (> x 0) (< y x))" or "true").
+   * :return : of objects.
+   * :return: Promise<boolean> — true if SAT, false if UNSAT or an error occurs.
+   */
+  async isSatisfiable(formula) {
+    await this.initialize();
 
-  const f = String(formula).trim();
-  if (f === "true") return true;
-  if (f === "false") return false;
+    const f = String(formula || "").trim();
+    if (!f || f === "true") return true;
+    if (f === "false") return false;
 
-  try {
-    const solver = _z3.mk_solver(_context);
-
-    // Collect identifiers that look like variables (exclude SMT-LIB keywords).
-    const tokens = f.match(/[A-Za-z_][A-Za-z0-9_']*/g) || [];
     const KEYWORDS = new Set([
-      "and", "or", "not", "xor", "=>", "ite",
-      "true", "false", "distinct",
-      // arithmetic/comparison operators appear as symbols, not ids
-      // keep list minimal; parser ignores numbers and punctuation anyway
+      "assert",
+      "check-sat",
+      "set-logic",
+      "declare-const",
+      "declare-fun",
+      "define-fun",
+      "and",
+      "or",
+      "not",
+      "xor",
+      "=>",
+      "ite",
+      "let",
+      "forall",
+      "exists",
+      "distinct",
+      "true",
+      "false",
+      "Int",
+      "Real",
+      "Bool",
+      "div",
+      "mod",
+      "rem",
+      "as",
+      "select",
+      "store",
     ]);
 
+    const getBase = (tok) => tok.replace(/_(?:r|w|prime)$/, "");
+    const getSmtSortFromMeta = (meta) => {
+      const t = String(meta?.type || "").toLowerCase();
+      if (t === "int" || t === "integer") return "Int";
+      if (t === "bool" || t === "boolean") return "Bool";
+      return "Real";
+    };
+
+    const collectBound = (src) => {
+      const bound = new Set();
+      const qre =
+        /\(\s*(?:exists|forall)\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*/g;
+      let m;
+      while ((m = qre.exec(src)) !== null) {
+        const blob = m[1];
+        for (const mm of blob.matchAll(
+          /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+        )) {
+          bound.add(mm[1]);
+        }
+      }
+      return bound;
+    };
+
+    const inferBool = (name, src) => {
+      const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const boolPats = [
+        new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
+        new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
+        new RegExp(`\\(not\\s+${n}\\)`),
+        new RegExp(`\\(and\\s+${n}\\b`),
+        new RegExp(`\\(or\\s+${n}\\b`),
+      ];
+      return boolPats.some((re) => re.test(src));
+    };
+
+    const tokens = f.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+    const bound = collectBound(f);
     const seen = new Set();
     const decls = [];
 
     for (const tok of tokens) {
       if (KEYWORDS.has(tok)) continue;
+      if (bound.has(tok)) continue;
       if (seen.has(tok)) continue;
       seen.add(tok);
 
-      // Map _r/_w suffixed names back to base variable for typing.
-      const base =
-        tok.endsWith("_r") || tok.endsWith("_w") ? tok.slice(0, -2) : tok;
+      const base = getBase(tok);
+      let sort = null;
 
       const meta = this._globalDataVariables?.get(base);
-      console.log(meta, "Meta for", base);
+      if (meta) {
+        sort = getSmtSortFromMeta(meta);
+      } else if (inferBool(tok, f)) {
+        sort = "Bool";
+      } else {
+        sort = "Real";
+      }
 
-      const getSmtType = (type) => {
-        switch (type) {
-          case "int": return "Int";
-          case "bool": return "Bool";
-          default: return "Real";
-        }
-      };
-
-      const sort = getSmtType(meta ? meta.type : "real"); // fallback Real
-
-      // Declare *the exact* symbol used in the formula (including _r/_w).
-      decls.push(`(declare-fun ${tok} () ${sort})`);
+      decls.push(`(declare-const ${tok} ${sort})`);
     }
 
     const script =
       `(set-logic ALL)\n` +
       (decls.length ? decls.join("\n") + "\n" : "") +
-      `(assert ${f})`;
+      `(assert ${f})\n(check-sat)`;
 
-    console.log("Z3 satisfiability check (script):\n", script);
-    _z3.solver_from_string(_context, solver, script);
-    const res = await _z3.solver_check(_context, solver);
-    // Z3_lbool: 1 = true, -1 = undef, 0 = false
-    return res === 1;
-  } catch (e) {
-    console.error("Error during Z3 satisfiability check:", e, "Formula:", formula);
-    return false;
-  }
-},
-
-  async checkSatWithModel(formula) {
-    await this.initialize();
-    
     try {
-      // Create a new solver instance for each query
-      const solver = _z3.mk_solver(_context);
-      
-      console.log("Z3 satisfiability check with model:", formula);
-      _z3.solver_from_string(_context, solver, formula);
-      
-      const res = await _z3.solver_check(_context, solver);
-      const isSat = res === 1; // Z3_L_TRUE
+        console.log("Checking satisfiability with script:", script);
+        
+        const solver = _z3.mk_solver(_context);
+        _z3.solver_from_string(_context, solver, script);
 
-      let modelText = "";
+        const res = await _z3.solver_check(_context, solver);
+        console.log("Satisfiability result:", res);
+        return res === 1;
+    } catch (_e) {
+      console.error("Error checking satisfiability:", _e);
+      return false;
+    }
+  },
+
+  /**
+   * Run Z3 on either a full SMT-LIB script or a bare formula.
+   * If `scriptOrFormula` looks like a complete script (has "(check-sat" or "(assert"),
+   * it is passed through unchanged. Otherwise it is wrapped like `isSatisfiable` does.
+   * Returns the SAT result and a parsed model (if SAT).
+   *
+   * :param {string} scriptOrFormula - Full SMT script or a single formula to assert.
+   * :return : of objects.
+   * :return: Promise<{ isSat: boolean, model: Map<string,string>, rawModel: string, error?: string }>
+   */
+  async checkSatWithModel(scriptOrFormula) {
+    await this.initialize();
+
+    const s = String(scriptOrFormula || "").trim();
+    const looksLikeScript =
+      /\(\s*assert\b/.test(s) ||
+      /\(\s*check-sat\b/.test(s) ||
+      /\(\s*set-logic\b/.test(s);
+
+    let script = s;
+    let addedWrapper = false;
+
+    if (!looksLikeScript) {
+      // Wrap a bare formula exactly as in isSatisfiable
+      const KEYWORDS = new Set([
+        "assert",
+        "check-sat",
+        "set-logic",
+        "declare-const",
+        "declare-fun",
+        "define-fun",
+        "and",
+        "or",
+        "not",
+        "xor",
+        "=>",
+        "ite",
+        "let",
+        "forall",
+        "exists",
+        "distinct",
+        "true",
+        "false",
+        "Int",
+        "Real",
+        "Bool",
+        "div",
+        "mod",
+        "rem",
+        "as",
+        "select",
+        "store",
+      ]);
+
+      const getBase = (tok) => tok.replace(/_(?:r|w|prime)$/, "");
+      const getSmtSortFromMeta = (meta) => {
+        const t = String(meta?.type || "").toLowerCase();
+        if (t === "int" || t === "integer") return "Int";
+        if (t === "bool" || t === "boolean") return "Bool";
+        return "Real";
+      };
+
+      const collectBound = (src) => {
+        const bound = new Set();
+        const qre =
+          /\(\s*(?:exists|forall)\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*/g;
+        let m;
+        while ((m = qre.exec(src)) !== null) {
+          const blob = m[1];
+          for (const mm of blob.matchAll(
+            /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+          )) {
+            bound.add(mm[1]);
+          }
+        }
+        return bound;
+      };
+
+      const inferBool = (name, src) => {
+        const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const boolPats = [
+          new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
+          new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
+          new RegExp(`\\(not\\s+${n}\\)`),
+        ];
+        return boolPats.some((re) => re.test(src));
+      };
+
+      const tokens = s.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+      const bound = collectBound(s);
+      const seen = new Set();
+      const decls = [];
+
+      for (const tok of tokens) {
+        if (KEYWORDS.has(tok)) continue;
+        if (bound.has(tok)) continue;
+        if (seen.has(tok)) continue;
+        seen.add(tok);
+
+        const base = getBase(tok);
+        let sort = null;
+
+        const meta = this._globalDataVariables?.get(base);
+        if (meta) {
+          sort = getSmtSortFromMeta(meta);
+        } else if (inferBool(tok, s)) {
+          sort = "Bool";
+        } else {
+          sort = "Real";
+        }
+
+        decls.push(`(declare-const ${tok} ${sort})`);
+      }
+
+      script =
+        `(set-logic ALL)\n` +
+        (decls.length ? decls.join("\n") + "\n" : "") +
+        `(assert ${s})\n(check-sat)\n(get-model)`;
+      addedWrapper = true;
+    } else if (!/\(\s*get-model\b/.test(scriptOrFormula)) {
+      script = `${scriptOrFormula}\n(get-model)`;
+    }
+
+    try {
+      const solver = _z3.mk_solver(_context);
+      _z3.solver_from_string(_context, solver, script);
+      const res = await _z3.solver_check(_context, solver);
+      const isSat = res === 1;
+
+      let rawModel = "";
       const modelMap = new Map();
 
       if (isSat) {
         const mdl = _z3.solver_get_model(_context, solver);
-        modelText = _z3.model_to_string(_context, mdl);
+        rawModel = _z3.model_to_string(_context, mdl);
 
-        // Parse model lines: (define-fun x () Int 1)
-        const lines = modelText.split(/\r?\n/);
-        for (const line of lines) {
-          const m = line.match(/\(define-fun\s+([A-Za-z]\w*)\s+\(\)\s+[A-Za-z]+\s+(.+)\)/);
+        // Parse lines like: (define-fun x () Int 1)
+        for (const line of rawModel.split(/\r?\n/)) {
+          const m = line.match(
+            /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
+          );
           if (m) {
             modelMap.set(m[1], m[2].trim());
           }
         }
       }
 
-      return { isSat, model: modelMap, rawModel: modelText };
+      return { isSat, model: modelMap, rawModel };
     } catch (e) {
-      console.error("Error during Z3 satisfiability check with model:", e);
-      return { isSat: false, model: new Map(), rawModel: "", error: e.message };
+      console.error("Z3 checkSatWithModel failed:", e);
+      // Return an error object with the exception message
+      return {
+        isSat: false,
+        model: new Map(),
+        rawModel: "",
+        error: String(e?.message || e),
+      };
     }
   },
-
   parseModel(modelString) {
     const model = new Map();
-    const lines = modelString.split('\n');
-    
+    const lines = modelString.split("\n");
+
     for (const line of lines) {
-      const match = line.match(/\(define-fun\s+([^\s\)]+)\s+\(\)\s+\w+\s+([^\)]+)\)/);
+      const match = line.match(
+        /\(define-fun\s+([^\s\)]+)\s+\(\)\s+\w+\s+([^\)]+)\)/
+      );
       if (match) {
         const [, varName, value] = match;
         model.set(varName, value.trim());
       }
     }
-    
+
     return model;
-  }
+  },
 };
 
 /**
@@ -1570,111 +2840,119 @@ async isSatisfiable(formula) {
 class SuvorovLomazovaVerifier {
   constructor(petriNet, options = {}) {
     this.originalPetriNet = petriNet;
-    console.log("Suvorov–Lomazova Verifier initialized with Petri Net:", petriNet);
-    
+    console.log(
+      "Suvorov–Lomazova Verifier initialized with Petri Net:",
+      petriNet
+    );
+
     this.options = {
       maxBound: options.maxBound || 10,
       enableTauTransitions: options.enableTauTransitions !== false,
       enableCoverage: options.enableCoverage !== false,
       useImprovedAlgorithm: options.useImprovedAlgorithm !== false,
-      ...options
+      ...options,
     };
     this.smtGenerator = new SmtFromDpnGenerator();
-    this.refinementEngine = new DPNRefinementEngine(this.smtGenerator, Z3Solver);
+    this.refinementEngine = new DPNRefinementEngine(
+      this.smtGenerator,
+      Z3Solver
+    );
     this.verificationSteps = [];
     this.startTime = 0;
     this.counterexampleTraces = [];
     this.finalMarkings = [];
   }
+
   /**
-   * Construct Labeled Transition System for a DPN
-   * Implements the LTS construction from the paper
+   * No dead transitions (P3) aligned with the paper:
+   * For each original transition t, at least one refined copy tr ∈ R(t) must fire
+   * on some reachable path in the given LTS. τ-transitions do not count toward P3.
+   *
+   * @param {Object} dpn - The (possibly refined) DPN used to build `lts`.
+   * @param {LabeledTransitionSystem} lts - LTS constructed from `dpn` (preferably N_R or N_R^τ).
+   * @returns {{ satisfied: boolean, details: string, deadTransitions: Array<{ transitionId: string, variants: string[] }>, coveredTransitions: string[] }}
    */
-  async constructLTS(dpn) {
-    this.logStep("LTS", "Constructing Labeled Transition System");
-    
-    const lts = new LabeledTransitionSystem();
-    const processed = new Set();
-    const queue = [];
+  checkDeadTransitions(dpn, lts) {
+    this.logStep("DeadTransitions", "Checking P3: no dead transitions");
 
-    // Create initial state
-    const initialMarking = this.refinementEngine.getInitialMarking(dpn);
-    const initialFormula = this.refinementEngine.getInitialFormula(dpn);
-    const initialNodeId = lts.addNode(initialMarking, initialFormula);
-    
-    queue.push(initialNodeId);
-    let nodeCount = 0;
-    const maxNodes = 1000; // Prevent infinite LTS construction
+    // --- Helpers ---
+    const isTau = (id) => String(id).startsWith("tau_");
 
-    while (queue.length > 0 && nodeCount < maxNodes) {
-      const currentNodeId = queue.shift();
-      const stateKey = this.refinementEngine.getStateKey(lts.nodes.get(currentNodeId));
-      
-      if (processed.has(stateKey)) continue;
-      processed.add(stateKey);
-      nodeCount++;
+    const baseOf = (id) => {
+      const s = String(id);
+      if (isTau(s)) return null; // τ does not count toward P3
+      // Common refinement id schemes:
+      //   <t>_refined_<...> | <t>_ref_<...> | keep <t> as is
+      const i1 = s.indexOf("_refined_");
+      if (i1 >= 0) return s.slice(0, i1);
+      const i2 = s.indexOf("_ref_");
+      if (i2 >= 0) return s.slice(0, i2);
+      return s;
+    };
 
-      const currentNode = lts.nodes.get(currentNodeId);
-      
-      // Try firing each transition
-      for (const transition of dpn.transitions) {
-        const successorState = await this.refinementEngine.computeSuccessorState(
-          currentNode.marking, 
-          currentNode.formula, 
-          transition,
-          dpn
-        );
+    // 1) Build the set of original transition ids present in (refined) dpn,
+    //    and a mapping original -> variants (its refined copies, excluding τ).
+    const variants = new Map(); // baseId -> Set(variantIds)
+    for (const t of dpn.transitions || []) {
+      if (!t || !t.id) continue;
+      const bid = baseOf(t.id);
+      if (!bid) continue; // τ
+      if (!variants.has(bid)) variants.set(bid, new Set());
+      variants.get(bid).add(String(t.id));
+    }
 
-        if (successorState && await this.refinementEngine.isSatisfiable(successorState.formula)) {
-          // Check if this state already exists
-          let targetNodeId = this.refinementEngine.findExistingNode(lts, successorState);
-          
-          if (!targetNodeId) {
-            targetNodeId = lts.addNode(successorState.marking, successorState.formula);
-            queue.push(targetNodeId);
-          }
+    const originalIds = Array.from(variants.keys());
 
-          lts.addEdge(currentNodeId, targetNodeId, transition.id);
-        }
+    if (originalIds.length === 0) {
+      this.logStep(
+        "DeadTransitions",
+        "No (non-τ) transitions present; vacuously satisfied"
+      );
+      return {
+        satisfied: true,
+        details: "No non-τ transitions to check.",
+        deadTransitions: [],
+        coveredTransitions: [],
+      };
+    }
+
+    // 2) Scan the LTS edges to see which base transitions actually fire somewhere.
+    const covered = new Set();
+    for (const [, e] of lts.edges || []) {
+      if (!e || !e.transition) continue;
+      const bid = baseOf(e.transition);
+      if (bid) covered.add(bid);
+    }
+
+    // 3) Any original transition id not in `covered` is dead.
+    const deadTransitions = [];
+    for (const bid of originalIds) {
+      if (!covered.has(bid)) {
+        deadTransitions.push({
+          transitionId: bid,
+          variants: Array.from(variants.get(bid) || []),
+        });
       }
     }
 
-    this.logStep("LTS", "LTS construction completed", {
-      nodes: lts.nodes.size,
-      edges: lts.edges.size,
-      processed: processed.size
-    });
+    const ok = deadTransitions.length === 0;
+    this.logStep(
+      "DeadTransitions",
+      ok
+        ? "P3 satisfied: every original transition has a firing refined copy"
+        : `${deadTransitions.length} original transition(s) have no firing refined copy`
+    );
 
-    return lts;
-  }
-
-  checkDeadTransitions(dpn, lts) {
-    this.logStep("DeadTransitions", "Checking for dead transitions in LTS");
-    const deadTransitions = [];
-    for (const [nodeId, node] of lts.nodes) {
-      // A transition is dead if it has no outgoing edges
-      if (node.outgoingEdges.length === 0) {
-        const isFinalState = this.isFinalMarking(node.marking);
-        if (!isFinalState) {
-          deadTransitions.push({
-            nodeId,
-            marking: node.marking,
-            formula: node.formula,
-            trace: lts.edges.get(nodeId) ? lts.edges.get(nodeId).transition : null
-          });
-        }
-      } 
-    }
-    const noDeadTransitions = deadTransitions.length === 0;
-    this.logStep("DeadTransitions", `Dead transitions check completed: ${noDeadTransitions ?
-      'no dead transitions' : deadTransitions.length + ' dead transitions found'}`);
     return {
-      satisfied: noDeadTransitions,
+      satisfied: ok,
+      details: ok
+        ? "Each original transition fires via at least one refined copy on some reachable path."
+        : "Some original transitions never fire on any reachable path (dead transitions present).",
       deadTransitions,
-      details: noDeadTransitions ? "No dead transitions found" : `Found ${deadTransitions.length} dead transitions`,
-      trace: deadTransitions.length > 0 ? deadTransitions[0] : null
+      coveredTransitions: Array.from(covered),
     };
   }
+
   /**
    * Check preliminary properties (P2, P3) before refinement
    */
@@ -1687,39 +2965,104 @@ class SuvorovLomazovaVerifier {
     checks.push(p2Result);
     if (!p2Result.satisfied) allPassed = false;
 
-    // Check P3: No dead transitions  
+    // Check P3: No dead transitions
     const p3Result = await this.checkDeadTransitions(dpn, lts);
     checks.push(p3Result);
     if (!p3Result.satisfied) allPassed = false;
 
     return {
       allPassed,
-      failedChecks: checks.filter(c => !c.satisfied)
+      failedChecks: checks.filter((c) => !c.satisfied),
     };
   }
 
-  async checkOverfinalMarkings(lts) {
-    this.logStep("OverfinalMarkings", "Checking for overfinal markings");
+  /**
+   * Overfinal markings (P2) aligned with the paper:
+   * Detects reachable states ⟨M, φ⟩ whose marking M strictly covers a final marking M_F
+   * (component-wise ≥ and > in at least one place). Outgoing edges are irrelevant.
+   *
+   * @param {LabeledTransitionSystem} lts
+   * @returns {{satisfied: boolean, overfinalNodes: Array, details: string, trace?: any}}
+   */
+  checkOverfinalMarkings(lts) {
+    this.logStep(
+      "OverfinalMarkings",
+      "Checking P2: no marking strictly covers M_F"
+    );
+
+    const finals = Array.isArray(this.finalMarkings) ? this.finalMarkings : [];
+    if (finals.length === 0) {
+      this.logStep(
+        "OverfinalMarkings",
+        "No final marking provided; cannot evaluate P2"
+      );
+      return {
+        satisfied: false,
+        overfinalNodes: [],
+        details:
+          "Final marking (M_F) is not specified; P2 cannot be evaluated.",
+      };
+    }
+
+    const covers = (ma, mb) => {
+      const keys = new Set([
+        ...Object.keys(ma || {}),
+        ...Object.keys(mb || {}),
+      ]);
+      for (const p of keys) {
+        const a = (ma && Number(ma[p])) || 0;
+        const b = (mb && Number(mb[p])) || 0;
+        if (a < b) return false;
+      }
+      return true;
+    };
+
+    const strictlyCovers = (ma, mb) => {
+      if (!covers(ma, mb)) return false;
+      const keys = new Set([
+        ...Object.keys(ma || {}),
+        ...Object.keys(mb || {}),
+      ]);
+      for (const p of keys) {
+        const a = (ma && Number(ma[p])) || 0;
+        const b = (mb && Number(mb[p])) || 0;
+        if (a > b) return true;
+      }
+      return false;
+    };
+
     const overfinalNodes = [];
-    for (const [nodeId, node] of lts.nodes) {
-      // A node is overfinal if it has no outgoing edges but is not a final state
-      if (node.outgoingEdges.length === 0 && !this.isFinalMarking(node.marking)) {
-        overfinalNodes.push({
-          nodeId,
-          marking: node.marking,
-          formula: node.formula
-        });
+    for (const [nodeId, node] of lts.nodes || []) {
+      for (const mf of finals) {
+        if (strictlyCovers(node.marking, mf)) {
+          overfinalNodes.push({
+            nodeId,
+            marking: node.marking,
+            formula: node.formula,
+            covers: mf,
+          });
+          break;
+        }
       }
     }
-    const noOverfinal = overfinalNodes.length === 0;
-    this.logStep("OverfinalMarkings", `Overfinal markings check completed: ${noOverfinal ? 'no overfinal markings' : overfinalNodes.length + ' overfinal markings found'}`);
+
+    const ok = overfinalNodes.length === 0;
+    this.logStep(
+      "OverfinalMarkings",
+      ok
+        ? "No overfinal markings detected"
+        : `${overfinalNodes.length} overfinal node(s) detected`
+    );
+
     return {
-      satisfied: noOverfinal,
+      satisfied: ok,
       overfinalNodes,
-      details: noOverfinal ? "No overfinal markings found" : `Found ${overfinalNodes.length} overfinal markings`,
-      trace: overfinalNodes.length > 0 ? overfinalNodes[0] : null
+      details: ok
+        ? "No marking strictly covers the final marking (M_F)."
+        : "There exist reachable states whose marking strictly covers M_F.",
+      trace: overfinalNodes[0] || null,
     };
-  } 
+  }
 
   negatePrecondition(precondition) {
     // Negate the precondition using De Morgan's laws
@@ -1734,146 +3077,409 @@ class SuvorovLomazovaVerifier {
   }
 
   /**
-   * Add tau-transitions to a DPN according to Definition 4.4 from the paper
+   * Add τ-transitions according to Definition 4.4:
+   * For each original transition t, create τ(t) with precondition ¬∃W.(pre(t) ∧ post(t)),
+   * where W are the variables written by t. Postcondition of τ(t) is empty (no data change).
+   *
+   * @param {Object} dpn - Data Petri net in normalized format { places, transitions, arcs, dataVariables }.
+   * @returns {Object} A new DPN with τ-transitions added and arcs duplicated to each τ(t).
    */
-  addTauTransitions(dpn) {
-    console.log("addTauTransitions:", dpn);
-    this.logStep("TauTransitions", "Adding tau-transitions to DPN");
-    
-    const tauDpn = JSON.parse(JSON.stringify(dpn)); // Deep clone
-    const originalTransitions = [...tauDpn.transitions];
-    
-    // Add tau-transition for each original transition
-    for (const transition of originalTransitions) {
-      if (transition.precondition && transition.precondition.trim()) {
-        const tauTransition = {
-          id: `tau_${transition.id}`,
-          label: `τ(${transition.label || transition.id})`,
-          precondition: this.negatePrecondition(transition.precondition),
-          postcondition: "", // Tau transitions don't change variables
-          priority: transition.priority || 1,
-          delay: 0,
-          position: transition.position
-        };
-        
-        tauDpn.transitions.push(tauTransition);
-        
-        // Add same arcs as original transition for tau-transition
-        const relatedArcs = dpn.arcs.filter(arc => 
-          arc.source === transition.id || arc.target === transition.id
+  async addTauTransitions(dpn) {
+    this.logStep("TauTransitions", "Adding τ-transitions (¬∃W.(pre ∧ post))");
+
+    const tauDpn = JSON.parse(JSON.stringify(dpn));
+    const originalTransitions = Array.isArray(tauDpn.transitions)
+      ? [...tauDpn.transitions]
+      : [];
+    const makeTauId = (id) => `tau_${String(id)}`; // unique-enough for this scope
+
+    let added = 0;
+
+    for (const t of originalTransitions) {
+      if (!t || typeof t.id === "undefined") continue;
+      if (String(t.id).startsWith("tau_")) continue; // Skip existing τ transitions
+
+      // Build guard(t) := ∃W.(pre_r ∧ post_w/r) using the ⊕ pipeline with state=true.
+      // Then τ-pre := (not guard(t)).
+      let guardT = "true";
+      try {
+        guardT = await this.refinementEngine.computeNewFormula(
+          "true",
+          t,
+          tauDpn
         );
-        
-        for (const arc of relatedArcs) {
-          const tauArc = {
-            id: `tau_${arc.id}`,
-            source: arc.source === transition.id ? tauTransition.id : arc.source,
-            target: arc.target === transition.id ? tauTransition.id : arc.target,
-            weight: arc.weight,
-            type: arc.type
-          };
-          tauDpn.arcs.push(tauArc);
-        }
+      } catch (_e) {
+        // If guard construction fails, conservatively skip τ for this t.
+        this.logStep(
+          "TauTransitions",
+          `Skipping τ for ${t.id} due to guard build error`
+        );
+        continue;
+      }
+
+      const tauPre = `(not ${guardT})`;
+
+      const tauTransition = {
+        id: makeTauId(t.id),
+        label: `τ(${t.label || t.id})`,
+        precondition: tauPre,
+        postcondition: "",
+        priority: typeof t.priority === "number" ? t.priority : 1,
+        delay: 0,
+        position: t.position,
+      };
+
+      // Insert τ(t)
+      tauDpn.transitions.push(tauTransition);
+      added += 1;
+
+      // Duplicate all arcs incident to t, redirecting endpoints to τ(t).
+      const relatedArcs = (tauDpn.arcs || []).filter(
+        (a) => a.source === t.id || a.target === t.id
+      );
+
+      for (const arc of relatedArcs) {
+        tauDpn.arcs.push({
+          id: makeTauId(arc.id),
+          source: arc.source === t.id ? tauTransition.id : arc.source,
+          target: arc.target === t.id ? tauTransition.id : arc.target,
+          weight: arc.weight,
+          type: arc.type,
+        });
       }
     }
 
-    this.logStep("TauTransitions", "Tau-transitions added", {
+    this.logStep("TauTransitions", "τ-transitions added", {
       originalTransitions: originalTransitions.length,
+      tauAdded: added,
       totalTransitions: tauDpn.transitions.length,
-      tauTransitions: tauDpn.transitions.length - originalTransitions.length
     });
 
     return tauDpn;
   }
 
   /**
-   * Check for deadlocks in the LTS
+   * Deadlock detection aligned with the paper’s intent:
+   * Report reachable states ⟨M, φ⟩ that have no enabled transitions (i.e., out-degree 0)
+   * and are not final. Only nodes reachable from an initial node are considered.
+   * Initial nodes are taken as those with no incoming edges; if none exist, the first node is used.
+   *
+   * @param {LabeledTransitionSystem} lts
+   * @returns {{ noDeadlocks: boolean, deadlockNodes: Array<{ nodeId: string, marking: any, formula: string }>, details: string, trace?: Array<{ transitionId: string }> }}
    */
-  async checkDeadlocks(lts) {
-    this.logStep("Deadlocks", "Checking for deadlocks in LTS");
-    
-    const deadlockNodes = [];
-    
-    for (const [nodeId, node] of lts.nodes) {
-      // A node is a deadlock if it has no outgoing edges and is not a final state
-      if (node.outgoingEdges.length === 0) {
-        const isFinalState = this.isFinalMarking(node.marking);
-        if (!isFinalState) {
-          deadlockNodes.push({
-            nodeId,
-            marking: node.marking,
-            formula: node.formula
-          });
+  checkDeadlocks(lts) {
+    // TODO: Either remove or fold into the P1 check to avoid duplicate/weaker semantics
+    this.logStep("Deadlocks", "Detecting reachable sink (non-final) states");
+
+    if (!lts || !lts.nodes || lts.nodes.size === 0) {
+      this.logStep("Deadlocks", "Empty LTS; no deadlocks by definition");
+      return {
+        noDeadlocks: true,
+        deadlockNodes: [],
+        details: "LTS is empty.",
+      };
+    }
+
+    // --- Identify initial node(s) (no incoming edges); fallback to first node if none) ---
+    const initialIds = [];
+    for (const [nid, node] of lts.nodes) {
+      const inc = Array.isArray(node.incomingEdges)
+        ? node.incomingEdges.length
+        : 0;
+      if (inc === 0) initialIds.push(nid);
+    }
+    if (initialIds.length === 0) {
+      initialIds.push(lts.nodes.keys().next().value);
+    }
+
+    // --- Forward reachability from all initial nodes; record parents for witness path ---
+    const fr = new Set();
+    const parent = new Map(); // nodeId -> { prev: nodeId|null, via: edgeId|null }
+    const q = [...initialIds];
+
+    for (const nid of initialIds) {
+      fr.add(nid);
+      parent.set(nid, { prev: null, via: null });
+    }
+
+    while (q.length) {
+      const nid = q.shift();
+      const node = lts.nodes.get(nid);
+      if (!node) continue;
+      const outs = node.outgoingEdges || [];
+      for (const eid of outs) {
+        const e = lts.edges.get(eid);
+        if (!e) continue;
+        const tgt = e.target;
+        if (!fr.has(tgt)) {
+          fr.add(tgt);
+          parent.set(tgt, { prev: nid, via: eid });
+          q.push(tgt);
         }
       }
     }
 
+    // --- Collect reachable deadlocks: out-degree 0 and not a final marking ---
+    const deadlockNodes = [];
+    for (const nid of fr) {
+      const n = lts.nodes.get(nid);
+      if (!n) continue;
+      const outdeg = Array.isArray(n.outgoingEdges)
+        ? n.outgoingEdges.length
+        : 0;
+      if (outdeg === 0 && !this.isFinalMarking(n.marking)) {
+        deadlockNodes.push({
+          nodeId: nid,
+          marking: n.marking,
+          formula: n.formula,
+        });
+      }
+    }
+
     const noDeadlocks = deadlockNodes.length === 0;
-    
-    this.logStep("Deadlocks", `Deadlock check completed: ${noDeadlocks ? 'no deadlocks' : deadlockNodes.length + ' deadlocks found'}`);
+
+    // Build a short witness path to one deadlock (if any).
+    let witness = [];
+    if (!noDeadlocks) {
+      const pick = deadlockNodes[0].nodeId;
+      const rev = [];
+      let cur = pick;
+      while (cur !== null) {
+        const p = parent.get(cur);
+        if (!p) break;
+        if (p.via !== null) {
+          const edge = lts.edges.get(p.via);
+          rev.push({ transitionId: edge ? edge.transition : "?" });
+        }
+        cur = p ? p.prev : null;
+      }
+      witness = rev.reverse();
+    }
+
+    this.logStep(
+      "Deadlocks",
+      noDeadlocks
+        ? "No reachable sink non-final states detected"
+        : `${deadlockNodes.length} reachable sink non-final state(s) detected`
+    );
 
     return {
       noDeadlocks,
       deadlockNodes,
-      details: noDeadlocks ? "No deadlocks found" : `Found ${deadlockNodes.length} deadlock states`,
-      trace: deadlockNodes.length > 0 ? deadlockNodes[0] : null
+      details: noDeadlocks
+        ? "Every reachable state either has an enabled transition or is final."
+        : "There exist reachable states with no enabled transitions that are not final.",
+      trace: noDeadlocks ? undefined : witness,
     };
   }
 
   isFinalMarking(marking) {
     // Check if the marking matches any final marking
-    return this.finalMarkings.some(finalMarking => {
-      return Object.keys(finalMarking).every(placeId =>
-        marking[placeId] !== undefined && marking[placeId] === finalMarking[placeId]
+    return this.finalMarkings.some((finalMarking) => {
+      return Object.keys(finalMarking).every(
+        (placeId) =>
+          marking[placeId] !== undefined &&
+          marking[placeId] === finalMarking[placeId]
       );
     });
-  } 
+  }
 
-  checkDeadlockFreedom(lts, dpn ) {
-    const getStateKey = (marking) => {
-      return Object.entries(marking)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => `${k}:${v}`)
-        .join(',');
-    };
+  /**
+   * Deadlock freedom (P1) aligned with the paper:
+   * For every reachable state ⟨M, φ⟩ in 𝓛𝓣𝓢_{N_R^τ}, some final state is reachable.
+   * Implementation:
+   * 1) Identify the initial node (by initial marking and initial formula).
+   * 2) Forward BFS to collect all reachable nodes (FR) and parent pointers for a witness path.
+   * 3) Collect the set of final nodes within FR.
+   * 4) Backward BFS from all final nodes (over incoming edges) to get nodes that can reach a final (BR).
+   * 5) P1 holds iff FR ⊆ BR (i.e., no node in FR fails to reach a final). If violated, return a witness path.
+   *
+   * @param {LabeledTransitionSystem} lts
+   * @param {Object} dpn
+   * @returns {Promise<{satisfied: boolean, details: string, violatingNodes?: string[], trace?: Array}>}
+   */
+  async checkDeadlockFreedom(lts, dpn) {
+    this.logStep(
+      "DeadlockFreedom",
+      "Checking P1: every reachable state can reach a final"
+    );
 
-    this.logStep("DeadlockFreedom", "Checking deadlock freedom (final marking reachability)");
-    // Check if there is a path to any final marking
-    const reachableFinals = new Set();
-    const queue = [this.refinementEngine.getInitialMarking(dpn)];
-
-    const visited = new Set();
-    visited.add(getStateKey(queue[0]));
-    
-
-
-    while (queue.length > 0) {
-      const currentMarking = queue.shift();
-      if (this.isFinalMarking(currentMarking)) {
-        reachableFinals.add(getStateKey(currentMarking));
+    // --- Helpers ---
+    const stateKey = (node) => this.refinementEngine.getStateKey(node);
+    const getInitialNodeId = () => {
+      const initM = this.refinementEngine.getInitialMarking(dpn);
+      const initF = this.refinementEngine.getInitialFormula(dpn);
+      const targetKey = (() => {
+        // Reuse getStateKey’s convention
+        const markingKey = Object.entries(initM)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([k, v]) => `${k}:${v}`)
+          .join(",");
+        return `${markingKey}|${initF}`;
+      })();
+      for (const [nid, n] of lts.nodes) {
+        if (stateKey(n) === targetKey) return nid;
       }
-      for (const [nodeId, node] of lts.nodes) {
-        if (getStateKey(node.marking) ===getStateKey(currentMarking)) {
-          for (const edge of node.outgoingEdges) {
-            console.log("Checking edge:", edge);
-            const targetEdge = lts.edges.get(edge);
-            const targetNode = lts.nodes.get(targetEdge.target);
+      // Fallback: pick the first inserted node
+      return lts.nodes.keys().next().value;
+    };
+    const isFinalNode = (node) => this.isFinalMarking(node.marking);
 
+    if (!lts || !lts.nodes || lts.nodes.size === 0) {
+      this.logStep("DeadlockFreedom", "Empty LTS; cannot establish P1");
+      return {
+        satisfied: false,
+        details: "No states in LTS; P1 cannot be established.",
+      };
+    }
 
-            if (!visited.has(getStateKey(targetNode.marking))) {
-              visited.add(getStateKey(targetNode.marking));
-              queue.push(targetNode.marking);
-            }
-          }
+    // --- 1) Initial node ---
+    const initId = getInitialNodeId();
+    if (!initId) {
+      this.logStep(
+        "DeadlockFreedom",
+        "Initial node not found; cannot evaluate P1"
+      );
+      return {
+        satisfied: false,
+        details: "Initial node not found in LTS.",
+      };
+    }
+
+    // --- 2) Forward reachability (FR) with parents for witness path ---
+    const fr = new Set();
+    const parent = new Map(); // nodeId -> { prev: nodeId|null, via: edgeId|null }
+    const q = [initId];
+    fr.add(initId);
+    parent.set(initId, { prev: null, via: null });
+
+    while (q.length) {
+      const nid = q.shift();
+      const node = lts.nodes.get(nid);
+      if (!node) continue;
+      for (const eid of node.outgoingEdges || []) {
+        const e = lts.edges.get(eid);
+        if (!e) continue;
+        const tgt = e.target;
+        if (!fr.has(tgt)) {
+          fr.add(tgt);
+          parent.set(tgt, { prev: nid, via: eid });
+          q.push(tgt);
         }
       }
     }
-    const satisfied = reachableFinals.size > 0;
-    this.logStep("DeadlockFreedom", `Deadlock freedom check completed: ${satisfied ? 'deadlock free' : 'deadlocks found'}`);
+
+    // --- 3) Final nodes in FR ---
+    const finals = [];
+    for (const nid of fr) {
+      const n = lts.nodes.get(nid);
+      if (n && isFinalNode(n)) finals.push(nid);
+    }
+
+    if (finals.length === 0) {
+      this.logStep(
+        "DeadlockFreedom",
+        "No final nodes reachable from initial; P1 violated"
+      );
+      // Provide a short witness to some reachable non-final sink if any
+      let witness = [];
+      for (const nid of fr) {
+        const n = lts.nodes.get(nid);
+        if (n && (n.outgoingEdges || []).length === 0) {
+          // reconstruct path init -> nid
+          const rev = [];
+          let cur = nid;
+          while (cur !== null) {
+            const p = parent.get(cur);
+            if (!p) break;
+            if (p.via !== null) {
+              const edge = lts.edges.get(p.via);
+              rev.push({ transitionId: edge ? edge.transition : "?" });
+            }
+            cur = p ? p.prev : null;
+          }
+          witness = rev.reverse();
+          break;
+        }
+      }
+      return {
+        satisfied: false,
+        details: "No final state is reachable from the initial state.",
+        trace: witness,
+      };
+    }
+
+    // --- 4) Backward reachability from finals (BR) over incoming edges ---
+    const br = new Set(finals);
+    const qbr = [...finals];
+
+    while (qbr.length) {
+      const nid = qbr.shift();
+      const node = lts.nodes.get(nid);
+      if (!node) continue;
+      for (const eid of node.incomingEdges || []) {
+        const e = lts.edges.get(eid);
+        if (!e) continue;
+        const src = e.source;
+        if (!br.has(src)) {
+          br.add(src);
+          qbr.push(src);
+        }
+      }
+    }
+
+    // --- 5) Check FR ⊆ BR ---
+    const violating = [];
+    for (const nid of fr) {
+      if (!br.has(nid)) violating.push(nid);
+    }
+
+    if (violating.length === 0) {
+      this.logStep(
+        "DeadlockFreedom",
+        "P1 satisfied: every reachable node can reach a final"
+      );
+      return {
+        satisfied: true,
+        details: "Every reachable state has a path to a final state.",
+      };
+    }
+
+    // Build a witness path to one violating node (init -> violating)
+    const pick = violating[0];
+    const path = [];
+    let cur = pick;
+    while (cur !== null) {
+      const p = parent.get(cur);
+      if (!p) break;
+      if (p.via !== null) {
+        const edge = lts.edges.get(p.via);
+        path.push({ transitionId: edge ? edge.transition : "?" });
+      }
+      cur = p ? p.prev : null;
+    }
+    path.reverse();
+
+    // Optionally, also include the marking/formula of the violating node
+    const vNode = lts.nodes.get(pick);
+
+    this.logStep(
+      "DeadlockFreedom",
+      `P1 violated: ${violating.length} reachable nodes cannot reach a final`,
+      {
+        sampleViolatingNode: pick,
+      }
+    );
+
     return {
-      satisfied,
-      reachableFinals: Array.from(reachableFinals), 
-      details: satisfied ? "Deadlock freedom satisfied" : "Deadlocks found",
-      trace: satisfied ? null : Array.from(reachableFinals)[0] // Return one
+      satisfied: false,
+      details:
+        "There exists a reachable state from which no final state is reachable.",
+      violatingNodes: violating,
+      trace: path,
+      offendingState: vNode
+        ? { nodeId: pick, marking: vNode.marking, formula: vNode.formula }
+        : undefined,
     };
   }
 
@@ -1882,7 +3488,7 @@ class SuvorovLomazovaVerifier {
    */
   async checkAllSoundnessProperties(lts, dpn) {
     this.logStep("SoundnessProperties", "Checking all soundness properties");
-    
+
     const checks = [];
     let allPassed = true;
 
@@ -1906,25 +3512,30 @@ class SuvorovLomazovaVerifier {
     // checks.push(livelockResult);
     // if (!livelockResult.satisfied) allPassed = false;
 
-    this.logStep("SoundnessProperties", `All properties checked: ${allPassed ? 'sound' : 'unsound'}`);
+    this.logStep(
+      "SoundnessProperties",
+      `All properties checked: ${allPassed ? "sound" : "unsound"}`
+    );
 
     return {
       isSound: allPassed,
-      checks
+      checks,
     };
-  };
-    
-
+  }
 
   async verify(progressCallback) {
     this.startTime = Date.now();
     this.verificationSteps = [];
     this.counterexampleTraces = [];
 
-    const dbg = (...args) => console.log(`[verify +${Date.now() - this.startTime}ms]`, ...args);
+    const dbg = (...args) =>
+      console.log(`[verify +${Date.now() - this.startTime}ms]`, ...args);
 
     try {
-      this.logStep("Initialization", "Starting comprehensive soundness verification");
+      this.logStep(
+        "Initialization",
+        "Starting comprehensive soundness verification"
+      );
 
       // Initialize Z3 solver
       await Z3Solver.initialize();
@@ -1932,7 +3543,7 @@ class SuvorovLomazovaVerifier {
 
       // Convert petri net to proper format
       const dpn = this.convertPetriNetFormat(this.originalPetriNet);
-      
+
       // Set data variables for Z3Solver compatibility
       const dataVariables = new Map();
       if (dpn.dataVariables) {
@@ -1940,21 +3551,32 @@ class SuvorovLomazovaVerifier {
           dataVariables.set(dv.name, {
             name: dv.name,
             type: dv.type,
-            currentValue: dv.currentValue
+            currentValue: dv.currentValue,
           });
         }
       }
       Z3Solver.setGlobalDataVariables(dataVariables);
-      
+
       this.finalMarkings = this.identifyFinalMarkings(dpn);
-      
-      this.logStep("Initialization", "DPN converted and final markings identified", {
-        places: dpn.places?.length || 0,
-        transitions: dpn.transitions?.length || 0,
-        arcs: dpn.arcs?.length || 0,
-        dataVars: dpn.dataVariables?.length || 0,
-        finalMarkings: this.finalMarkings.length
-      });
+
+      if (this.finalMarkings.length === 0) {
+        this.finalMarkings = [ { final: 1 } ];
+        console.warn(
+          "No final markings identified; using default final marking with placeId 'final'", this.finalMarkings
+        );
+      }
+
+      this.logStep(
+        "Initialization",
+        "DPN converted and final markings identified",
+        {
+          places: dpn.places?.length || 0,
+          transitions: dpn.transitions?.length || 0,
+          arcs: dpn.arcs?.length || 0,
+          dataVars: dpn.dataVariables?.length || 0,
+          finalMarkings: this.finalMarkings.length,
+        }
+      );
 
       // Choose algorithm: improved (Algorithm 6) or direct (Algorithm 5)
       if (this.options.useImprovedAlgorithm) {
@@ -1962,114 +3584,199 @@ class SuvorovLomazovaVerifier {
       } else {
         return await this.verifyDirect(dpn, progressCallback);
       }
-
     } catch (e) {
       console.error(e);
-      return this.createResult(false, [{ name: "Internal error", satisfied: false, details: String(e?.message || e) }]);
+      return this.createResult(false, [
+        {
+          name: "Internal error",
+          satisfied: false,
+          details: String(e?.message || e),
+        },
+      ]);
     }
   }
 
   /**
-   * Implements Algorithm 6 (Improved) from the paper
-   * Performs preliminary checks before refinement
+   * Implements Algorithm 6 (Improved): boundedness → preliminary checks on LTS_N → refine → add τ → LTS_{N_R^τ} → P1,P2,P3.
+   *
+   * @param {Object} dpn
+   * @param {(msg: string) => void} [progressCallback]
+   * @returns {Promise<ReturnType<SuvorovLomazovaVerifier['createResult']>>}
    */
   async verifyImproved(dpn, progressCallback) {
-    // Step 1: Check boundedness
-    if (progressCallback) progressCallback("Checking boundedness...");
-    const boundednessResult = await this.checkBoundedness(dpn);
-    if (!boundednessResult.bounded) {
-      return this.createResult(false, [{
-        name: "Boundedness",
-        satisfied: false,
-        details: "Net is unbounded",
-        trace: boundednessResult.trace
-      }]);
+    const say = (m) => {
+      if (progressCallback) progressCallback(m);
+    };
+
+    // 1) Boundedness (Alg. 3) on N
+    say("Checking boundedness (Algorithm 3)...");
+    this.logStep("VerifyImproved", "Step 1: Boundedness (Alg. 3)");
+    const bnd = await this.checkBoundedness(dpn);
+    if (!bnd.bounded) {
+      return this.createResult(false, [
+        {
+          name: "Boundedness (Alg. 3)",
+          satisfied: false,
+          details: "Net is unbounded (strict cover detected).",
+          trace: bnd.trace || [],
+        },
+      ]);
     }
 
-    // Step 2: Construct initial LTS
-    if (progressCallback) progressCallback("Constructing initial LTS...");
-    const initialLts = await this.constructLTS(dpn);
-    this.logStep("LTS", "Initial LTS constructed", {
-      nodes: initialLts.nodes.size,
-      edges: initialLts.edges.size
+    // 2) Construct LTS_N and run preliminary checks (P2, P3)
+    say("Constructing LTS_N (no refinement, no τ)...");
+    this.logStep("VerifyImproved", "Step 2: LTS_N construction");
+    const ltsN = await this.refinementEngine.constructLTS(dpn);
+
+    say("Preliminary checks on LTS_N (P2, P3)...");
+    this.logStep("VerifyImproved", "Step 2a: Preliminary P2 on LTS_N");
+    const p2_pre = this.checkOverfinalMarkings(ltsN);
+    if (!p2_pre.satisfied) {
+      return this.createResult(false, [
+        {
+          name: "Overfinal marking (P2) on LTS_N",
+          satisfied: false,
+          details: p2_pre.details,
+          trace: p2_pre.trace || null,
+        },
+      ]);
+    }
+
+    this.logStep("VerifyImproved", "Step 2b: Preliminary P3 on LTS_N");
+    const p3_pre = this.checkDeadTransitions(dpn, ltsN);
+    if (!p3_pre.satisfied) {
+      return this.createResult(false, [
+        {
+          name: "Dead transitions (P3) on LTS_N",
+          satisfied: false,
+          details: p3_pre.details,
+          deadTransitions: p3_pre.deadTransitions,
+        },
+      ]);
+    }
+
+    // 3) Refinement → N_R
+    say("Refining DPN (Algorithm 4)...");
+    this.logStep("VerifyImproved", "Step 3: Refinement → N_R");
+    const dpnR = await this.refinementEngine.refineDPN(dpn);
+
+    // 4) Add τ → N_R^τ
+    say("Adding τ-transitions (Definition 4.4)...");
+    this.logStep("VerifyImproved", "Step 4: Add τ → N_R^τ");
+    const dpnRtau = await this.addTauTransitions(dpnR);
+
+    // 5) Build LTS_{N_R^τ} and check P1, P2, P3
+    say("Constructing LTS_{N_R^τ} and checking P1, P2, P3...");
+    this.logStep("VerifyImproved", "Step 5: LTS_{N_R^τ} + P-checks");
+    const ltsRtau = await this.refinementEngine.constructLTS(dpnRtau);
+
+    const checks = [];
+
+    // P1: Deadlock freedom (every reachable node can reach a final)
+    const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnR);
+    checks.push({
+      name: "Deadlock freedom (P1)",
+      ...p1,
+      satisfied: !!p1.satisfied,
     });
 
-    // Step 3: Preliminary checks (P2, P3)
-    if (progressCallback) progressCallback("Performing preliminary checks...");
-    const preliminaryResult = await this.checkPreliminaryProperties(dpn, initialLts);
-    if (!preliminaryResult.allPassed) {
-      return this.createResult(false, preliminaryResult.failedChecks);
-    }
+    // P2: No overfinal markings
+    const p2 = this.checkOverfinalMarkings(ltsRtau);
+    checks.push({
+      name: "Overfinal marking (P2)",
+      ...p2,
+      satisfied: !!p2.satisfied,
+    });
 
-    // Step 4: Check deadlocks with tau-transitions
-    if (progressCallback) progressCallback("Checking for deadlocks...");
-    const tauDpn = this.addTauTransitions(dpn);
-    const tauLts = await this.constructLTS(tauDpn);
-    
-    const deadlockResult = await this.checkDeadlocks(tauLts);
-    if (!deadlockResult.noDeadlocks) {
-      return this.createResult(false, [{
-        name: "Deadlock",
-        satisfied: false,
-        details: deadlockResult.details,
-        trace: deadlockResult.trace
-      }]);
-    }
+    // P3: No dead transitions (use refined originals)
+    const p3 = this.checkDeadTransitions(dpnR, ltsRtau);
+    checks.push({
+      name: "Dead transitions (P3)",
+      ...p3,
+      satisfied: !!p3.satisfied,
+    });
 
-    // Step 5: Refinement and comprehensive check
-    if (progressCallback) progressCallback("Performing DPN refinement...");
-    const refinedDpn = await this.refinementEngine.refineDPN(dpn);
-    
-    if (progressCallback) progressCallback("Final soundness verification...");
-    const refinedTauDpn = this.addTauTransitions(refinedDpn);
-    const refinedLts = await this.constructLTS(refinedTauDpn);
-    
-    const finalResult = await this.checkAllSoundnessProperties(refinedLts, refinedDpn);
-    return this.createResult(finalResult.isSound, finalResult.checks);
+    const isSound = checks.every((c) => c.satisfied === true);
+    this.logStep(
+      "VerifyImproved",
+      `Done. Soundness = ${isSound ? "YES" : "NO"}`
+    );
+
+    return this.createResult(isSound, checks);
   }
 
   /**
-   * Implements Algorithm 5 (Direct) from the paper  
-   * Goes directly to refinement after boundedness check
+   * Implements Algorithm 5 (Direct): boundedness → refine → add τ → LTS_{N_R^τ} → P1,P2,P3.
+   *
+   * @param {Object} dpn
+   * @param {(msg: string) => void} [progressCallback]
+   * @returns {Promise<ReturnType<SuvorovLomazovaVerifier['createResult']>>}
    */
   async verifyDirect(dpn, progressCallback) {
-    // Step 1: Check boundedness
-    if (progressCallback) progressCallback("Checking boundedness...");
-    const boundednessResult = await this.checkBoundedness(dpn);
-    if (!boundednessResult.bounded) {
-      return this.createResult(false, [{
-        name: "Boundedness", 
-        satisfied: false,
-        details: "Net is unbounded",
-        trace: boundednessResult.trace
-      }]);
+    const say = (m) => {
+      if (progressCallback) progressCallback(m);
+    };
+
+    // 1) Boundedness (Alg. 3) on N
+    say("Checking boundedness (Algorithm 3)...");
+    this.logStep("VerifyDirect", "Step 1: Boundedness (Alg. 3)");
+    const bnd = await this.checkBoundedness(dpn);
+    if (!bnd.bounded) {
+      return this.createResult(false, [
+        {
+          name: "Boundedness (Alg. 3)",
+          satisfied: false,
+          details: "Net is unbounded (strict cover detected).",
+          trace: bnd.trace || [],
+        },
+      ]);
     }
 
-    // Step 2: Refine DPN
-    if (progressCallback) progressCallback("Refining DPN...");
-    const refinedDpn = await this.refinementEngine.refineDPN(dpn);
-    this.logStep("Refinement", "DPN refined", {
-      originalTransitions: dpn.transitions.length,
-      refinedTransitions: refinedDpn.transitions.length
+    // 2) Refinement → N_R
+    say("Refining DPN (Algorithm 4)...");
+    this.logStep("VerifyDirect", "Step 2: Refinement → N_R");
+    const dpnR = await this.refinementEngine.refineDPN(dpn);
+
+    // 3) Add τ → N_R^τ
+    say("Adding τ-transitions (Definition 4.4)...");
+    this.logStep("VerifyDirect", "Step 3: Add τ → N_R^τ");
+    const dpnRtau = await this.addTauTransitions(dpnR);
+
+    // 4) Build LTS_{N_R^τ} and check P1, P2, P3
+    say("Constructing LTS_{N_R^τ} and checking P1, P2, P3...");
+    this.logStep("VerifyDirect", "Step 4: LTS_{N_R^τ} + P-checks");
+    const ltsRtau = await this.refinementEngine.constructLTS(dpnRtau);
+
+    const checks = [];
+
+    // P1: Deadlock freedom
+    const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnR);
+    checks.push({
+      name: "Deadlock freedom (P1)",
+      ...p1,
+      satisfied: !!p1.satisfied,
     });
 
-    // Step 3: Add tau-transitions
-    if (progressCallback) progressCallback("Adding tau-transitions...");
-    const tauDpn = this.addTauTransitions(refinedDpn);
-
-    // Step 4: Construct LTS for refined tau-DPN
-    if (progressCallback) progressCallback("Constructing LTS for refined DPN...");
-    const lts = await this.constructLTS(tauDpn);
-    this.logStep("LTS", "LTS constructed for refined tau-DPN", {
-      nodes: lts.nodes.size,
-      edges: lts.edges.size
+    // P2: No overfinal markings
+    const p2 = this.checkOverfinalMarkings(ltsRtau);
+    checks.push({
+      name: "Overfinal marking (P2)",
+      ...p2,
+      satisfied: !!p2.satisfied,
     });
 
-    // Step 5: Analyze LTS for soundness properties
-    if (progressCallback) progressCallback("Analyzing soundness properties...");
-    const soundnessResult = await this.checkAllSoundnessProperties(lts, refinedDpn);
-    
-    return this.createResult(soundnessResult.isSound, soundnessResult.checks);
+    // P3: No dead transitions (use refined originals)
+    const p3 = this.checkDeadTransitions(dpnR, ltsRtau);
+    checks.push({
+      name: "Dead transitions (P3)",
+      ...p3,
+      satisfied: !!p3.satisfied,
+    });
+
+    const isSound = checks.every((c) => c.satisfied === true);
+    this.logStep("VerifyDirect", `Done. Soundness = ${isSound ? "YES" : "NO"}`);
+
+    return this.createResult(isSound, checks);
   }
 
   convertPetriNetFormat(petriNet) {
@@ -2078,25 +3785,29 @@ class SuvorovLomazovaVerifier {
       places: [],
       transitions: [],
       arcs: [],
-      dataVariables: []
+      dataVariables: [],
     };
 
     // Convert places
     if (petriNet.places) {
-      const places = Array.isArray(petriNet.places) ? petriNet.places : Array.from(petriNet.places.values());
+      const places = Array.isArray(petriNet.places)
+        ? petriNet.places
+        : Array.from(petriNet.places.values());
       for (const place of places) {
         converted.places.push({
           id: place.id,
           label: place.label || place.id,
           tokens: place.tokens || 0,
-          position: place.position || { x: 0, y: 0 }
+          position: place.position || { x: 0, y: 0 },
         });
       }
     }
 
     // Convert transitions
     if (petriNet.transitions) {
-      const transitions = Array.isArray(petriNet.transitions) ? petriNet.transitions : Array.from(petriNet.transitions.values());
+      const transitions = Array.isArray(petriNet.transitions)
+        ? petriNet.transitions
+        : Array.from(petriNet.transitions.values());
       for (const transition of transitions) {
         converted.transitions.push({
           id: transition.id,
@@ -2105,35 +3816,44 @@ class SuvorovLomazovaVerifier {
           postcondition: transition.postcondition || "",
           priority: transition.priority || 1,
           delay: transition.delay || 0,
-          position: transition.position || { x: 0, y: 0 }
+          position: transition.position || { x: 0, y: 0 },
         });
       }
     }
 
     // Convert arcs
     if (petriNet.arcs) {
-      const arcs = Array.isArray(petriNet.arcs) ? petriNet.arcs : Array.from(petriNet.arcs.values());
+      const arcs = Array.isArray(petriNet.arcs)
+        ? petriNet.arcs
+        : Array.from(petriNet.arcs.values());
       for (const arc of arcs) {
         converted.arcs.push({
           id: arc.id,
           source: arc.source,
           target: arc.target,
           weight: arc.weight || 1,
-          type: arc.type || "regular"
+          type: arc.type || "regular",
         });
       }
     }
 
     // Convert data variables
     if (petriNet.dataVariables) {
-      const dataVars = Array.isArray(petriNet.dataVariables) ? petriNet.dataVariables : Array.from(petriNet.dataVariables.values());
+      const dataVars = Array.isArray(petriNet.dataVariables)
+        ? petriNet.dataVariables
+        : Array.from(petriNet.dataVariables.values());
       for (const variable of dataVars) {
         converted.dataVariables.push({
           id: variable.id,
           name: variable.name,
           type: variable.type || "int",
-          currentValue: variable.currentValue !== undefined ? variable.currentValue : (variable.value !== undefined ? variable.value : 0),
-          description: variable.description || ""
+          currentValue:
+            variable.currentValue !== undefined
+              ? variable.currentValue
+              : variable.value !== undefined
+              ? variable.value
+              : 0,
+          description: variable.description || "",
         });
       }
     }
@@ -2141,51 +3861,188 @@ class SuvorovLomazovaVerifier {
     return converted;
   }
 
+  /**
+   * Boundedness check aligned with Algorithm 3 (coverability over the LTS).
+   * Builds a coverability exploration of states ⟨M, φ⟩ using ⊕ (computeNewFormula)
+   * and detects unboundedness when a reachable state strictly covers an ancestor
+   * along the current path (component-wise ≥ and > in at least one place), with
+   * compatible constraints. Uses antichain pruning by coverage to ensure termination.
+   *
+   * @param {Object} dpn - Normalized DPN.
+   * @returns {Promise<{bounded: boolean, trace?: Array}>}
+   */
   async checkBoundedness(dpn) {
-    this.logStep("Boundedness", "Checking if net is bounded using SMT");
+    this.logStep("Boundedness", "Coverability analysis (Algorithm 3)");
 
-    // First, let's do a simple test with the basic SMT generator
-    this.logStep("Boundedness", "Testing basic SMT generation", {
-      finalMarkings: this.finalMarkings
-    });
+    // Helpers
+    const covers = (ma, mb) => {
+      // ma ≥ mb component-wise
+      for (const p of new Set([...Object.keys(ma), ...Object.keys(mb)])) {
+        const a = ma[p] | 0;
+        const b = mb[p] | 0;
+        if (a < b) return false;
+      }
+      return true;
+    };
+    const strictlyCovers = (ma, mb) => {
+      if (!covers(ma, mb)) return false;
+      for (const p of new Set([...Object.keys(ma), ...Object.keys(mb)])) {
+        const a = ma[p] | 0;
+        const b = mb[p] | 0;
+        if (a > b) return true;
+      }
+      return false;
+    };
+    const formulasCompatible = async (f1, f2) => {
+      if (!f1 || f1 === "true") return await Z3Solver.isSatisfiable(f2);
+      if (!f2 || f2 === "true") return await Z3Solver.isSatisfiable(f1);
+      return await Z3Solver.isSatisfiable(`(and ${f1} ${f2})`);
+    };
+    const stateKey = (marking, formula) => {
+      // Canonical key for antichain map (marking only + normalized formula text)
+      const mk = Object.entries(marking)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join(",");
+      const fk = String(formula || "true")
+        .replace(/\s+/g, " ")
+        .trim();
+      return `${mk}|${fk}`;
+    };
 
-    // Check with increasing bounds
-    for (let k = 1; k <= this.options.maxBound; k++) {
-      const smtString = this.smtGenerator.generateSMT(dpn, {
-        K: k,
-        logic: "ALL",
-        coverage: false
-      });
+    // Initial state
+    const initM = this.refinementEngine.getInitialMarking(dpn);
+    const initF = this.refinementEngine.getInitialFormula(dpn);
+    if (!(await Z3Solver.isSatisfiable(initF))) {
+      // If the initial constraint is unsat, the net is trivially bounded (no behavior).
+      this.logStep(
+        "Boundedness",
+        "Initial constraint is UNSAT; treating as bounded."
+      );
+      return { bounded: true };
+    }
 
-      const result = await Z3Solver.checkSatWithModel(smtString);
-      
-      this.logStep("Boundedness", `Basic SMT bound ${k}: isSat=${result.isSat}`, {
-        modelSize: result.model ? result.model.size : 0
-      });
-      
-      if (result.isSat) {
-        // Check if any place exceeds reasonable bounds
-        const maxTokens = this.getMaxTokensFromModel(result.model);
-        this.logStep("Boundedness", `Max tokens found: ${maxTokens}`);
-        
-        if (maxTokens > 100) { // Arbitrary large threshold
-          return {
-            bounded: false,
-            trace: this.extractTraceFromModel(result.model, k, dpn)
-          };
+    // Frontier stack for DFS; each entry keeps the path for witness extraction
+    const stack = [
+      {
+        marking: initM,
+        formula: initF,
+        path: [], // sequence of {transitionId, from:{M,F}, to:{M,F}}
+      },
+    ];
+
+    // Antichain of visited states for pruning:
+    // for each key, keep a set of representatives not covered by others.
+    const anti = new Map();
+
+    const pushIfNotCovered = async (st) => {
+      // If there exists v in anti that covers st (and formulas compatible), prune.
+      for (const [_, bucket] of anti) {
+        for (const v of bucket) {
+          if (
+            covers(v.marking, st.marking) &&
+            (await formulasCompatible(v.formula, st.formula))
+          ) {
+            return false; // covered -> prune
+          }
         }
-      } else {
-        // If basic SMT is UNSAT at low bounds, might indicate an issue
-        this.logStep("Boundedness", `SMT UNSAT at bound ${k} - might indicate structural issue`);
+      }
+      // Otherwise, insert st and remove representatives that st covers.
+      const key = stateKey(st.marking, st.formula);
+      if (!anti.has(key)) anti.set(key, []);
+      const bucket = anti.get(key);
+      // Remove dominated reps in this bucket (same key already encodes formula text)
+      for (let i = bucket.length - 1; i >= 0; i--) {
+        if (covers(st.marking, bucket[i].marking)) {
+          bucket.splice(i, 1);
+        }
+      }
+      bucket.push({ marking: st.marking, formula: st.formula });
+      return true;
+    };
+
+    // Main DFS with coverability checks
+    const MAX_EXPLORED = 50000; // safety cap to avoid pathological growth
+    let expanded = 0;
+
+    while (stack.length) {
+      const cur = stack.pop();
+      expanded++;
+      if (expanded > MAX_EXPLORED) {
+        this.logStep(
+          "Boundedness",
+          "Exploration cap reached; assuming bounded so far."
+        );
+        break;
+      }
+
+      // Generate successors via ⊕ and marking update
+      for (const t of dpn.transitions || []) {
+        const succ = await this.refinementEngine.computeSuccessorState(
+          cur.marking,
+          cur.formula,
+          t,
+          dpn
+        );
+        if (!succ) continue;
+        if (!(await Z3Solver.isSatisfiable(succ.formula))) continue;
+
+        // Unboundedness witness: if succ strictly covers ANY ancestor marking on this path
+        // and the constraints are compatible, we can pump the loop.
+        for (let i = 0; i < cur.path.length; i++) {
+          const anc = cur.path[i].to; // state after step i
+          if (
+            strictlyCovers(succ.marking, anc.marking) &&
+            (await formulasCompatible(succ.formula, anc.formula))
+          ) {
+            const witness = [
+              ...cur.path.slice(i), // from ancestor forward
+              {
+                transitionId: t.id,
+                from: { marking: cur.marking, formula: cur.formula },
+                to: { marking: succ.marking, formula: succ.formula },
+              },
+            ].map((e) => ({ transitionId: e.transitionId }));
+            this.logStep(
+              "Boundedness",
+              "Unboundedness detected via strict cover on path."
+            );
+            return { bounded: false, trace: witness };
+          }
+        }
+
+        // Antichain pruning: skip states covered by visited reps
+        const next = {
+          marking: succ.marking,
+          formula: succ.formula,
+          path: [
+            ...cur.path,
+            {
+              transitionId: t.id,
+              from: { marking: cur.marking, formula: cur.formula },
+              to: { marking: succ.marking, formula: succ.formula },
+            },
+          ],
+        };
+        if (await pushIfNotCovered(next)) {
+          stack.push(next);
+        }
       }
     }
 
+    this.logStep(
+      "Boundedness",
+      "No strict-cover loop found; net considered bounded."
+    );
     return { bounded: true };
   }
 
   async checkP1(dpn) {
     // P1: Deadlock freedom - check if we can reach final marking
-    this.logStep("P1", "Checking deadlock freedom (reachability of final marking)");
+    this.logStep(
+      "P1",
+      "Checking deadlock freedom (reachability of final marking)"
+    );
 
     for (let k = 1; k <= this.options.maxBound; k++) {
       // Generate SMT with final marking constraint
@@ -2193,19 +4050,22 @@ class SuvorovLomazovaVerifier {
         K: k,
         logic: "ALL",
         coverage: false,
-        finalMarking: this.finalMarkings[0] // Use first final marking
+        finalMarking: this.finalMarkings[0], // Use first final marking
       });
 
       const result = await Z3Solver.checkSatWithModel(smtString);
-      this.logStep("P1", `Final marking reachability bound ${k}: isSat=${result.isSat}`);
+      this.logStep(
+        "P1",
+        `Final marking reachability bound ${k}: isSat=${result.isSat}`
+      );
 
       if (result.isSat) {
         // If we can reach final marking, no deadlock issue
         this.logStep("P1", "Final marking is reachable - no deadlock");
         return {
-          name: "Deadlock (P1)", 
+          name: "Deadlock (P1)",
           satisfied: true,
-          details: "Final marking is reachable"
+          details: "Final marking is reachable",
         };
       }
     }
@@ -2215,7 +4075,7 @@ class SuvorovLomazovaVerifier {
     return {
       name: "Deadlock (P1)",
       satisfied: false,
-      details: "Cannot reach final marking within bound - potential deadlock"
+      details: "Cannot reach final marking within bound - potential deadlock",
     };
   }
 
@@ -2224,13 +4084,13 @@ class SuvorovLomazovaVerifier {
     this.logStep("P2", "Checking for overfinal markings (simplified)");
 
     // For now, assume no overfinal markings unless we find evidence
-    // This is a simplification - a full implementation would check for 
+    // This is a simplification - a full implementation would check for
     // markings that strictly dominate final markings
     this.logStep("P2", "No overfinal markings found (simplified check)");
     return {
       name: "Overfinal marking (P2)",
       satisfied: true,
-      details: "No overfinal markings detected"
+      details: "No overfinal markings detected",
     };
   }
 
@@ -2240,39 +4100,52 @@ class SuvorovLomazovaVerifier {
 
     for (const transition of dpn.transitions) {
       let transitionReachable = false;
-      
-      this.logStep("P3", `Checking transition ${transition.label || transition.id}`);
-      
+
+      this.logStep(
+        "P3",
+        `Checking transition ${transition.label || transition.id}`
+      );
+
       // Check if this transition can fire in any reachable state
       for (let k = 1; k <= this.options.maxBound && !transitionReachable; k++) {
         // Use coverage to check if this specific transition can fire
         const smtString = this.smtGenerator.generateSMT(dpn, {
           K: k,
           logic: "ALL",
-          coverage: true // This should require all transitions to fire
+          coverage: true, // This should require all transitions to fire
         });
 
         const result = await Z3Solver.checkSatWithModel(smtString);
         this.logStep("P3", `Coverage check bound ${k}: isSat=${result.isSat}`);
-        
+
         if (result.isSat) {
           // If coverage is satisfiable, all transitions (including this one) can fire
           transitionReachable = true;
-          this.logStep("P3", `All transitions including ${transition.label || transition.id} are reachable`);
+          this.logStep(
+            "P3",
+            `All transitions including ${
+              transition.label || transition.id
+            } are reachable`
+          );
           break;
         }
       }
 
       if (!transitionReachable) {
-        this.logStep("P3", `Dead transition found: ${transition.label || transition.id}`);
+        this.logStep(
+          "P3",
+          `Dead transition found: ${transition.label || transition.id}`
+        );
         return {
           name: "Dead transition (P3)",
           satisfied: false,
-          details: `Transition ${transition.label || transition.id} is never enabled`,
-          deadTransition: { 
-            transitionId: transition.id, 
-            transitionLabel: transition.label || transition.id 
-          }
+          details: `Transition ${
+            transition.label || transition.id
+          } is never enabled`,
+          deadTransition: {
+            transitionId: transition.id,
+            transitionLabel: transition.label || transition.id,
+          },
         };
       }
     }
@@ -2281,7 +4154,7 @@ class SuvorovLomazovaVerifier {
     return {
       name: "Dead transition (P3)",
       satisfied: true,
-      details: "All transitions are reachable"
+      details: "All transitions are reachable",
     };
   }
 
@@ -2297,17 +4170,23 @@ class SuvorovLomazovaVerifier {
     const smtString = this.smtGenerator.generateSMT(dpn, {
       K: this.options.maxBound,
       logic: "ALL",
-      coverage: this.options.enableCoverage
+      coverage: this.options.enableCoverage,
     });
 
     const result = await Z3Solver.checkSatWithModel(smtString);
-    this.logStep("Tau", `SMT result: isSat=${result.isSat}, coverage=${this.options.enableCoverage}`);
-        
+    this.logStep(
+      "Tau",
+      `SMT result: isSat=${result.isSat}, coverage=${this.options.enableCoverage}`
+    );
+
     if (this.options.enableCoverage) {
       if (result.isSat) {
         this.logStep("Tau", "Coverage can be achieved with tau transitions");
       } else {
-        this.logStep("Tau", "Coverage cannot be achieved with tau transitions (but P3 already checked reachability)");
+        this.logStep(
+          "Tau",
+          "Coverage cannot be achieved with tau transitions (but P3 already checked reachability)"
+        );
       }
     }
 
@@ -2316,49 +4195,127 @@ class SuvorovLomazovaVerifier {
     return {
       name: "Coverage with Tau",
       satisfied: true,
-      details: this.options.enableCoverage 
-        ? (result.isSat ? "Full transition coverage achievable with tau transitions" : "Limited coverage with tau transitions (core properties verified)")
-        : "Tau transition analysis completed"
+      details: this.options.enableCoverage
+        ? result.isSat
+          ? "Full transition coverage achievable with tau transitions"
+          : "Limited coverage with tau transitions (core properties verified)"
+        : "Tau transition analysis completed",
     };
   }
 
+  /**
+   * Identify final markings M_F strictly from explicit model input.
+   * Paper-aligned behavior: do not synthesize finals from topology (e.g., sinks).
+   * Accepted sources, in order:
+   *   1) dpn.finalMarkings: Array<{ [placeId: string]: number }>
+   *   2) dpn.finalMarking:  { [placeId: string]: number }
+   *   3) Place-level flags: places with `isFinal===true` or `final===true` or `type==='final'`
+   * If none are present, return [] and log that P1/P2 cannot be evaluated.
+   *
+   * @param {Object} dpn
+   * @returns {Array<Object<string, number>>}
+   */
   identifyFinalMarkings(dpn) {
-    // Identify final markings (sink places with tokens)
-    const places = dpn.places || [];
-    const arcs = dpn.arcs || [];
+    this.logStep("FinalMarkings", "Collecting explicit final marking(s) (M_F)");
 
-    this.logStep("FinalMarkings", "Identifying final markings", {
-      places: places.length,
-      arcs: arcs.length
-    });
+    const places = Array.isArray(dpn.places) ? dpn.places : [];
+    const placeIds = new Set(places.map((p) => String(p.id)));
 
-    // Find sink places (places with no outgoing arcs)
-    const sinkPlaces = places.filter(place => {
-      return !arcs.some(arc => arc.source === place.id);
-    });
+    const normalizeMarking = (m) => {
+      const out = {};
+      for (const p of placeIds) out[p] = 0;
+      let anyPositive = false;
 
-    this.logStep("FinalMarkings", "Sink places found", {
-      sinkPlaces: sinkPlaces.map(p => p.label || p.id)
-    });
+      for (const [k, v] of Object.entries(m || {})) {
+        const pid = String(k);
+        if (!placeIds.has(pid)) {
+          this.logStep(
+            "FinalMarkings",
+            `Ignoring unknown place '${pid}' in provided M_F`
+          );
+          continue;
+        }
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 0) {
+          this.logStep(
+            "FinalMarkings",
+            `Invalid token count for place '${pid}': ${v} (must be non-negative integer)`
+          );
+          return null;
+        }
+        out[pid] = n;
+        if (n > 0) anyPositive = true;
+      }
 
-    if (sinkPlaces.length === 0) {
-      // If no sink places, use current marking as final
-      const finalMarking = {};
-      places.forEach(place => {
-        finalMarking[place.id] = place.tokens || 0;
-      });
-      this.logStep("FinalMarkings", "Using current marking as final", finalMarking);
-      return [finalMarking];
+      if (!anyPositive) {
+        this.logStep(
+          "FinalMarkings",
+          "Provided M_F has no tokens in any place; rejecting"
+        );
+        return null;
+      }
+      return out;
+    };
+
+    // 1) Array of final markings
+    if (Array.isArray(dpn.finalMarkings) && dpn.finalMarkings.length > 0) {
+      const finals = [];
+      for (const m of dpn.finalMarkings) {
+        const norm = normalizeMarking(m);
+        if (!norm) {
+          this.logStep(
+            "FinalMarkings",
+            "A provided M_F entry is invalid; aborting collection"
+          );
+          return [];
+        }
+        finals.push(norm);
+      }
+      this.logStep(
+        "FinalMarkings",
+        `Using provided finalMarkings (${finals.length})`
+      );
+      return finals;
     }
 
-    // Create final marking with one token in each sink place
-    const finalMarking = {};
-    places.forEach(place => {
-      finalMarking[place.id] = sinkPlaces.includes(place) ? 1 : 0;
-    });
+    // 2) Single final marking object
+    if (dpn.finalMarking && typeof dpn.finalMarking === "object") {
+      const norm = normalizeMarking(dpn.finalMarking);
+      if (norm) {
+        this.logStep("FinalMarkings", "Using provided finalMarking (single)");
+        return [norm];
+      }
+      this.logStep(
+        "FinalMarkings",
+        "Provided finalMarking is invalid; ignoring"
+      );
+    }
 
-    this.logStep("FinalMarkings", "Final marking created", finalMarking);
-    return [finalMarking];
+    // 3) Place-level flags (explicit metadata only; no sink inference)
+    const flagged = places.filter(
+      (p) =>
+        p &&
+        (p.isFinal === true ||
+          p.final === true ||
+          String(p.type || "").toLowerCase() === "final")
+    );
+    if (flagged.length > 0) {
+      const m = {};
+      for (const p of placeIds) m[p] = 0;
+      for (const p of flagged) m[String(p.id)] = 1;
+      this.logStep(
+        "FinalMarkings",
+        `Using place-level flags for M_F (${flagged.length} final place(s))`
+      );
+      return [m];
+    }
+
+    // None found: paper requires an explicit M_F
+    this.logStep(
+      "FinalMarkings",
+      "No explicit final marking provided; P1/P2 cannot be evaluated."
+    );
+    return [];
   }
 
   getMaxTokensFromModel(model) {
@@ -2366,7 +4323,7 @@ class SuvorovLomazovaVerifier {
 
     let maxTokens = 0;
     for (const [varName, value] of model.entries()) {
-      if (varName.startsWith('M_') && !isNaN(value)) {
+      if (varName.startsWith("M_") && !isNaN(value)) {
         maxTokens = Math.max(maxTokens, parseInt(value));
       }
     }
@@ -2382,13 +4339,17 @@ class SuvorovLomazovaVerifier {
       for (const trans of dpn.transitions) {
         const transId = this.sanitizeId(trans.id);
         const firedVar = `f_${transId}_${i}`;
-        
-        if (model.has(firedVar) && model.get(firedVar) === 'true') {
+
+        if (model.has(firedVar) && model.get(firedVar) === "true") {
           // Extract variable values at this step
           const vars = {};
           for (const [varName, value] of model.entries()) {
-            if (varName.endsWith(`_${i}`) && !varName.startsWith('M_') && !varName.startsWith('f_')) {
-              const baseName = varName.substring(0, varName.lastIndexOf('_'));
+            if (
+              varName.endsWith(`_${i}`) &&
+              !varName.startsWith("M_") &&
+              !varName.startsWith("f_")
+            ) {
+              const baseName = varName.substring(0, varName.lastIndexOf("_"));
               vars[baseName] = value;
             }
           }
@@ -2397,7 +4358,7 @@ class SuvorovLomazovaVerifier {
             transitionId: trans.id,
             transitionLabel: trans.label || trans.id,
             step: i,
-            vars: vars
+            vars: vars,
           });
         }
       }
@@ -2407,7 +4368,7 @@ class SuvorovLomazovaVerifier {
   }
 
   sanitizeId(id) {
-    return String(id).replace(/[^A-Za-z0-9_]/g, '_');
+    return String(id).replace(/[^A-Za-z0-9_]/g, "_");
   }
 
   logStep(name, details, extra) {
@@ -2415,10 +4376,10 @@ class SuvorovLomazovaVerifier {
       name,
       details,
       timestamp: Date.now() - this.startTime,
-      extra: extra || {}
+      extra: extra || {},
     };
     this.verificationSteps.push(step);
-    console.log(`[${name} +${step.timestamp}ms] ${details}`, extra || '');
+    console.log(`[${name} +${step.timestamp}ms] ${details}`, extra || "");
   }
 
   createResult(isSound, checks) {
@@ -2428,7 +4389,7 @@ class SuvorovLomazovaVerifier {
       counterexamples: this.counterexampleTraces,
       verificationSteps: this.verificationSteps,
       finalMarkings: this.finalMarkings,
-      duration: Date.now() - this.startTime
+      duration: Date.now() - this.startTime,
     };
   }
 
@@ -2446,8 +4407,9 @@ class SuvorovLomazovaVerifier {
 }
 
 /**
- * Counterexample visualization on the Petri net canvas.
- * Updated to work with the new SuvorovLomazovaVerifier API and data structures.
+ * Enhanced Trace Visualization Renderer for Suvorov-Lomazova Verification
+ * Visualizes counterexamples and property violations directly on the Data Petri Net
+ * Inspired by dpn-verification-trace-tracing.js but stable and non-intrusive
  */
 class SuvorovLomazovaTraceVisualizationRenderer {
   constructor(app) {
@@ -2456,11 +4418,13 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.highlightedElements = new Set();
     this.highlightedArcs = new Set();
     this.dataOverlays = new Map();
+    this.problematicPlaces = new Map();
+    this.responsibleVariables = new Map();
     this.violationInfo = null;
     this.isActive = false;
 
+    // Store original render method and extend it properly
     this.originalRender = this.mainRenderer.render.bind(this.mainRenderer);
-
     this.mainRenderer.render = () => {
       this.originalRender();
       if (this.isActive) {
@@ -2470,28 +4434,46 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     };
   }
 
+  /**
+   * Visualize a verification check result
+   * @param {Object} check - The check result from the verifier
+   */
   visualizeCheck(check) {
     this.clearHighlights();
     this.isActive = true;
     this.violationInfo = check;
 
+    console.log('Visualizing check:', check);
+
+    // Store problematic elements for special highlighting
+    if (check.problematicPlaces) {
+      for (const place of check.problematicPlaces) {
+        this.problematicPlaces.set(place.placeId, place);
+      }
+    }
+
+    if (check.responsibleVariables) {
+      for (const variable of check.responsibleVariables) {
+        this.responsibleVariables.set(variable.variable, variable);
+      }
+    }
+
     if (!check.satisfied) {
-      switch (check.name) {
-        case "Deadlock (P1)":
-        case "Deadlock freedom":
-        case "DeadlockFreedom":
-          this.visualizeDeadlockIssue(check);
+      switch (true) {
+        case check.name.includes('Deadlock') || check.name.includes('P1'):
+          this.visualizeDeadlockViolation(check);
           break;
-        case "Overfinal marking (P2)":
-        case "OverfinalMarkings":
-          this.visualizeOverfinalMarkings(check);
+        case check.name.includes('Overfinal') || check.name.includes('P2'):
+          this.visualizeOverfinalViolation(check);
           break;
-        case "Dead transition (P3)":
-        case "DeadTransitions":
-          this.visualizeDeadTransitions(check);
+        case check.name.includes('Dead') || check.name.includes('P3'):
+          this.visualizeDeadTransitionViolation(check);
+          break;
+        case check.name.includes('Boundedness'):
+          this.visualizeBoundednessViolation(check);
           break;
         default:
-          this.visualizeGenericIssue(check);
+          this.visualizeGenericViolation(check);
           break;
       }
     }
@@ -2499,138 +4481,216 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.mainRenderer.render();
   }
 
-  visualizeDeadlockIssue(check) {
-    // Highlight problematic states or paths that lead to deadlocks
-    if (check.trace) {
-      this.visualizeTrace(check.trace);
+  /**
+   * Visualize deadlock freedom violation (P1)
+   */
+  visualizeDeadlockViolation(check) {
+    // Highlight the violating states/path
+    if (check.trace && check.trace.length > 0) {
+      this.visualizeTracePath(check.trace, 'deadlock');
     }
-    
-    // If no specific trace, highlight all elements to show potential deadlock
-    if (!check.trace && this.app.api && this.app.api.petriNet) {
-      for (const [id] of this.app.api.petriNet.transitions) {
-        this.highlightedElements.add(id);
-        this.highlightConnectedElements(id);
-      }
-      this.dataOverlays.set("deadlock_info", { 
-        type: "deadlock", 
-        data: check,
-        position: this.getCanvasCenter() 
+
+    // If there's an offending state, highlight it specially
+    if (check.offendingState) {
+      this.addStateOverlay('deadlock_state', {
+        type: 'deadlockState',
+        data: check.offendingState,
+        position: this.getCanvasCenter()
       });
     }
-  }
 
-  visualizeOverfinalMarkings(check) {
-    if (check.overfinalNodes) {
-      for (const overfinalNode of check.overfinalNodes) {
-        // Highlight places with overfinal markings
-        if (overfinalNode.marking) {
-          for (const [placeId, tokens] of Object.entries(overfinalNode.marking)) {
-            if (tokens > 0) {
-              this.highlightedElements.add(placeId);
-              this.dataOverlays.set(placeId, { 
-                type: "overfinal", 
-                tokens: tokens,
-                data: overfinalNode 
-              });
-            }
-          }
-        }
-      }
-    }
-    
-    if (check.trace) {
-      this.visualizeTrace(check.trace);
-    }
-  }
-
-  visualizeDeadTransitions(check) {
-    if (check.deadTransitions) {
-      for (const deadTransition of check.deadTransitions) {
-        if (deadTransition.transitionId) {
-          this.highlightedElements.add(deadTransition.transitionId);
-          this.highlightConnectedElements(deadTransition.transitionId);
-          this.dataOverlays.set(deadTransition.transitionId, { 
-            type: "deadTransition", 
-            data: deadTransition 
-          });
-        }
-      }
-    }
-    
-    // Legacy support for single dead transition
-    if (check.deadTransition) {
-      const tId = check.deadTransition.transitionId;
-      this.highlightedElements.add(tId);
-      this.highlightConnectedElements(tId);
-      this.dataOverlays.set(tId, { type: "deadTransition", data: check.deadTransition });
-    }
-    
-    if (check.trace) {
-      this.visualizeTrace(check.trace);
-    }
-  }
-
-  visualizeGenericIssue(check) {
-    if (check.trace) {
-      this.visualizeTrace(check.trace);
-    } else {
-      // Generic highlighting
-      this.dataOverlays.set("generic_issue", { 
-        type: "generic", 
-        data: check,
-        position: this.getCanvasCenter() 
-      });
-    }
-  }
-
-  visualizeTrace(trace) {
-    if (!trace || trace.length === 0) return;
-
-    trace.forEach((step, stepIndex) => {
-      const tId = this.findTransitionId(step.transitionId, step.transitionLabel, step.action);
-      if (!tId) return;
-      
-      this.highlightedElements.add(tId);
-      this.highlightConnectedElements(tId);
-
-      // Attach per-step variable overlay near the transition
-      const overlayData = {
-        type: "traceStep",
-        step: stepIndex,
-        vars: step.vars || {},
-        data: step
-      };
-
-      this.dataOverlays.set(`${tId}_step_${stepIndex}`, overlayData);
+    // Add general deadlock indicator
+    this.addGeneralOverlay('deadlock_violation', {
+      type: 'deadlock',
+      title: 'Deadlock Freedom Violation (P1)',
+      details: check.details,
+      position: { x: 50, y: 50 }
     });
   }
 
-  findTransitionId(stepTid, transitionLabel, actionText) {
-    if (!this.app.api || !this.app.api.petriNet) return null;
-    
-    // Try direct ID match first
-    if (this.app.api.petriNet.transitions.has(stepTid)) return stepTid;
-
-    // Try label matching
-    const label = transitionLabel || (actionText || "").replace("Fire: ", "");
-    for (const [id, t] of this.app.api.petriNet.transitions) {
-      if (t.label === label || id === label) return id;
+  /**
+   * Visualize overfinal marking violation (P2)
+   */
+  visualizeOverfinalViolation(check) {
+    if (check.overfinalNodes && check.overfinalNodes.length > 0) {
+      check.overfinalNodes.forEach((node, index) => {
+        if (node.marking) {
+          // Highlight places with excessive tokens
+          Object.entries(node.marking).forEach(([placeId, tokens]) => {
+            if (tokens > 0) {
+              this.highlightedElements.add(placeId);
+              this.dataOverlays.set(`overfinal_${placeId}_${index}`, {
+                type: 'overfinal',
+                placeId,
+                tokens,
+                nodeData: node,
+                formula: node.formula
+              });
+            }
+          });
+        }
+      });
     }
+
+    // Show trace if available
+    if (check.trace) {
+      this.visualizeTracePath(check.trace, 'overfinal');
+    }
+  }
+
+  /**
+   * Visualize dead transition violation (P3)
+   */
+  visualizeDeadTransitionViolation(check) {
+    const deadTransitions = check.deadTransitions || (check.deadTransition ? [check.deadTransition] : []);
     
+    deadTransitions.forEach((deadTransition, index) => {
+      const transitionId = deadTransition.transitionId;
+      if (transitionId) {
+        this.highlightedElements.add(transitionId);
+        this.highlightConnectedElements(transitionId);
+        
+        this.dataOverlays.set(`dead_transition_${transitionId}_${index}`, {
+          type: 'deadTransition',
+          transitionId,
+          data: deadTransition,
+          variants: deadTransition.variants || []
+        });
+      }
+    });
+
+    // Show trace if available
+    if (check.trace) {
+      this.visualizeTracePath(check.trace, 'deadTransition');
+    }
+  }
+
+  /**
+   * Visualize boundedness violation
+   */
+  visualizeBoundednessViolation(check) {
+    if (check.trace && check.trace.length > 0) {
+      this.visualizeTracePath(check.trace, 'boundedness');
+      
+      // Add special indication for unbounded behavior
+      this.addGeneralOverlay('boundedness_violation', {
+        type: 'boundedness',
+        title: 'Boundedness Violation',
+        details: 'Net exhibits unbounded behavior',
+        position: { x: 50, y: 100 }
+      });
+    }
+  }
+
+  /**
+   * Visualize generic violation
+   */
+  visualizeGenericViolation(check) {
+    if (check.trace) {
+      this.visualizeTracePath(check.trace, 'generic');
+    }
+
+    this.addGeneralOverlay('generic_violation', {
+      type: 'generic',
+      title: check.name,
+      details: check.details,
+      position: this.getCanvasCenter()
+    });
+  }
+
+  /**
+   * Visualize passed check (subtle indication)
+   */
+  visualizePassedCheck(check) {
+    // Add a subtle overlay indicating the check passed
+    this.addGeneralOverlay('passed_check', {
+      type: 'passed',
+      title: check.name,
+      details: 'Property satisfied ✓',
+      position: { x: 50, y: 150 }
+    });
+  }
+
+  /**
+   * Visualize a trace path on the Petri net
+   */
+  visualizeTracePath(trace, violationType) {
+    if (!trace || trace.length === 0) return;
+
+    trace.forEach((step, stepIndex) => {
+      const transitionId = this.findTransitionId(step.transitionId);
+      if (transitionId) {
+        this.highlightedElements.add(transitionId);
+        this.highlightConnectedElements(transitionId);
+
+        // Add step overlay with data values
+        this.dataOverlays.set(`trace_step_${stepIndex}_${transitionId}`, {
+          type: 'traceStep',
+          stepIndex,
+          transitionId,
+          violationType,
+          data: step,
+          vars: step.vars || {}
+        });
+      }
+    });
+  }
+
+  /**
+   * Find transition ID in the Petri net
+   */
+  findTransitionId(stepTransitionId) {
+    if (!this.app.api || !this.app.api.petriNet) return null;
+
+    // Direct ID match
+    if (this.app.api.petriNet.transitions.has(stepTransitionId)) {
+      return stepTransitionId;
+    }
+
+    // Try to match by label or partial ID
+    for (const [id, transition] of this.app.api.petriNet.transitions) {
+      if (transition.label === stepTransitionId || 
+          id.includes(stepTransitionId) || 
+          stepTransitionId.includes(id)) {
+        return id;
+      }
+    }
+
     return null;
   }
 
+  /**
+   * Highlight elements connected to a transition
+   */
   highlightConnectedElements(transitionId) {
     if (!this.app.api || !this.app.api.petriNet) return;
-    
+
     for (const arc of this.app.api.petriNet.arcs.values()) {
       if (arc.source === transitionId || arc.target === transitionId) {
         this.highlightedArcs.add(arc.id);
-        this.highlightedElements.add(arc.source === transitionId ? arc.target : arc.source);
+        const connectedElementId = arc.source === transitionId ? arc.target : arc.source;
+        this.highlightedElements.add(connectedElementId);
       }
     }
   }
 
+  /**
+   * Add a state-specific overlay
+   */
+  addStateOverlay(id, overlayData) {
+    this.dataOverlays.set(id, overlayData);
+  }
+
+  /**
+   * Add a general overlay (not tied to specific elements)
+   */
+  addGeneralOverlay(id, overlayData) {
+    this.dataOverlays.set(id, overlayData);
+  }
+
+  /**
+   * Get canvas center coordinates
+   */
   getCanvasCenter() {
     const canvas = this.mainRenderer.canvas;
     return {
@@ -2639,6 +4699,9 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     };
   }
 
+  /**
+   * Clear all highlights and overlays
+   */
   clearHighlights() {
     this.highlightedElements.clear();
     this.highlightedArcs.clear();
@@ -2648,481 +4711,1300 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.mainRenderer.render();
   }
 
+  /**
+   * Render highlights on the canvas
+   */
   renderHighlights() {
     if (!this.app.api || !this.app.api.petriNet) return;
-    
+
     const ctx = this.mainRenderer.ctx;
     ctx.save();
     ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
     ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
 
-    // Highlight arcs
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "#EBCB8B";
+    // Render highlighted arcs
+    this.renderHighlightedArcs(ctx);
+    
+    // Render highlighted nodes
+    this.renderHighlightedNodes(ctx);
+
+    ctx.restore();
+  }
+
+  /**
+   * Render highlighted arcs
+   */
+  renderHighlightedArcs(ctx) {
+    ctx.lineWidth = 6;
+    
     for (const arcId of this.highlightedArcs) {
       const arc = this.app.api.petriNet.arcs.get(arcId);
       if (!arc) continue;
-      
-      const source =
-        this.app.api.petriNet.places.get(arc.source) ||
-        this.app.api.petriNet.transitions.get(arc.source);
-      const target =
-        this.app.api.petriNet.places.get(arc.target) ||
-        this.app.api.petriNet.transitions.get(arc.target);
-      
+
+      const source = this.app.api.petriNet.places.get(arc.source) || 
+                    this.app.api.petriNet.transitions.get(arc.source);
+      const target = this.app.api.petriNet.places.get(arc.target) || 
+                    this.app.api.petriNet.transitions.get(arc.target);
+
       if (!source || !target) continue;
-      
+
+      // Get color based on violation type
+      ctx.strokeStyle = this.getHighlightColor('arc');
+      ctx.globalAlpha = this.highlightIntensity;
+
       const { start, end } = this.mainRenderer.calculateArcEndpoints(source, target);
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
     }
-
-    // Highlight nodes
-    for (const elementId of this.highlightedElements) {
-      const place = this.app.api.petriNet.places.get(elementId);
-      if (place) {
-        const isOverfinal = this.violationInfo?.overfinalNodes?.some((n) => 
-          n.marking && n.marking[elementId] > 0);
-        ctx.strokeStyle = isOverfinal ? "#BF616A" : "#5E81AC";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      
-      const transition = this.app.api.petriNet.transitions.get(elementId);
-      if (transition) {
-        const isDead = this.violationInfo?.deadTransitions?.some((dt) => 
-          dt.transitionId === elementId) || 
-          this.violationInfo?.deadTransition?.transitionId === elementId;
-        ctx.strokeStyle = isDead ? "#BF616A" : "#5E81AC";
-        ctx.lineWidth = 5;
-        const padding = 8;
-        ctx.beginPath();
-        ctx.rect(
-          transition.position.x - transition.width / 2 - padding,
-          transition.position.y - transition.height / 2 - padding,
-          transition.width + padding * 2,
-          transition.height + padding * 2
-        );
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
+    
+    ctx.globalAlpha = 1.0;
   }
 
+  /**
+   * Render highlighted nodes
+   */
+  renderHighlightedNodes(ctx) {
+    for (const elementId of this.highlightedElements) {
+      const place = this.app.api.petriNet.places.get(elementId);
+      const transition = this.app.api.petriNet.transitions.get(elementId);
+
+      if (place) {
+        this.renderHighlightedPlace(ctx, place, elementId);
+      } else if (transition) {
+        this.renderHighlightedTransition(ctx, transition, elementId);
+      }
+    }
+  }
+
+  /**
+   * Render highlighted place
+   */
+  renderHighlightedPlace(ctx, place, elementId) {
+    const color = this.getHighlightColor('place', elementId);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 8;
+    ctx.globalAlpha = this.highlightIntensity;
+
+    ctx.beginPath();
+    ctx.arc(place.position.x, place.position.y, place.radius + 10, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Add pulsing fill for overfinal markings
+    if (this.isOverfinalPlace(elementId)) {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = this.highlightIntensity * 0.3;
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1.0;
+  }
+
+  /**
+   * Render highlighted transition
+   */
+  renderHighlightedTransition(ctx, transition, elementId) {
+    const color = this.getHighlightColor('transition', elementId);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 8;
+    ctx.globalAlpha = this.highlightIntensity;
+
+    const padding = 12;
+    ctx.beginPath();
+    ctx.rect(
+      transition.position.x - transition.width / 2 - padding,
+      transition.position.y - transition.height / 2 - padding,
+      transition.width + padding * 2,
+      transition.height + padding * 2
+    );
+    ctx.stroke();
+
+    // Add pulsing fill for dead transitions
+    if (this.isDeadTransition(elementId)) {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = this.highlightIntensity * 0.3;
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1.0;
+  }
+
+  /**
+   * Get highlight color based on violation type
+   */
+  getHighlightColor(elementType, elementId) {
+    if (this.isDeadTransition(elementId)) return '#BF616A'; // Red for dead transitions
+    if (this.isOverfinalPlace(elementId)) return '#D08770'; // Orange for overfinal
+    if (this.isTraceElement(elementId)) return '#88C0D0'; // Blue for trace
+    return '#EBCB8B'; // Yellow default
+  }
+
+  /**
+   * Check if element is a dead transition
+   */
+  isDeadTransition(elementId) {
+    if (!this.violationInfo) return false;
+    const deadTransitions = this.violationInfo.deadTransitions || [];
+    return deadTransitions.some(dt => dt.transitionId === elementId);
+  }
+
+  /**
+   * Check if element is an overfinal place
+   */
+  isOverfinalPlace(elementId) {
+    if (!this.violationInfo || !this.violationInfo.overfinalNodes) return false;
+    return this.violationInfo.overfinalNodes.some(node => 
+      node.marking && node.marking[elementId] > 0
+    );
+  }
+
+  /**
+   * Check if element is part of a trace
+   */
+  isTraceElement(elementId) {
+    if (!this.violationInfo || !this.violationInfo.trace) return false;
+    return this.violationInfo.trace.some(step => 
+      this.findTransitionId(step.transitionId) === elementId
+    );
+  }
+
+  /**
+   * Render data overlays
+   */
   renderDataOverlays() {
     if (!this.app.api || !this.app.api.petriNet) return;
-    
+
     const ctx = this.mainRenderer.ctx;
     ctx.save();
     ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
     ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
 
     for (const [id, overlay] of this.dataOverlays) {
-      let position = null;
-      
-      // Try to find position from element
-      const transition = this.app.api.petriNet.transitions.get(id.split('_step_')[0]);
-      const place = this.app.api.petriNet.places.get(id);
-      
-      if (transition) {
-        position = { x: transition.position.x + 30, y: transition.position.y };
-      } else if (place) {
-        position = { x: place.position.x + 30, y: place.position.y };
-      } else if (overlay.position) {
-        position = overlay.position;
-      } else {
-        continue; // Skip if no position found
+      const position = this.getOverlayPosition(id, overlay);
+      if (position) {
+        this.renderOverlay(ctx, overlay, position);
       }
-
-      const text = this.formatOverlayText(overlay);
-      const lines = text.split("\n");
-      const lineHeight = 14;
-      ctx.font = "11px monospace";
-      const maxWidth = Math.max(...lines.map((l) => ctx.measureText(l).width));
-
-      const boxWidth = maxWidth + 20;
-      const boxHeight = lines.length * lineHeight + 10;
-      const x = position.x;
-      const y = position.y - boxHeight / 2;
-
-      // Background
-      ctx.fillStyle = "rgba(46, 52, 64, 0.95)";
-      ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
-      ctx.lineWidth = 2;
-      ctx.fillRect(x, y, boxWidth, boxHeight);
-      ctx.strokeRect(x, y, boxWidth, boxHeight);
-
-      // Text
-      ctx.fillStyle = "#ECEFF4";
-      ctx.textAlign = "left";
-      lines.forEach((line, index) => {
-        ctx.fillText(line, x + 10, y + (index + 1) * lineHeight);
-      });
     }
+
     ctx.restore();
   }
 
-  getOverlayBorderColor(type) {
-    switch (type) {
-      case "deadTransition": return "#BF616A";
-      case "overfinal": return "#D08770";
-      case "deadlock": return "#BF616A";
-      case "traceStep": return "#A3BE8C";
-      default: return "#5E81AC";
+  /**
+   * Get position for an overlay
+   */
+  getOverlayPosition(id, overlay) {
+    // Extract element ID from overlay ID
+    const elementId = this.extractElementIdFromOverlayId(id, overlay);
+    
+    if (elementId) {
+      const place = this.app.api.petriNet.places.get(elementId);
+      const transition = this.app.api.petriNet.transitions.get(elementId);
+      
+      if (place) {
+        return { x: place.position.x + 40, y: place.position.y - 20 };
+      } else if (transition) {
+        return { x: transition.position.x + 50, y: transition.position.y - 30 };
+      }
+    }
+
+    // Use provided position or default
+    return overlay.position || this.getCanvasCenter();
+  }
+
+  /**
+   * Extract element ID from overlay ID
+   */
+  extractElementIdFromOverlayId(overlayId, overlay) {
+    if (overlay.placeId) return overlay.placeId;
+    if (overlay.transitionId) return overlay.transitionId;
+    
+    // Try to parse from overlay ID
+    const match = overlayId.match(/^(overfinal|dead_transition|trace_step)_(.+?)_/);
+    return match ? match[2] : null;
+  }
+
+  /**
+   * Render a single overlay
+   */
+  renderOverlay(ctx, overlay, position) {
+    const text = this.formatOverlayText(overlay);
+    const lines = text.split('\n');
+    const lineHeight = 16;
+    
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'left';
+    
+    const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+    const boxWidth = maxWidth + 16;
+    const boxHeight = lines.length * lineHeight + 12;
+    
+    // Background
+    ctx.fillStyle = this.getOverlayBackgroundColor(overlay.type);
+    ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
+    ctx.lineWidth = 2;
+    
+    ctx.fillRect(position.x, position.y, boxWidth, boxHeight);
+    ctx.strokeRect(position.x, position.y, boxWidth, boxHeight);
+    
+    // Text
+    ctx.fillStyle = '#ECEFF4';
+    lines.forEach((line, index) => {
+      ctx.fillText(line, position.x + 8, position.y + (index + 1) * lineHeight + 2);
+    });
+  }
+
+  /**
+   * Format overlay text based on type
+   */
+  formatOverlayText(overlay) {
+    switch (overlay.type) {
+      case 'deadTransition':
+        return `DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.transitionId}`;
+        
+      case 'overfinal':
+        return `OVERFINAL\nTokens: ${overlay.tokens}\nPlace: ${overlay.placeId}`;
+        
+      case 'traceStep':
+        const stepInfo = [`Step ${overlay.stepIndex + 1}`];
+        if (Object.keys(overlay.vars).length > 0) {
+          stepInfo.push('Variables:');
+          Object.entries(overlay.vars).forEach(([k, v]) => {
+            stepInfo.push(`  ${k} = ${v}`);
+          });
+        }
+        return stepInfo.join('\n');
+        
+      case 'deadlockState':
+        return `DEADLOCK STATE\nCannot reach final`;
+        
+      case 'deadlock':
+        return `DEADLOCK VIOLATION\n${overlay.details}`;
+        
+      case 'boundedness':
+        return `UNBOUNDED\n${overlay.details}`;
+        
+      case 'generic':
+        return `${overlay.title}\n${overlay.details}`;
+        
+      case 'passed':
+        return `✓ ${overlay.title}`;
+        
+      default:
+        return 'Verification Info';
     }
   }
 
-  formatOverlayText(overlay) {
-    switch (overlay.type) {
-      case "deadTransition":
-        const transitionData = overlay.data;
-        return `DEAD: ${transitionData.transitionLabel || transitionData.transitionId || 'Unknown'}`;
-        
-      case "overfinal":
-        return `OVERFINAL\nTokens: ${overlay.tokens}`;
-        
-      case "deadlock":
-        return `DEADLOCK\n${overlay.data.details || 'Deadlock detected'}`;
-        
-      case "traceStep":
-        const stepInfo = [`Step ${overlay.step + 1}`];
-        const vars = overlay.vars || {};
-        if (Object.keys(vars).length > 0) {
-          stepInfo.push("Variables:");
-          stepInfo.push(...Object.entries(vars).map(([k, v]) => `  ${k} = ${v}`));
-        }
-        return stepInfo.join("\n");
-        
-      case "generic":
-        return `ISSUE\n${overlay.data.details || 'Problem detected'}`;
-        
-      default:
-        return "Analysis active";
+  /**
+   * Get overlay background color
+   */
+  getOverlayBackgroundColor(type) {
+    switch (type) {
+      case 'deadTransition': return 'rgba(191, 97, 106, 0.9)';
+      case 'overfinal': return 'rgba(208, 135, 112, 0.9)';
+      case 'deadlock': return 'rgba(191, 97, 106, 0.9)';
+      case 'boundedness': return 'rgba(235, 203, 139, 0.9)';
+      case 'traceStep': return 'rgba(136, 192, 208, 0.9)';
+      case 'passed': return 'rgba(163, 190, 140, 0.9)';
+      default: return 'rgba(76, 86, 106, 0.9)';
     }
+  }
+
+  /**
+   * Get overlay border color
+   */
+  getOverlayBorderColor(type) {
+    switch (type) {
+      case 'deadTransition': return '#BF616A';
+      case 'overfinal': return '#D08770';
+      case 'deadlock': return '#BF616A';
+      case 'boundedness': return '#EBCB8B';
+      case 'traceStep': return '#88C0D0';
+      case 'passed': return '#A3BE8C';
+      default: return '#5E81AC';
+    }
+  }
+
+  /**
+   * Render violation indicators (additional visual cues)
+   */
+  renderViolationIndicators() {
+    // Add any additional visual indicators for violations
+    // This could include arrows, special markers, etc.
+  }
+
+  /**
+   * Cleanup when component is destroyed
+   */
+  destroy() {
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+    }
+    this.clearHighlights();
+    // Restore original render method
+    this.mainRenderer.render = this.originalRender;
   }
 }
 
 /**
- * Updated UI integration for the Suvorov-Lomazova verifier.
- * Handles the new API structure and displays P1, P2, P3 properties correctly.
+ * Enhanced Verification UI for Suvorov-Lomazova Verification
+ * Provides sophisticated dialog and result display
  */
 class SuvorovLomazovaVerificationUI {
   constructor(app) {
     this.app = app;
     this.verifier = null;
     this.traceVisualizer = null;
-    this.currentChecks = [];
+    this.currentResults = null;
+    this.activeCheckIndex = -1;
+    
     this.injectStyles();
     this.createVerificationSection();
     this.createVerificationModal();
+    this.initializeTraceVisualizer();
   }
 
+  /**
+   * Inject CSS styles for the verification UI
+   */
   injectStyles() {
-    if (document.getElementById("sl-verification-styles")) return;
-    const style = document.createElement("style");
-    style.id = "sl-verification-styles";
+    if (document.getElementById('sl-verification-styles')) return;
+    
+    const style = document.createElement('style');
+    style.id = 'sl-verification-styles';
     style.textContent = `
-.verification-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); display: none; z-index: 1000; }
-.verification-modal.show { display: flex; align-items: center; justify-content: center; }
-.verification-modal-content { background-color: #3B4252; color: #ECEFF4; max-width: 800px; max-height: 80vh; overflow-y: auto; border-radius: 8px; }
-.verification-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid #4C566A; }
-.verification-close-btn { background: none; border: none; color: #ECEFF4; font-size: 24px; cursor: pointer; }
-.sl-modal-body { padding: 20px; }
-.verification-status { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; padding: 15px; border-radius: 5px; }
-.verification-status.sound { background-color: rgba(163, 190, 140, 0.2); border-left: 4px solid #A3BE8C; }
-.verification-status.unsound { background-color: rgba(191, 97, 106, 0.2); border-left: 4px solid #BF616A; }
-.verification-status-icon { font-size: 24px; }
-.verification-property { margin-bottom: 15px; padding: 15px; background-color: #434C5E; border-radius: 5px; }
-.verification-property-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.verification-property-title { font-weight: bold; font-size: 16px; }
-.verification-property-status { padding: 5px 10px; border-radius: 3px; font-size: 12px; font-weight: bold; }
-.verification-property-status.pass { background-color: #A3BE8C; color: #2E3440; }
-.verification-property-status.fail { background-color: #BF616A; color: #ECEFF4; }
-.verification-property-description { color: #D8DEE9; font-size: 14px; margin-bottom: 10px; }
-.trace-section { margin-top: 15px; background-color: rgba(67, 76, 94, 0.5); padding: 10px; border-radius: 5px; }
-.trace-item { background-color: #4C566A; padding: 10px; border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-.trace-item.active { border-left: 3px solid #88C0D0; }
-.analyze-btn { background-color: #5E81AC; color: #ECEFF4; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; }
-.analyze-btn:hover { background-color: #81A1C1; }
-.clear-highlight-btn { text-align: right; margin-bottom: 10px; }
-.verification-timing { margin-top: 20px; padding-top: 15px; border-top: 1px solid #4C566A; color: #81A1C1; font-size: 12px; }
-.verification-progress { text-align: center; padding: 40px; color: #88C0D0; }
-.verification-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #88C0D0; border-radius: 50%; border-top-color: transparent; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.verification-steps { margin-top: 15px; font-size: 12px; color: #81A1C1; max-height: 200px; overflow-y: auto; }
-.verification-step { margin-bottom: 5px; padding: 5px; background-color: rgba(129, 161, 193, 0.1); border-radius: 3px; }
-`;
+      .sl-verification-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        display: none;
+        z-index: 1000;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .sl-verification-modal.show {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 1;
+      }
+
+      .sl-modal-content {
+        background: linear-gradient(145deg, #3B4252, #434C5E);
+        color: #ECEFF4;
+        max-width: 1000px;
+        max-height: 90vh;
+        width: 90%;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        overflow: hidden;
+        transform: scale(0.9);
+        transition: transform 0.3s ease;
+      }
+
+      .sl-verification-modal.show .sl-modal-content {
+        transform: scale(1);
+      }
+
+      .sl-modal-header {
+        background: linear-gradient(135deg, #5E81AC, #81A1C1);
+        color: #ECEFF4;
+        padding: 20px 25px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #4C566A;
+      }
+
+      .sl-modal-title {
+        font-size: 20px;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .sl-close-btn {
+        background: none;
+        border: none;
+        color: #ECEFF4;
+        font-size: 28px;
+        cursor: pointer;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background-color 0.2s ease;
+      }
+
+      .sl-close-btn:hover {
+        background-color: rgba(255, 255, 255, 0.1);
+      }
+
+      .sl-modal-body {
+        padding: 25px;
+        overflow-y: auto;
+        max-height: calc(90vh - 80px);
+      }
+
+      .sl-verification-status {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 25px;
+        padding: 20px;
+        border-radius: 8px;
+        border-left: 5px solid;
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .sl-verification-status.sound {
+        border-left-color: #A3BE8C;
+        background: rgba(163, 190, 140, 0.1);
+      }
+
+      .sl-verification-status.unsound {
+        border-left-color: #BF616A;
+        background: rgba(191, 97, 106, 0.1);
+      }
+
+      .sl-status-icon {
+        font-size: 32px;
+        animation: pulse 2s infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+      }
+
+      .sl-status-details h3 {
+        margin: 0 0 8px 0;
+        font-size: 18px;
+      }
+
+      .sl-status-details p {
+        margin: 0;
+        color: #D8DEE9;
+        font-size: 14px;
+      }
+
+      .sl-properties-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 25px;
+      }
+
+      .sl-property-card {
+        background: rgba(67, 76, 94, 0.6);
+        border-radius: 8px;
+        padding: 20px;
+        border: 2px solid transparent;
+        transition: all 0.3s ease;
+        cursor: pointer;
+      }
+
+      .sl-property-card:hover {
+        border-color: #88C0D0;
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+      }
+
+      .sl-property-card.active {
+        border-color: #5E81AC;
+        background: rgba(94, 129, 172, 0.2);
+      }
+
+      .sl-property-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+      }
+
+      .sl-property-name {
+        font-weight: 600;
+        font-size: 16px;
+        margin: 0;
+        color: #ECEFF4;
+      }
+
+      .sl-property-status {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .sl-property-status.pass {
+        background-color: #A3BE8C;
+        color: #2E3440;
+      }
+
+      .sl-property-status.fail {
+        background-color: #BF616A;
+        color: #ECEFF4;
+      }
+
+      .sl-property-description {
+        color: #D8DEE9;
+        font-size: 14px;
+        line-height: 1.4;
+        margin-bottom: 15px;
+      }
+
+      .sl-property-details {
+        font-size: 13px;
+        color: #81A1C1;
+      }
+
+      .sl-counterexample-section {
+        background: rgba(76, 86, 106, 0.4);
+        border-radius: 6px;
+        padding: 15px;
+        margin-top: 15px;
+        border-left: 3px solid #BF616A;
+      }
+
+      .sl-counterexample-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .sl-counterexample-title {
+        font-weight: 600;
+        color: #ECEFF4;
+        margin: 0;
+      }
+
+      .sl-visualize-btn {
+        background: linear-gradient(135deg, #5E81AC, #81A1C1);
+        color: #ECEFF4;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+      }
+
+      .sl-visualize-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      .sl-trace-info {
+        color: #D8DEE9;
+        font-size: 13px;
+      }
+
+      .sl-control-panel {
+        background: rgba(46, 52, 64, 0.8);
+        padding: 20px;
+        border-top: 1px solid #4C566A;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .sl-control-group {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .sl-btn {
+        padding: 10px 20px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+      }
+
+      .sl-btn-primary {
+        background: linear-gradient(135deg, #5E81AC, #81A1C1);
+        color: #ECEFF4;
+      }
+
+      .sl-btn-secondary {
+        background: rgba(67, 76, 94, 0.8);
+        color: #ECEFF4;
+        border: 1px solid #4C566A;
+      }
+
+      .sl-btn:hover {
+        transform: translateY(-1px);
+      }
+
+      .sl-progress {
+        text-align: center;
+        padding: 60px 20px;
+        color: #88C0D0;
+      }
+
+      .sl-spinner {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(136, 192, 208, 0.3);
+        border-radius: 50%;
+        border-top-color: #88C0D0;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .sl-timing-info {
+        text-align: center;
+        color: #81A1C1;
+        font-size: 13px;
+        margin-top: 20px;
+        padding-top: 15px;
+        border-top: 1px solid #434C5E;
+      }
+
+      .sl-algorithm-info {
+        background: rgba(129, 161, 193, 0.1);
+        border: 1px solid #81A1C1;
+        border-radius: 6px;
+        padding: 15px;
+        margin-bottom: 20px;
+        font-size: 13px;
+        color: #D8DEE9;
+      }
+
+      .sl-verification-steps {
+        max-height: 150px;
+        overflow-y: auto;
+        background: rgba(46, 52, 64, 0.5);
+        border-radius: 4px;
+        padding: 10px;
+        margin-top: 15px;
+      }
+
+      .sl-step {
+        font-size: 11px;
+        color: #81A1C1;
+        margin-bottom: 5px;
+        padding: 3px 6px;
+        background: rgba(129, 161, 193, 0.1);
+        border-radius: 3px;
+      }
+    `;
     document.head.appendChild(style);
   }
 
+  /**
+   * Create verification section in sidebar
+   */
   createVerificationSection() {
     const modelTab = document.querySelector('.sidebar-pane[data-tab="model"]');
-    if (!modelTab || document.getElementById("sl-verification-section")) return;
-    const section = document.createElement("div");
-    section.id = "sl-verification-section";
-    section.className = "sidebar-section";
+    if (!modelTab || document.getElementById('sl-verification-section')) return;
+
+    const section = document.createElement('div');
+    section.id = 'sl-verification-section';
+    section.className = 'sidebar-section';
     section.innerHTML = `
-<div class="section-header">
-  <div class="section-title">
-    <span class="section-icon">📜</span>
-    <h3>Formal Verification</h3>
-  </div>
-</div>
-<div class="section-content">
-  <p style="font-size: 14px; color: #D8DEE9; margin-bottom: 15px;">
-    Run the formal soundness verifier using Suvorov & Lomazova algorithms.
-  </p>
-  <button id="btn-sl-verify" class="button-primary" style="width:100%; background-color: #88C0D0; color: #2E3440;">
-    🔬 Run Formal Verifier
-  </button>
-</div>`;
+      <div class="section-header">
+        <div class="section-title">
+          <span class="section-icon">🔬</span>
+          <h3>Formal Verification</h3>
+        </div>
+      </div>
+      <div class="section-content">
+        <p style="font-size: 14px; color: #D8DEE9; margin-bottom: 15px;">
+          Verify soundness properties using Suvorov & Lomazova algorithms.
+        </p>
+        <div style="margin-bottom: 10px;">
+          <label style="display: block; margin-bottom: 5px; font-size: 13px;">Algorithm:</label>
+          <select id="sl-algorithm-select" style="width: 100%; padding: 5px;">
+            <option value="improved">Improved (Algorithm 6)</option>
+            <option value="direct">Direct (Algorithm 5)</option>
+          </select>
+        </div>
+        <button id="btn-sl-verify" class="button-primary" style="width: 100%; background: linear-gradient(135deg, #5E81AC, #81A1C1); border: none; padding: 12px; border-radius: 6px;">
+          🔬 Run Formal Verification
+        </button>
+      </div>
+    `;
+
     modelTab.appendChild(section);
-    section.querySelector("#btn-sl-verify").addEventListener("click", () => this.startVerification());
+
+    // Add event listener
+    document.getElementById('btn-sl-verify').addEventListener('click', () => {
+      this.startVerification();
+    });
   }
 
+  /**
+   * Create verification modal dialog
+   */
   createVerificationModal() {
-    if (document.getElementById("sl-verification-modal")) return;
-    const modal = document.createElement("div");
-    modal.id = "sl-verification-modal";
-    modal.className = "verification-modal";
+    if (document.getElementById('sl-verification-modal')) return;
+
+    const modal = document.createElement('div');
+    modal.id = 'sl-verification-modal';
+    modal.className = 'sl-verification-modal';
     modal.innerHTML = `
-<div class="verification-modal-content">
-  <div class="verification-modal-header">
-    <h2>🔬 Formal Soundness Verification Results</h2>
-    <button class="verification-close-btn" id="sl-close-verification-modal">×</button>
-  </div>
-  <div class="sl-modal-body" id="sl-modal-body"></div>
-</div>`;
+      <div class="sl-modal-content">
+        <div class="sl-modal-header">
+          <h2 class="sl-modal-title">
+            <span>🔬</span>
+            <span>Formal Soundness Verification</span>
+          </h2>
+          <button class="sl-close-btn" id="sl-close-modal">×</button>
+        </div>
+        <div class="sl-modal-body" id="sl-modal-body">
+          <!-- Content will be dynamically generated -->
+        </div>
+      </div>
+    `;
+
     document.body.appendChild(modal);
-    modal.querySelector("#sl-close-verification-modal").addEventListener("click", () => this.closeModal());
-    modal.addEventListener("click", (e) => {
+
+    // Event listeners
+    document.getElementById('sl-close-modal').addEventListener('click', () => {
+      this.closeModal();
+    });
+
+    modal.addEventListener('click', (e) => {
       if (e.target === modal) this.closeModal();
     });
   }
 
-  showModal() {
-    document.querySelector("#sl-verification-modal").classList.add("show");
-  }
-  
-  closeModal() {
-    document.querySelector("#sl-verification-modal").classList.remove("show");
-  }
-
-  async startVerification() {
-    const verifyButton = document.querySelector("#btn-sl-verify");
-    const modalBody = document.querySelector("#sl-modal-body");
-
-    verifyButton.disabled = true;
-    verifyButton.innerHTML = '<span class="verification-spinner"></span> Running Verification...';
-    this.showModal();
-    modalBody.innerHTML = `<div class="verification-progress">
-      <div style="margin-bottom: 20px;">Running formal verification...</div>
-      <div class="verification-spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
-    </div>`;
-
-    try {
-      this.verifier = new SuvorovLomazovaVerifier(this.app.api.petriNet);
-      const result = await this.verifier.verify((progress) => {
-        modalBody.innerHTML = `<div class="verification-progress">
-          <div style="margin-bottom: 20px;">${progress}</div>
-          <div class="verification-spinner" style="width: 40px; height: 40px; border-width: 4px;"></div>
-        </div>`;
-      });
-      
-      console.log("Verification result:", result);
-      this.currentChecks = result.checks || [];
-      this.initializeTraceVisualizer();
-      modalBody.innerHTML = this.createResultsHTML(result);
-      this.attachEventListeners();
-    } catch (error) {
-      console.error("Verification error:", error);
-      modalBody.innerHTML = this.createErrorHTML(error);
-    } finally {
-      verifyButton.disabled = false;
-      verifyButton.innerHTML = "🔬 Run Formal Verifier";
-    }
-  }
-
+  /**
+   * Initialize trace visualizer
+   */
   initializeTraceVisualizer() {
     if (this.app.editor && this.app.editor.renderer && !this.traceVisualizer) {
       this.traceVisualizer = new SuvorovLomazovaTraceVisualizationRenderer(this.app);
     }
   }
 
+  /**
+   * Show the verification modal
+   */
+  showModal() {
+    const modal = document.getElementById('sl-verification-modal');
+    modal.classList.add('show');
+  }
+
+  /**
+   * Close the verification modal
+   */
+  closeModal() {
+    const modal = document.getElementById('sl-verification-modal');
+    modal.classList.remove('show');
+  }
+
+  /**
+   * Start the verification process
+   */
+  async startVerification() {
+    const verifyButton = document.getElementById('btn-sl-verify');
+    const algorithmSelect = document.getElementById('sl-algorithm-select');
+    const modalBody = document.getElementById('sl-modal-body');
+
+    // Disable button and show loading
+    verifyButton.disabled = true;
+    verifyButton.innerHTML = '⏳ Running Verification...';
+    
+    this.showModal();
+    modalBody.innerHTML = this.createProgressHTML('Initializing verification...');
+
+    try {
+      // Get selected algorithm
+      const useImprovedAlgorithm = algorithmSelect.value === 'improved';
+      
+      // Create verifier with options
+      this.verifier = new SuvorovLomazovaVerifier(this.app.api.petriNet, {
+        useImprovedAlgorithm: useImprovedAlgorithm,
+        maxBound: 10,
+        enableTauTransitions: true,
+        enableCoverage: true
+      });
+
+      // Run verification with progress updates
+      this.currentResults = await this.verifier.verify((progress) => {
+        modalBody.innerHTML = this.createProgressHTML(progress);
+      });
+
+      console.log('Verification completed:', this.currentResults);
+
+      // Display results
+      modalBody.innerHTML = this.createResultsHTML(this.currentResults);
+      this.attachEventListeners();
+
+    } catch (error) {
+      console.error('Verification error:', error);
+      modalBody.innerHTML = this.createErrorHTML(error);
+    } finally {
+      // Re-enable button
+      verifyButton.disabled = false;
+      verifyButton.innerHTML = '🔬 Run Formal Verification';
+    }
+  }
+
+  /**
+   * Create progress HTML
+   */
+  createProgressHTML(message) {
+    return `
+      <div class="sl-progress">
+        <div class="sl-spinner"></div>
+        <h3>${message}</h3>
+        <p>This may take a few moments...</p>
+      </div>
+    `;
+  }
+
+  /**
+   * Create results HTML
+   */
+  createResultsHTML(results) {
+    const algorithmUsed = results.checks?.some(c => c.name.includes('Algorithm 6')) ? 'Improved (Algorithm 6)' : 'Direct (Algorithm 5)';
+    
+    return `
+      ${this.createStatusSection(results)}
+      ${this.createAlgorithmInfoSection(algorithmUsed)}
+      ${this.createPropertiesSection(results.checks || [])}
+      ${this.createControlPanel()}
+      ${this.createTimingSection(results)}
+    `;
+  }
+
+  /**
+   * Create status section
+   */
+  createStatusSection(results) {
+    const statusClass = results.isSound ? 'sound' : 'unsound';
+    const statusIcon = results.isSound ? '✅' : '❌';
+    const statusText = results.isSound ? 'Formally Sound' : 'Formally Unsound';
+    const statusDetails = results.isSound 
+      ? 'All soundness properties are satisfied'
+      : 'One or more soundness properties are violated';
+
+    return `
+      <div class="sl-verification-status ${statusClass}">
+        <div class="sl-status-icon">${statusIcon}</div>
+        <div class="sl-status-details">
+          <h3>${statusText}</h3>
+          <p>${statusDetails}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Create algorithm info section
+   */
+  createAlgorithmInfoSection(algorithmUsed) {
+    return `
+      <div class="sl-algorithm-info">
+        <strong>Algorithm Used:</strong> ${algorithmUsed}<br>
+        <strong>Properties Checked:</strong> P1 (Deadlock Freedom), P2 (No Overfinal Markings), P3 (No Dead Transitions)
+      </div>
+    `;
+  }
+
+  /**
+   * Create properties section
+   */
+  createPropertiesSection(checks) {
+    if (!checks.length) {
+      return '<p>No property checks available.</p>';
+    }
+
+    const cardsHTML = checks.map((check, index) => 
+      this.createPropertyCard(check, index)
+    ).join('');
+
+    return `
+      <div class="sl-properties-grid">
+        ${cardsHTML}
+      </div>
+    `;
+  }
+
+  /**
+   * Create a property card
+   */
+  createPropertyCard(check, index) {
+    const statusClass = check.satisfied ? 'pass' : 'fail';
+    const statusText = check.satisfied ? 'Pass' : 'Fail';
+    const propertyName = this.getPropertyDisplayName(check.name);
+    
+    const hasCounterexample = !check.satisfied && (
+      check.trace || 
+      check.deadTransitions || 
+      check.overfinalNodes || 
+      check.violatingNodes
+    );
+
+    const counterexampleSection = hasCounterexample ? `
+      <div class="sl-counterexample-section">
+        <div class="sl-counterexample-header">
+          <h4 class="sl-counterexample-title">Counterexample</h4>
+          <button class="sl-visualize-btn" data-check-index="${index}">
+            Visualize
+          </button>
+        </div>
+        <div class="sl-trace-info">
+          ${this.getCounterexampleDescription(check)}
+        </div>
+      </div>
+    ` : '';
+
+    return `
+      <div class="sl-property-card" data-check-index="${index}">
+        <div class="sl-property-header">
+          <h3 class="sl-property-name">${propertyName}</h3>
+          <span class="sl-property-status ${statusClass}">${statusText}</span>
+        </div>
+        <div class="sl-property-description">
+          ${check.details || 'No additional details available.'}
+        </div>
+        ${this.getPropertySpecificDetails(check)}
+        ${counterexampleSection}
+      </div>
+    `;
+  }
+
+  /**
+   * Get display name for property
+   */
+  getPropertyDisplayName(checkName) {
+    const nameMap = {
+      'Deadlock freedom': 'P1: Deadlock Freedom',
+      'Deadlock freedom (P1)': 'P1: Deadlock Freedom', 
+      'DeadlockFreedom': 'P1: Deadlock Freedom',
+      'Overfinal marking (P2)': 'P2: No Overfinal Markings',
+      'OverfinalMarkings': 'P2: No Overfinal Markings',
+      'Dead transitions (P3)': 'P3: No Dead Transitions',
+      'DeadTransitions': 'P3: No Dead Transitions',
+      'Boundedness (Alg. 3)': 'Boundedness Check',
+      'Boundedness': 'Boundedness Check'
+    };
+    return nameMap[checkName] || checkName;
+  }
+
+  /**
+   * Get property-specific details
+   */
+  getPropertySpecificDetails(check) {
+    let details = '';
+
+    if (check.deadTransitions && check.deadTransitions.length > 0) {
+      details += `<div class="sl-property-details">Dead transitions: ${check.deadTransitions.length}</div>`;
+    }
+
+    if (check.overfinalNodes && check.overfinalNodes.length > 0) {
+      details += `<div class="sl-property-details">Overfinal states: ${check.overfinalNodes.length}</div>`;
+    }
+
+    if (check.violatingNodes && check.violatingNodes.length > 0) {
+      details += `<div class="sl-property-details">Violating states: ${check.violatingNodes.length}</div>`;
+    }
+
+    return details;
+  }
+
+  /**
+   * Get counterexample description
+   */
+  getCounterexampleDescription(check) {
+    if (check.trace && check.trace.length > 0) {
+      return `Trace with ${check.trace.length} steps showing property violation`;
+    }
+    
+    if (check.deadTransitions && check.deadTransitions.length > 0) {
+      const transitions = check.deadTransitions.map(dt => 
+        dt.transitionLabel || dt.transitionId
+      ).join(', ');
+      return `Dead transitions: ${transitions}`;
+    }
+
+    if (check.overfinalNodes && check.overfinalNodes.length > 0) {
+      return `${check.overfinalNodes.length} state(s) with overfinal markings`;
+    }
+
+    return 'Property violation detected';
+  }
+
+  /**
+   * Create control panel
+   */
+  createControlPanel() {
+    return `
+      <div class="sl-control-panel">
+        <div class="sl-control-group">
+          <button class="sl-btn sl-btn-secondary" id="sl-clear-highlights">
+            Clear Highlights
+          </button>
+          <button class="sl-btn sl-btn-secondary" id="sl-export-results">
+            Export Results
+          </button>
+        </div>
+        <div class="sl-control-group">
+          <button class="sl-btn sl-btn-primary" id="sl-rerun-verification">
+            Run Again
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Create timing section
+   */
+  createTimingSection(results) {
+    const steps = results.verificationSteps || [];
+    const stepsHTML = steps.slice(-5).map(step => `
+      <div class="sl-step">
+        [${step.name}] ${step.details} (+${step.timestamp}ms)
+      </div>
+    `).join('');
+
+    return `
+      <div class="sl-timing-info">
+        <strong>Verification completed in ${results.duration || 0} ms</strong>
+        ${steps.length > 0 ? `
+          <div class="sl-verification-steps">
+            <strong>Recent Steps:</strong>
+            ${stepsHTML}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Create error HTML
+   */
+  createErrorHTML(error) {
+    return `
+      <div class="sl-verification-status unsound">
+        <div class="sl-status-icon">❌</div>
+        <div class="sl-status-details">
+          <h3>Verification Error</h3>
+          <p>${error?.message || error || 'An unexpected error occurred during verification.'}</p>
+        </div>
+      </div>
+      <div class="sl-control-panel">
+        <button class="sl-btn sl-btn-primary" id="sl-rerun-verification">
+          Try Again
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * Attach event listeners to the results
+   */
   attachEventListeners() {
-    // Attach event listeners for analyze buttons
-    document.querySelectorAll('.analyze-check-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const checkIndex = parseInt(e.target.dataset.checkIndex);
-        this.visualizeCheck(checkIndex);
+    // Property card clicks and visualize buttons
+    document.querySelectorAll('.sl-property-card').forEach((card, index) => {
+      card.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('sl-visualize-btn')) {
+          this.selectPropertyCard(index);
+        }
       });
     });
 
-    // Clear highlights button
-    document.querySelectorAll('.clear-highlights-btn').forEach(btn => {
-      btn.addEventListener('click', () => this.clearVisualization());
+    document.querySelectorAll('.sl-visualize-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const index = parseInt(btn.getAttribute('data-check-index'));
+        this.visualizeCheck(index);
+      });
+    });
+
+    // Control panel buttons
+    document.getElementById('sl-clear-highlights')?.addEventListener('click', () => {
+      this.clearVisualization();
+    });
+
+    document.getElementById('sl-export-results')?.addEventListener('click', () => {
+      this.exportResults();
+    });
+
+    document.getElementById('sl-rerun-verification')?.addEventListener('click', () => {
+      this.closeModal();
+      this.startVerification();
     });
   }
 
-  visualizeCheck(checkIndex) {
-    if (!this.traceVisualizer || checkIndex >= this.currentChecks.length) return;
-    
-    const check = this.currentChecks[checkIndex];
-    this.traceVisualizer.visualizeCheck(check);
-    
-    // Update UI to show active check
-    document.querySelectorAll(".trace-item").forEach((item, idx) => {
-      item.classList.toggle("active", idx === checkIndex);
+  /**
+   * Select a property card
+   */
+  selectPropertyCard(index) {
+    // Remove active class from all cards
+    document.querySelectorAll('.sl-property-card').forEach(card => {
+      card.classList.remove('active');
     });
+
+    // Add active class to selected card
+    const selectedCard = document.querySelector(`.sl-property-card[data-check-index="${index}"]`);
+    if (selectedCard) {
+      selectedCard.classList.add('active');
+      this.activeCheckIndex = index;
+    }
   }
 
+  /**
+   * Visualize a check result
+   */
+  visualizeCheck(index) {
+    if (!this.currentResults || !this.currentResults.checks || index >= this.currentResults.checks.length) {
+      return;
+    }
+
+    this.selectPropertyCard(index);
+    
+    if (this.traceVisualizer) {
+      const check = this.currentResults.checks[index];
+      this.traceVisualizer.visualizeCheck(check);
+      
+      // Show a brief message
+      this.showNotification(`Visualizing ${this.getPropertyDisplayName(check.name)} on the Petri net`);
+    }
+  }
+
+  /**
+   * Clear visualization
+   */
   clearVisualization() {
     if (this.traceVisualizer) {
       this.traceVisualizer.clearHighlights();
     }
-    document.querySelectorAll(".trace-item").forEach((item) => item.classList.remove("active"));
+    
+    // Remove active class from all cards
+    document.querySelectorAll('.sl-property-card').forEach(card => {
+      card.classList.remove('active');
+    });
+    
+    this.activeCheckIndex = -1;
+    this.showNotification('Visualization cleared');
   }
 
-  createResultsHTML(result) {
-    const statusIcon = result.isSound ? "✅" : "❌";
-    const statusText = result.isSound ? "Formally Sound" : "Formally Unsound";
-    
-    const checksHTML = this.currentChecks
-      .map((check, index) => this.createCheckHTML(check, index))
-      .join("");
+  /**
+   * Export verification results
+   */
+  exportResults() {
+    if (!this.currentResults) return;
 
-    const stepsHTML = this.createVerificationStepsHTML(result.verificationSteps);
-
-    return `
-<div class="verification-status ${result.isSound ? "sound" : "unsound"}">
-  <div class="verification-status-icon">${statusIcon}</div>
-  <div>
-    <strong>${statusText}</strong>
-    <div style="font-size: 14px; margin-top: 5px;">
-      Verification completed using Suvorov & Lomazova algorithms
-    </div>
-  </div>
-</div>
-
-<div class="verification-details">
-  <h3 style="margin-bottom: 15px; color: #88C0D0;">Property Analysis</h3>
-  ${checksHTML}
-</div>
-
-<div class="clear-highlight-btn">
-  <button class="analyze-btn clear-highlights-btn">Clear All Highlights</button>
-</div>
-
-${stepsHTML}
-
-<div class="verification-timing">
-  Verification completed in ${result.duration || 0} ms
-</div>`;
-  }
-
-  createCheckHTML(check, index) {
-    const statusClass = check.satisfied ? "pass" : "fail";
-    const statusText = check.satisfied ? "PASS" : "FAIL";
-    
-    // Create trace section if there are traces/counterexamples
-    const traceHTML = !check.satisfied ? this.createTraceSection(check, index) : "";
-    
-    return `
-<div class="verification-property">
-  <div class="verification-property-header">
-    <div class="verification-property-title">${this.getPropertyDisplayName(check.name)}</div>
-    <div class="verification-property-status ${statusClass}">${statusText}</div>
-  </div>
-  <div class="verification-property-description">${check.details || ""}</div>
-  ${traceHTML}
-</div>`;
-  }
-
-  getPropertyDisplayName(checkName) {
-    const propertyMap = {
-      "Deadlock (P1)": "P1: Deadlock Freedom",
-      "DeadlockFreedom": "P1: Deadlock Freedom", 
-      "Deadlock freedom": "P1: Deadlock Freedom",
-      "Overfinal marking (P2)": "P2: No Overfinal Markings",
-      "OverfinalMarkings": "P2: No Overfinal Markings",
-      "Dead transition (P3)": "P3: No Dead Transitions",
-      "DeadTransitions": "P3: No Dead Transitions",
-      "Boundedness": "Boundedness Check"
+    const exportData = {
+      timestamp: new Date().toISOString(),
+      petriNetId: this.app.api.petriNet.id,
+      petriNetName: this.app.api.petriNet.name,
+      isSound: this.currentResults.isSound,
+      duration: this.currentResults.duration,
+      checks: this.currentResults.checks,
+      verificationSteps: this.currentResults.verificationSteps
     };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json'
+    });
     
-    return propertyMap[checkName] || checkName;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `verification-results-${new Date().getTime()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    this.showNotification('Results exported successfully');
   }
 
-  createTraceSection(check, checkIndex) {
-    if (check.satisfied) return "";
+  /**
+   * Show a brief notification
+   */
+  showNotification(message) {
+    // Create and show a temporary notification
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: linear-gradient(135deg, #5E81AC, #81A1C1);
+      color: #ECEFF4;
+      padding: 12px 20px;
+      border-radius: 6px;
+      z-index: 10000;
+      font-size: 14px;
+      font-weight: 500;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transform: translateX(100%);
+      transition: transform 0.3s ease;
+    `;
+    notification.textContent = message;
     
-    return `
-<div class="trace-section">
-  <h4>🔍 Issue Analysis</h4>
-  <div class="trace-item" data-check="${checkIndex}">
-    <span>${this.getIssueDescription(check)}</span>
-    <button class="analyze-btn analyze-check-btn" data-check-index="${checkIndex}">
-      Analyze
-    </button>
-  </div>
-</div>`;
-  }
-
-  getIssueDescription(check) {
-    if (check.deadTransitions && check.deadTransitions.length > 0) {
-      return `Dead transitions found: ${check.deadTransitions.length}`;
-    }
-    if (check.overfinalNodes && check.overfinalNodes.length > 0) {
-      return `Overfinal markings found: ${check.overfinalNodes.length}`;
-    }
-    if (check.deadTransition) {
-      return `Dead transition: ${check.deadTransition.transitionLabel || check.deadTransition.transitionId}`;
-    }
-    if (check.trace) {
-      return `Counterexample trace (${check.trace.length} steps)`;
-    }
-    return check.details || "Issue detected";
-  }
-
-  createVerificationStepsHTML(steps) {
-    if (!steps || steps.length === 0) return "";
+    document.body.appendChild(notification);
     
-    const stepsHTML = steps
-      .slice(-10) // Show last 10 steps
-      .map(step => `
-        <div class="verification-step">
-          <strong>[${step.name}]</strong> ${step.details} 
-          <span style="color: #81A1C1;">(+${step.timestamp}ms)</span>
-        </div>
-      `).join("");
-
-    return `
-<div class="verification-steps">
-  <h4 style="margin-bottom: 10px; color: #88C0D0;">Verification Steps</h4>
-  ${stepsHTML}
-</div>`;
+    // Animate in
+    setTimeout(() => {
+      notification.style.transform = 'translateX(0)';
+    }, 10);
+    
+    // Remove after delay
+    setTimeout(() => {
+      notification.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          document.body.removeChild(notification);
+        }
+      }, 300);
+    }, 3000);
   }
 
-  createErrorHTML(error) {
-    return `
-<div class="verification-status unsound">
-  <div class="verification-status-icon">❌</div>
-  <div>
-    <strong>Verification Error</strong>
-    <div style="font-size: 14px; margin-top: 5px;">
-      ${error?.message || error || "An unexpected error occurred"}
-    </div>
-  </div>
-</div>`;
+  /**
+   * Cleanup when component is destroyed
+   */
+  destroy() {
+    if (this.traceVisualizer) {
+      this.traceVisualizer.destroy();
+    }
+    
+    // Remove modal if it exists
+    const modal = document.getElementById('sl-verification-modal');
+    if (modal && modal.parentNode) {
+      modal.parentNode.removeChild(modal);
+    }
+    
+    // Remove styles
+    const styles = document.getElementById('sl-verification-styles');
+    if (styles && styles.parentNode) {
+      styles.parentNode.removeChild(styles);
+    }
   }
 }
-/* Expose to window for app integration */
-window.SuvorovLomazovaVerifier = SuvorovLomazovaVerifier;
+
+// Export classes for use in the main application
 window.SuvorovLomazovaTraceVisualizationRenderer = SuvorovLomazovaTraceVisualizationRenderer;
 window.SuvorovLomazovaVerificationUI = SuvorovLomazovaVerificationUI;
 
-export { SuvorovLomazovaVerifier, SuvorovLomazovaTraceVisualizationRenderer, SuvorovLomazovaVerificationUI };
+export {
+  SuvorovLomazovaTraceVisualizationRenderer,
+  SuvorovLomazovaVerificationUI
+};
