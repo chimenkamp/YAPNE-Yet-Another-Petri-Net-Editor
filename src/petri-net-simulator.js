@@ -17,11 +17,21 @@ class PetriNetElement {
 }
 
 class Place extends PetriNetElement {
-  constructor(id, position, label = "", tokens = 0, capacity = null) {
+  constructor(id, position, label = "", tokens = 0, capacity = null, finalMarking = null) {
     super(id, position, label);
     this.tokens = tokens;
     this.capacity = capacity;
+    this.finalMarking = finalMarking;
     this.radius = 20;
+  }
+
+  // Add these new methods
+  hasReachedFinalMarking() {
+    return this.finalMarking !== null && this.tokens === this.finalMarking;
+  }
+
+  hasFinalMarking() {
+    return this.finalMarking !== null && this.finalMarking >= 0;
   }
 
   addTokens(count) {
@@ -435,27 +445,63 @@ class PetriNetRenderer {
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  drawPlaces() {
-    for (const [id, place] of this.petriNet.places) {
+drawPlaces() {
+  for (const [id, place] of this.petriNet.places) {
+    // Main place circle
+    this.ctx.beginPath();
+    this.ctx.arc(place.position.x, place.position.y, place.radius, 0, Math.PI * 2);
+    this.ctx.fillStyle = this.theme.placeColor;
+    this.ctx.fill();
+    
+    // Base stroke
+    this.ctx.strokeStyle = this.theme.placeStroke;
+    this.ctx.lineWidth = 2;
+    this.ctx.stroke();
 
+    // Draw final marking indicator if place has final marking
+    if (place.hasFinalMarking()) {
+      // Draw double border for final marking places
       this.ctx.beginPath();
-      this.ctx.arc(place.position.x, place.position.y, place.radius, 0, Math.PI * 2);
-      this.ctx.fillStyle = this.theme.placeColor;
-      this.ctx.fill();
-      this.ctx.strokeStyle = this.theme.placeStroke;
+      this.ctx.arc(place.position.x, place.position.y, place.radius + 3, 0, Math.PI * 2);
+      
+      // Color based on whether final marking is reached
+      if (place.hasReachedFinalMarking()) {
+        this.ctx.strokeStyle = '#A3BE8C'; // Green - final marking reached
+      } else {
+        this.ctx.strokeStyle = '#EBCB8B'; // Yellow - final marking not reached
+      }
       this.ctx.lineWidth = 2;
       this.ctx.stroke();
-
-
-      this.drawTokens(place);
-
-
-      this.ctx.fillStyle = this.theme.textColor;
-      this.ctx.font = '12px Arial';
+      
+      // Draw final marking number in top-right corner
+      this.ctx.fillStyle = place.hasReachedFinalMarking() ? '#A3BE8C' : '#EBCB8B';
+      this.ctx.font = 'bold 12px Arial';
       this.ctx.textAlign = 'center';
-      this.ctx.fillText(place.label, place.position.x, place.position.y + place.radius + 15);
+      this.ctx.textBaseline = 'middle';
+      
+      // Background circle for the final marking number
+      const fmX = place.position.x + place.radius * 0.7;
+      const fmY = place.position.y - place.radius * 0.7;
+      
+      this.ctx.beginPath();
+      this.ctx.arc(fmX, fmY, 8, 0, Math.PI * 2);
+      this.ctx.fill();
+      
+      // Final marking number text
+      this.ctx.fillStyle = this.theme.backgroundColor;
+      this.ctx.fillText(place.finalMarking.toString(), fmX, fmY);
     }
+
+    // Draw tokens (keep existing drawTokens call)
+    this.drawTokens(place);
+
+    // Draw label (keep existing label drawing)
+    this.ctx.fillStyle = this.theme.textColor;
+    this.ctx.font = '12px Arial';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText(place.label, place.position.x, place.position.y + place.radius + 15);
   }
+}
 
   drawTokens(place) {
     const { x, y } = place.position;
@@ -1164,20 +1210,37 @@ class PetriNetEditor {
 
 
     const keyDownHandler = (event) => {
+      // Delete currently selected element
+      if (event.code === 'Delete' && this.selectedElement) {
+        if (this.selectedElement.type === 'place') {
+          this.petriNet.removePlace(this.selectedElement.id);
+        } else if (this.selectedElement.type === 'transition') {
+          this.petriNet.removeTransition(this.selectedElement.id);
+        } else if (this.selectedElement.type === 'arc') {
+          this.petriNet.removeArc(this.selectedElement.id);
+        }
+        this.selectedElement = null;
+        this.dragOffset = null;
+        if (this.callbacks.onChange) {
+          this.callbacks.onChange();
+        }
+        this.render();
+        return;
+      }
 
       if (event.code === this.PAN_KEY_BUTTON_CODE) {
         this.isPanningKeyPressed = true;
-        this.canvas.style.cursor = 'grab';
       }
 
-      // Handle Shift key for ghost element feature
+      // Handle Shift key press (ghost mode)
       if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
         this.isShiftPressed = true;
-        if (this.selectedElement && this.mode === 'select') {
+        if (this.selectedElement) {
           this.canvas.style.cursor = 'crosshair';
         }
       }
     };
+
 
     const keyUpHandler = (event) => {
 
@@ -1211,26 +1274,6 @@ class PetriNetEditor {
     this.eventListeners.set('wheel', mouseWheelHandler);
     this.eventListeners.set('keydown', keyDownHandler);
     this.eventListeners.set('keyup', keyUpHandler);
-
-    // Listener for deliting selected element with Delete key
-    document.addEventListener('keydown', (event) => {
-      if (event.code === 'Delete' && this.selectedElement) {
-        if (this.selectedElement.type === 'place') {
-          this.petriNet.removePlace(this.selectedElement.id);
-        } else if (this.selectedElement.type === 'transition') {
-          this.petriNet.removeTransition(this.selectedElement.id);
-        } else if (this.selectedElement.type === 'arc') {
-          this.petriNet.removeArc(this.selectedElement.id);
-        }
-        this.selectedElement = null;
-        this.dragOffset = null; // Reset dragOffset when deleting
-        if (this.callbacks.onChange) {
-          this.callbacks.onChange();
-        }
-        this.render();
-      }
-    }
-    );
   }
 
   updateGhostElement(worldPos) {
@@ -1981,12 +2024,54 @@ class PetriNetAPI {
     }
   } 
 
-  createPlace(x, y, label, tokens = 0) {
+  createPlace(x, y, label, tokens = 0, finalMarking = null) {
     const id = this.generateUUID();
-    const place = new Place(id, { x, y }, label || `P${this.petriNet.places.size + 1}`, tokens);
+    const place = new Place(id, { x, y }, label || `P${this.petriNet.places.size + 1}`, tokens, null, finalMarking);
     this.petriNet.addPlace(place);
     if (this.editor) this.editor.render();
     return id;
+  }
+
+  setPlaceFinalMarking(id, finalMarking) {
+    const place = this.petriNet.places.get(id);
+    if (!place) return false;
+
+    place.finalMarking = finalMarking;
+    if (this.editor) this.editor.render();
+    return true;
+  }
+
+  checkFinalMarkings() {
+    const results = {
+      totalPlaces: 0,
+      placesWithFinalMarkings: 0,
+      satisfiedFinalMarkings: 0,
+      unsatisfiedPlaces: []
+    };
+
+    for (const [id, place] of this.petriNet.places) {
+      results.totalPlaces++;
+      
+      if (place.hasFinalMarking()) {
+        results.placesWithFinalMarkings++;
+        
+        if (place.hasReachedFinalMarking()) {
+          results.satisfiedFinalMarkings++;
+        } else {
+          results.unsatisfiedPlaces.push({
+            id: id,
+            label: place.label,
+            currentTokens: place.tokens,
+            expectedTokens: place.finalMarking
+          });
+        }
+      }
+    }
+
+    results.allSatisfied = results.placesWithFinalMarkings > 0 && 
+                          results.satisfiedFinalMarkings === results.placesWithFinalMarkings;
+
+    return results;
   }
 
   createTransition(x, y, label) {

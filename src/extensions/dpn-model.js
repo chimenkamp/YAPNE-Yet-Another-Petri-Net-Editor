@@ -582,7 +582,8 @@ class DataPetriNet extends PetriNet {
         placeData.position,
         placeData.label,
         placeData.tokens,
-        placeData.capacity
+        placeData.capacity,
+        placeData.finalMarking || null // Add this line
       );
       net.places.set(place.id, place);
     });

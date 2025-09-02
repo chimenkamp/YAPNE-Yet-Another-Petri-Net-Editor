@@ -6,40 +6,40 @@ class SmtFromDpnGenerator {
   /**
    * Generate an SMT-LIB2 encoding aligned with the paper’s step semantics.
    * Key points:
-   *  - Per-step data variables v_i and markings M_p_i are declared for i=0..K.
-   *  - For each step i < K and each transition t, a fire flag f_t_i is declared.
-   *    If τ-transitions are NOT explicitly present in the DPN, we also declare
-   *    f_tau_t_i and use the paper’s τ-guard:
-   *        guard(τ(t)) := ¬∃W(t).( pre_t ∧ post_t )
-   *    Variables in τ do not change when τ fires.
-   *  - Enabling: token availability on input places; data guard via
-   *    (pre with reads at i) and (post with writes at i+1). This exactly matches
-   *    the paper’s “guard(t)” shape when projecting to step i/i+1.
-   *  - Frame conditions: for a visible t, variables not written by t remain equal
-   *    across i→i+1; for τ(t), ALL variables remain equal.
-   *  - Marking update uses incidence (+outflow - inflow) for both visible and τ.
-   *  - Firing policy is configurable:
-   *      - 'atMostOne' (default): at most one of {f_*, f_tau_*[, idle_i]} is true.
-   *      - 'exactlyOne': exactly one is true per step.
-   *      - 'free': no mutual-exclusion constraint is imposed.
-   *    If 'atMostOne' policy is used, we also provide an `idle_i` (no-op) that
-   *    keeps both data and markings unchanged on steps with no firing.
-   *  - Final marking and (optional) coverage are asserted at step K. Coverage
-   *    excludes τ-transitions by default.
+   * - Per-step data variables v_i and markings M_p_i are declared for i=0..K.
+   * - For each step i < K and each transition t, a fire flag f_t_i is declared.
+   *   If τ-transitions are NOT explicitly present in the DPN, we also declare
+   *   f_tau_t_i and use the paper’s τ-guard:
+   *   guard(τ(t)) := ¬∃W(t).( pre_t ∧ post_t )
+   *   Variables in τ do not change when τ fires.
+   * - Enabling: token availability on input places; data guard via
+   *   (pre with reads at i) and (post with writes at i+1). This matches
+   *   the paper’s “guard(t)” when projecting to step i/i+1.
+   * - Frame conditions: for a visible t, variables not written by t remain equal
+   *   across i→i+1; for τ(t), ALL variables remain equal.
+   * - Marking update uses incidence (+outflow - inflow) for both visible and τ.
+   * - Firing policy is configurable:
+   *   - 'atMostOne' (default): at most one of {f_*, f_tau_*[, idle_i]} is true.
+   *   - 'exactlyOne': exactly one is true per step.
+   *   - 'free': no mutual-exclusion constraint is imposed.
+   *   Regardless of policy, if no transition fires at step i, the encoding enforces
+   *   a full stutter on BOTH data and markings. When idle_i is available,
+   *   we also enforce (iff idle_i (not anyFire_i)) to forbid the illegal case
+   *   “no fire ∧ ¬idle”.
+   * - Final marking and (optional) coverage are asserted at step K. Coverage
+   *   excludes τ-transitions by default.
    *
-   * :param petriNetObj: Petri net object {places[], transitions[], arcs[], dataVariables[]}.
-   * :param params: Optional {
-   *      K?: number,
-   *      logic?: string,                // default: "ALL"
-   *      finalMarking?: { [placeId]: number },
-   *      initialData?: { [varName]: number|boolean },
-   *      sortsOverride?: { [key: string]: "Int"|"Real"|"Bool" },
-   *      coverage?: boolean,            // if true: each non-τ transition fires at least once
-   *      coverageIncludesTau?: boolean, // default false
-   *      firing?: "atMostOne"|"exactlyOne"|"free" // default "atMostOne"
-   *   }
-   * :return : of objects.
-   * :return: SMT-LIB2 string.
+   * @param {object} petriNetObj - Petri net object {places[], transitions[], arcs[], dataVariables[]}.
+   * @param {object} [params] - Optional parameters.
+   * @param {number} [params.K=6] - The number of steps.
+   * @param {string} [params.logic='ALL'] - The SMT logic to use.
+   * @param {object} [params.finalMarking] - The final marking.
+   * @param {object} [params.initialData] - The initial data values.
+   * @param {object} [params.sortsOverride] - Overrides for data variable sorts.
+   * @param {boolean} [params.coverage=false] - Whether to check for transition coverage.
+   * @param {boolean} [params.coverageIncludesTau=false] - Whether coverage includes tau transitions.
+   * @param {('atMostOne'|'exactlyOne'|'free')} [params.firing='atMostOne'] - The firing policy.
+   * @returns {string} The generated SMT-LIB2 string.
    */
   generateSMT(petriNetObj, params = {}) {
     const cfg = this._normalizeConfig(petriNetObj, params);
@@ -59,6 +59,9 @@ class SmtFromDpnGenerator {
     } = cfg;
 
     const coverageIncludesTau = params.coverageIncludesTau === true;
+    const coverageFor = Array.isArray(params.coverageFor)
+      ? params.coverageFor.map(String)
+      : null;
     const firingPolicy = params.firing || "atMostOne"; // "atMostOne"|"exactlyOne"|"free"
 
     // Detect explicit τ transitions (by id prefix "tau_")
@@ -116,29 +119,41 @@ class SmtFromDpnGenerator {
 
     // --- Marking non-negativity at all steps
     for (let i = 0; i <= K; i++) {
-      const conj = placeIds
-        .map((p) => `(nonneg ${this._mStep(p, i)})`)
-        .join(" ");
+      const conj = placeIds.map((p) => `(nonneg ${this._mStep(p, i)})`).join(" ");
       out(`(assert (and ${conj}))`);
     }
 
     // --- Per-step constraints
     for (let i = 0; i < K; i++) {
-      // 1) Firing policy
+      // Semantics note:
+      // Each step is either a single firing (visible or τ) or a stutter step.
+      // When no firing occurs, data and markings must stutter. This matches
+      // the paper’s step semantics and prevents unconstrained data jumps.
+
+      // 1) Firing policy + "must act or idle" discipline
+      const boolFlags = [];
+      const intFlags = [];
+      for (const t of transIds) {
+        const vis = this._fStep(t, i);
+        boolFlags.push(vis);
+        intFlags.push(`(b2i ${vis})`);
+        if (!hasExplicitTau && !isTauId(t)) {
+          const tau = this._ftStep(t, i);
+          boolFlags.push(tau);
+          intFlags.push(`(b2i ${tau})`);
+        }
+      }
+      const anyFire = boolFlags.length ? `(or ${boolFlags.join(" ")})` : "false";
+
       if (firingPolicy !== "free") {
-        const flags = [];
-        for (const t of transIds) {
-          flags.push(`(b2i ${this._fStep(t, i)})`);
-          if (!hasExplicitTau && !isTauId(t))
-            flags.push(`(b2i ${this._ftStep(t, i)})`);
-        }
+        const idle = `idle_${i}`;
         if (firingPolicy === "atMostOne") {
-          const idle = `(b2i idle_${i})`;
-          out(`(assert (<= (+ ${flags.join(" ")} ${idle}) 1))`);
+          out(`(assert (<= (+ ${intFlags.join(" ")} (b2i ${idle})) 1))`);
         } else if (firingPolicy === "exactlyOne") {
-          const idle = `(b2i idle_${i})`;
-          out(`(assert (= (+ ${flags.join(" ")} ${idle}) 1))`);
+          out(`(assert (= (+ ${intFlags.join(" ")} (b2i ${idle})) 1))`);
         }
+        // Forbid the illegal case: (not anyFire) ∧ (not idle)
+        out(`(assert (iff ${idle} (not ${anyFire})))`);
       }
 
       // 2) Token enabling for any firing (visible or τ)
@@ -150,7 +165,7 @@ class SmtFromDpnGenerator {
 
         const inArcs = arcsIn.get(t) || [];
         for (const [p, w] of inArcs) {
-          out(`(assert (=> ${firedOrTau} (>= ${this._mStep(p, i)} ${w}))`);
+          out(`(assert (=> ${firedOrTau} (>= ${this._mStep(p, i)} ${w})))`);
         }
       }
 
@@ -175,33 +190,30 @@ class SmtFromDpnGenerator {
         for (const [vName] of dataVarsList) {
           if (!writes.has(vName)) {
             out(
-              `(assert (=> ${fVis} (= ${this._vStep(
+              `(assert (=> ${fVis} (= ${this._vStep(vName, i + 1)} ${this._vStep(
                 vName,
-                i + 1
-              )} ${this._vStep(vName, i)})))`
+                i
+              )})))`
             );
           }
         }
 
         // τ semantics:
-        //  - If τ is explicit (id starts with "tau_"), we just apply its (pre/post) as with visible.
-        //  - If τ is implicit (ftStep used), assert the computed τ-guard and variable stuttering.
         if (fTau) {
           const tauInner = this._tauGuard(preStr, postStr, i, dataVarsList); // ¬∃W.(pre∧post)
           if (tauInner) out(`(assert (=> ${fTau} ${tauInner}))`);
           for (const [vName] of dataVarsList) {
             out(
-              `(assert (=> ${fTau} (= ${this._vStep(
+              `(assert (=> ${fTau} (= ${this._vStep(vName, i + 1)} ${this._vStep(
                 vName,
-                i + 1
-              )} ${this._vStep(vName, i)})))`
+                i
+              )})))`
             );
           }
         }
 
-        // If τ is explicit, treat it like any other transition (no data change if post is empty)
+        // Explicit τ: stutter if no post
         if (hasExplicitTau && isTauTransition) {
-          // If author provided postcondition for τ, we respect it; otherwise, enforce stutter.
           const hasPost = String(postStr || "").trim().length > 0;
           if (!hasPost) {
             for (const [vName] of dataVarsList) {
@@ -216,7 +228,7 @@ class SmtFromDpnGenerator {
         }
       }
 
-      // 4) Marking update (incidence) for visible and τ firings; idle => stutter
+      // 4) Marking update (incidence) for visible and τ firings
       for (const p of placeIds) {
         const inflow = [];
         const outflow = [];
@@ -249,14 +261,19 @@ class SmtFromDpnGenerator {
         );
       }
 
-      // 5) Idle step (for 'atMostOne' or 'exactlyOne'): stutter data & markings
+      // 5) Stutter frames when no firing (and explicit idle if present)
+      const eqMs = placeIds
+        .map((p) => `(= ${this._mStep(p, i + 1)} ${this._mStep(p, i)})`)
+        .join(" ");
+      const eqVs = dataVarsList
+        .map(([v]) => `(= ${this._vStep(v, i + 1)} ${this._vStep(v, i)})`)
+        .join(" ");
+
+      // Always enforce stutter if no transition fires (covers 'free' policy too)
+      out(`(assert (=> (not ${anyFire}) (and ${eqMs} ${eqVs})))`);
+
+      // Additionally, when idle_i exists, keep idle ⇒ stutter for clarity
       if (firingPolicy !== "free") {
-        const eqMs = placeIds
-          .map((p) => `(= ${this._mStep(p, i + 1)} ${this._mStep(p, i)})`)
-          .join(" ");
-        const eqVs = dataVarsList
-          .map(([v]) => `(= ${this._vStep(v, i + 1)} ${this._vStep(v, i)})`)
-          .join(" ");
         out(`(assert (=> idle_${i} (and ${eqMs} ${eqVs})))`);
       }
     }
@@ -268,9 +285,13 @@ class SmtFromDpnGenerator {
       }
     }
 
-    // --- Coverage (default excludes τ)
-    if (coverage && transIds.length > 0) {
-      for (const t of transIds) {
+    // --- Coverage (default excludes τ); supports coverageFor
+    if ((coverage || (coverageFor && coverageFor.length > 0)) && transIds.length > 0) {
+      const wanted =
+        coverageFor && coverageFor.length
+          ? transIds.filter((t) => coverageFor.includes(String(t)))
+          : transIds;
+      for (const t of wanted) {
         if (!coverageIncludesTau && isTauId(t)) continue;
         const ors = Array.from({ length: K }, (_, i) => this._fStep(t, i)).join(
           " "
@@ -286,13 +307,15 @@ class SmtFromDpnGenerator {
     return this._sanitizePrimes(smt);
   }
 
+
+
   /**
    * Normalize configuration: collect ids, arcs, guards, sorts, initial/final markings and data.
    *
-   * :param pn: Petri net object.
-   * :param params: Additional parameters.
-   * :return : of objects.
-   * :return: Normalized configuration.
+   * @param {object} pn - Petri net object.
+   * @param {object} params - Additional parameters.
+   * @returns {object} Normalized configuration.
+   * @private
    */
   _normalizeConfig(pn, params) {
     const logic = params.logic || "ALL";
@@ -375,22 +398,22 @@ class SmtFromDpnGenerator {
 
   /**
    * Create the τ-guard for transition t at step i:
-   *   guard_τ(t,i) := ¬∃W_t . ( pre_i ∧ post_i[W_t] )
+   * guard_τ(t,i) := ¬∃W_t . ( pre_i ∧ post_i[W_t] )
    * where:
-   *   - pre_i is the precondition with reads mapped to step i variables,
-   *   - post_i[W_t] is the postcondition with each written v' replaced by a fresh bound
-   *     variable W_v, and all unprimed reads mapped to step i variables,
-   *   - W_t is the set of variables written by t.
+   * - pre_i is the precondition with reads mapped to step i variables,
+   * - post_i[W_t] is the postcondition with each written v' replaced by a fresh bound
+   * variable W_v, and all unprimed reads mapped to step i variables,
+   * - W_t is the set of variables written by t.
    *
    * This method performs only a *syntactic* construction suitable for embedding in SMT;
    * it does not run QE here (the quantifier remains explicit in the returned string).
    *
-   * :param preStr: Raw precondition of t.
-   * :param postStr: Raw postcondition of t.
-   * :param i: Step index.
-   * :param dataVarsList: Array<[varName, sort]> of all data variables.
-   * :return : of objects.
-   * :return: SMT-LIB2 string for the τ-guard at step i (never contains apostrophes).
+   * @param {string} preStr - Raw precondition of t.
+   * @param {string} postStr - Raw postcondition of t.
+   * @param {number} i - Step index.
+   * @param {Array<[string, string]>} dataVarsList - Array<[varName, sort]> of all data variables.
+   * @returns {string} SMT-LIB2 string for the τ-guard at step i (never contains apostrophes).
+   * @private
    */
   _tauGuard(preStr, postStr, i, dataVarsList) {
     // pre at step i (reads → i)
@@ -433,12 +456,12 @@ class SmtFromDpnGenerator {
    * Rewrite a guard or postcondition to SMT-LIB2 with per-step variables.
    * Converts primed occurrences x' to step-indexed symbols so no apostrophes remain.
    *
-   * :param guardStr: Guard or postcondition string.
-   * :param i: Step index.
-   * :param dataVarsList: List of [varName, sort].
-   * :param isPost: Whether this is a postcondition (primed writes go to step i+1).
-   * :return : of objects.
-   * :return: SMT-LIB2 expression or empty string.
+   * @param {string} guardStr - Guard or postcondition string.
+   * @param {number} i - Step index.
+   * @param {Array<[string, string]>} dataVarsList - List of [varName, sort].
+   * @param {boolean} isPost - Whether this is a postcondition (primed writes go to step i+1).
+   * @returns {string} SMT-LIB2 expression or empty string.
+   * @private
    */
   _rewriteGuard(guardStr, i, dataVarsList, isPost) {
     const s = String(guardStr || "").trim();
@@ -452,12 +475,12 @@ class SmtFromDpnGenerator {
    * Replace variable names with per-step symbols, handling primed writes (x') robustly.
    * Ensures patterns like "x'","x'=", "x' +", "x' >" are correctly replaced.
    *
-   * :param s: Input string.
-   * :param i: Step index.
-   * :param dataVarsList: List of [varName, sort].
-   * :param isPost: Whether this is a postcondition.
-   * :return : of objects.
-   * :return: String with variables stepped, no apostrophes left for known variables.
+   * @param {string} s - Input string.
+   * @param {number} i - Step index.
+   * @param {Array<[string, string]>} dataVarsList - List of [varName, sort].
+   * @param {boolean} isPost - Whether this is a postcondition.
+   * @returns {string} String with variables stepped, no apostrophes left for known variables.
+   * @private
    */
   _applyStepVars(s, i, dataVarsList, isPost) {
     let r = ` ${s} `;
@@ -482,75 +505,106 @@ class SmtFromDpnGenerator {
    * Convert a minimal infix boolean/arithmetic comparison string into SMT-LIB2 prefix form.
    * Supports: and, or, not, parentheses, binary comparators (=,!=,<,<=,>,>=).
    *
-   * :param expr: Infix-like expression.
-   * :return : of objects.
-   * :return: SMT-LIB2 s-expression.
+   * @param {string} expr - Infix-like expression.
+   * @returns {string} SMT-LIB2 s-expression.
+   * @private
    */
-  _infixToSmt(expr) {
-    const e = expr.trim();
-    if (!e) return "";
-    const norm = e
-      .replace(/\s+/g, " ")
-      .replace(/\band\b/gi, "and")
-      .replace(/\bor\b/gi, "or")
-      .replace(/\bnot\b/gi, "not");
+_infixToSmt(expr) {
+  const e = String(expr || "").trim();
+  if (!e) return "";
+  const norm = e
+    .replace(/\s+/g, " ")
+    .replace(/\band\b/gi, "and")
+    .replace(/\bor\b/gi, "or")
+    .replace(/\bnot\b/gi, "not");
 
-    const splitTop = (s, op) => {
-      const parts = [];
-      let depth = 0,
+  const isAtom =
+    (s) =>
+      /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ||
+      /^[-+]?\d+(?:\.\d+)?$/.test(s) ||
+      s === "true" ||
+      s === "false";
+
+  const stripOuter = (s) => {
+    let t = String(s || "").trim();
+    const balanced = (x) => {
+      let d = 0;
+      for (const ch of x) {
+        if (ch === "(") d++;
+        else if (ch === ")") d--;
+        if (d < 0) return false;
+      }
+      return d === 0;
+    };
+    while (t.startsWith("(") && t.endsWith(")") && balanced(t)) {
+      const inner = t.slice(1, -1).trim();
+      if (!inner.startsWith("(") || !inner.endsWith(")")) {
+        // only strip once if inner isn't also wrapped
+        t = inner;
+        break;
+      }
+      t = inner;
+    }
+    return t;
+  };
+
+  const splitTop = (s, op) => {
+    const parts = [];
+    let depth = 0,
+      buf = [];
+    const tokens = s.split(" ");
+    for (let i = 0; i < tokens.length; i++) {
+      const tok = tokens[i];
+      for (const ch of tok) {
+        if (ch === "(") depth++;
+        if (ch === ")") depth--;
+      }
+      if (depth === 0 && tok === op) {
+        parts.push(buf.join(" ").trim());
         buf = [];
-      const tokens = s.split(" ");
-      for (let i = 0; i < tokens.length; i++) {
-        const tok = tokens[i];
-        for (const ch of tok) {
-          if (ch === "(") depth++;
-          if (ch === ")") depth--;
-        }
-        if (depth === 0 && tok === op) {
-          parts.push(buf.join(" ").trim());
-          buf = [];
-        } else {
-          buf.push(tok);
-        }
+      } else {
+        buf.push(tok);
       }
-      const last = buf.join(" ").trim();
-      if (last) parts.push(last);
-      return parts;
-    };
+    }
+    const last = buf.join(" ").trim();
+    if (last) parts.push(last);
+    return parts;
+  };
 
-    const rec = (s) => {
-      const t = s.trim();
-      if (!t) return "true";
-      if (t.startsWith("(") && t.endsWith(")"))
-        return `(${rec(t.slice(1, -1))})`;
-      const andParts = splitTop(t, "and");
-      if (andParts.length > 1) return `(and ${andParts.map(rec).join(" ")})`;
-      const orParts = splitTop(t, "or");
-      if (orParts.length > 1) return `(or ${orParts.map(rec).join(" ")})`;
-      if (t.startsWith("not ")) return `(not ${rec(t.slice(4))})`;
-      const cmp = t.match(/^(.+?)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
-      if (cmp) {
-        const lhs = rec(cmp[1]);
-        const rhs = rec(cmp[3]);
-        const op = cmp[2] === "!=" ? "distinct" : cmp[2];
-        if (op === "distinct") return `(distinct ${lhs} ${rhs})`;
-        if (["=", "<", "<=", ">", ">="].includes(op))
-          return `(${op} ${lhs} ${rhs})`;
-      }
-      return t;
-    };
+  const rec = (s) => {
+    const t = s.trim();
+    if (!t) return "true";
+    if (t.startsWith("(") && t.endsWith(")")) return rec(t.slice(1, -1));
+    const andParts = splitTop(t, "and");
+    if (andParts.length > 1) return `(and ${andParts.map(rec).join(" ")})`;
+    const orParts = splitTop(t, "or");
+    if (orParts.length > 1) return `(or ${orParts.map(rec).join(" ")})`;
+    if (t.startsWith("not ")) return `(not ${rec(t.slice(4))})`;
+    const cmp = t.match(/^(.+?)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
+    if (cmp) {
+      const lhs = rec(cmp[1]);
+      const rhs = rec(cmp[3]);
+      const op = cmp[2] === "!=" ? "distinct" : cmp[2];
+      if (op === "distinct") return `(distinct ${lhs} ${rhs})`;
+      if (["=", "<", "<=", ">", ">="].includes(op))
+        return `(${op} ${lhs} ${rhs})`;
+    }
+    return isAtom(t) ? t : t;
+  };
 
-    const res = rec(norm);
-    return res.startsWith("(") ? res : `(${res})`;
-  }
+  let res = rec(norm).replace(/\s+/g, " ").trim();
+  if (isAtom(res)) return res;
+  return stripOuter(res.startsWith("(") ? res : `(${res})`);
+}
+
 
   /**
    * Compute the set of written variables (those with a primed occurrence) in a postcondition.
    *
-   * :param postStr: Postcondition string.
-   * :param dataVarsList: List of [varName, sort].
-   * :return : of objects.
-   * :return: Set of variable names.
+   * @param {string} postStr - Postcondition string.
+   * @param {Array<[string, string]>} dataVarsList - List of [varName, sort].
+   * @returns {Set<string>} Set of variable names.
+   * @private
    */
   _writtenVars(postStr, dataVarsList) {
     const set = new Set();
@@ -565,10 +619,10 @@ class SmtFromDpnGenerator {
   /**
    * Map a domain type string to SMT sort with optional overrides.
    *
-   * :param typ: Type string.
-   * :param override: Mapping overrides.
-   * :return : of objects.
-   * :return: SMT sort string.
+   * @param {string} typ - Type string.
+   * @param {object} override - Mapping overrides.
+   * @returns {string} SMT sort string.
+   * @private
    */
   _toSort(typ, override) {
     if (override && override[typ]) return override[typ];
@@ -580,10 +634,10 @@ class SmtFromDpnGenerator {
   /**
    * Create a per-step data variable symbol.
    *
-   * :param name: Base variable name.
-   * :param i: Step index.
-   * :return : of objects.
-   * :return: Symbol string.
+   * @param {string} name - Base variable name.
+   * @param {number} i - Step index.
+   * @returns {string} Symbol string.
+   * @private
    */
   _vStep(name, i) {
     return `${this._sym(name)}_${i}`;
@@ -592,10 +646,10 @@ class SmtFromDpnGenerator {
   /**
    * Create a per-step marking symbol.
    *
-   * :param placeId: Place identifier.
-   * :param i: Step index.
-   * :return : of objects.
-   * :return: Symbol string.
+   * @param {string} placeId - Place identifier.
+   * @param {number} i - Step index.
+   * @returns {string} Symbol string.
+   * @private
    */
   _mStep(placeId, i) {
     return `M_${this._sym(placeId)}_${i}`;
@@ -604,10 +658,10 @@ class SmtFromDpnGenerator {
   /**
    * Create a per-step visible fire flag symbol.
    *
-   * :param transId: Transition identifier.
-   * :param i: Step index.
-   * :return : of objects.
-   * :return: Symbol string.
+   * @param {string} transId - Transition identifier.
+   * @param {number} i - Step index.
+   * @returns {string} Symbol string.
+   * @private
    */
   _fStep(transId, i) {
     return `f_${this._sym(transId)}_${i}`;
@@ -616,10 +670,10 @@ class SmtFromDpnGenerator {
   /**
    * Create a per-step tau fire flag symbol.
    *
-   * :param transId: Transition identifier.
-   * :param i: Step index.
-   * :return : of objects.
-   * :return: Symbol string.
+   * @param {string} transId - Transition identifier.
+   * @param {number} i - Step index.
+   * @returns {string} Symbol string.
+   * @private
    */
   _ftStep(transId, i) {
     return `f_tau_${this._sym(transId)}_${i}`;
@@ -628,9 +682,9 @@ class SmtFromDpnGenerator {
   /**
    * Create a bound variable name for τ existential.
    *
-   * :param vName: Variable base name.
-   * :return : of objects.
-   * :return: Bound variable symbol.
+   * @param {string} vName - Variable base name.
+   * @returns {string} Bound variable symbol.
+   * @private
    */
   _wVar(vName) {
     return `${this._sym(vName)}_w`;
@@ -640,9 +694,9 @@ class SmtFromDpnGenerator {
    * Final safety pass: ensure no apostrophes remain in identifiers (Z3 doesn't allow them).
    * Any residual pattern like name' is rewritten to name_prime.
    *
-   * :param smt: SMT-LIB string.
-   * :return : of objects.
-   * :return: Sanitized SMT-LIB string.
+   * @param {string} smt - SMT-LIB string.
+   * @returns {string} Sanitized SMT-LIB string.
+   * @private
    */
   _sanitizePrimes(smt) {
     return smt.replace(
@@ -654,9 +708,9 @@ class SmtFromDpnGenerator {
   /**
    * Sanitize identifiers to SMT-LIB friendly symbols.
    *
-   * :param x: Raw identifier.
-   * :return : of objects.
-   * :return: Sanitized symbol.
+   * @param {string} x - Raw identifier.
+   * @returns {string} Sanitized symbol.
+   * @private
    */
   _sym(x) {
     return String(x).replace(/[^A-Za-z0-9_]/g, "_");
@@ -665,9 +719,9 @@ class SmtFromDpnGenerator {
   /**
    * Escape a string for use in RegExp.
    *
-   * :param s: Input string.
-   * :return : of objects.
-   * :return: Escaped string.
+   * @param {string} s - Input string.
+   * @returns {string} Escaped string.
+   * @private
    */
   _escapeReg(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -676,10 +730,10 @@ class SmtFromDpnGenerator {
   /**
    * Render a literal according to sort.
    *
-   * :param v: Value.
-   * :param sort: SMT sort.
-   * :return : of objects.
-   * :return: SMT-LIB literal.
+   * @param {*} v - Value.
+   * @param {string} sort - SMT sort.
+   * @returns {string} SMT-LIB literal.
+   * @private
    */
   _lit(v, sort) {
     if (sort === "Bool") return v ? "true" : "false";
@@ -793,17 +847,16 @@ class LabeledTransitionSystem {
   /**
    * Find a maximal set of node-disjoint elementary cycles (paper-aligned).
    * Strategy:
-   *  1) Compute SCCs (only SCCs with ≥2 nodes or a self-loop can contain cycles).
-   *  2) For each such SCC, enumerate elementary cycles using Johnson’s algorithm
-   *     restricted to the SCC’s subgraph (to avoid duplicates and reduce cost).
-   *  3) From all discovered cycles, select a maximal disjoint subset by greedy
-   *     choice (longest-first), as required by the refinement step.
-   *  4) For each selected cycle, compute:
-   *       - transitions: IDs of LTS edges whose source and target are both in the cycle
-   *       - exitTransitions: IDs of LTS edges that leave the cycle’s node set
+   * 1) Compute SCCs (only SCCs with ≥2 nodes or a self-loop can contain cycles).
+   * 2) For each such SCC, enumerate elementary cycles using Johnson’s algorithm
+   * restricted to the SCC’s subgraph (to avoid duplicates and reduce cost).
+   * 3) From all discovered cycles, select a maximal disjoint subset by greedy
+   * choice (longest-first), as required by the refinement step.
+   * 4) For each selected cycle, compute:
+   * - transitions: IDs of LTS edges whose source and target are both in the cycle
+   * - exitTransitions: IDs of LTS edges that leave the cycle’s node set
    *
-   * :return : of objects.
-   * :return: Array<{ nodes: string[], transitions: Set<string>, exitTransitions: Set<string> }>
+   * @returns {Array<{ nodes: string[], transitions: Set<string>, exitTransitions: Set<string> }>}
    */
   findMaximalDisjointCycles() {
     // --- Build adjacency lists once ---
@@ -1047,96 +1100,130 @@ class DPNRefinementEngine {
     return currentDPN;
   }
 
-  /**
-   * Canonicalize a constraint formula using Z3 simplification.
-   *
-   * :param formula: Raw SMT-LIB (or infix already normalized upstream).
-   * :return : of objects.
-   * :return: Canonical SMT-LIB string ("true"/"false" or simplified).
-   */
-  async canonicalizeFormula(formula) {
-    const f = String(formula || "true").trim() || "true";
-    if (f === "true" || f === "false") {
-      return f;
-    }
-    try {
-      await Z3Solver.initialize();
-      const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
-      const astVec = _z3.parse_smtlib2_string(
-        _context,
-        buildScript(f),
-        [],
-        [],
-        [],
-        []
-      );
-      
-      const vecSize = _z3.ast_vector_size(_context, astVec);
-      console.log(`Canonicalizing formula: ${f} (size: ${vecSize})`, astVec);
-      if (vecSize === 0) return "true"; // empty input means true
-      
-      const goal = _z3.mk_goal(_context, true, false, false);
-      for (let i = 0; i < vecSize; i++) {
-        _z3.goal_assert(
-          _context,
-          goal,
-          _z3.ast_vector_get(_context, astVec, i)
-        );
-      }
-      const apply = async (g, name) => {
-        const t = _z3.mk_tactic(_context, name);
-        
-        const r = await _z3.tactic_apply(_context, t, g);
+/**
+ * Canonicalize/simplify a formula defensively.
+ * Repairs malformed snippets and avoids tactics if the term looks risky.
+ *
+ * @param {string} formula
+ * @returns {Promise<string>}
+ */
+async canonicalizeFormula(formula) {
+  const text = String(formula || "true").trim() || "true";
+  if (text === "true" || text === "false") return text;
 
+  const sanitizePrimes = (s) =>
+    s.replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
+
+  const repairSmt = (s) => {
+    let r = String(s || "").trim();
+    if (!r) return "true";
+    // strip empty apps
+    r = r.replace(/\(\s*\)/g, "");
+    // collapse "(atom)" → "atom" for non-operators
+    const ATOM = "(?:[-+]?\\d+(?:\\.\\d+)?|[A-Za-z_][A-Za-z0-9_]*)";
+    const OPS = new Set([
+      "and",
+      "or",
+      "not",
+      "=",
+      "distinct",
+      "<",
+      "<=",
+      ">",
+      ">=",
+      "+",
+      "-",
+      "*",
+      "/",
+      "ite",
+      "=>",
+      "exists",
+      "forall",
+      "let",
+      "assert",
+      "true",
+      "false",
+    ]);
+    r = r.replace(new RegExp(`\\(\\s*(${ATOM})\\s*\\)`, "g"), (_, tok) => {
+      return OPS.has(tok) ? `(${tok})` : tok;
+    });
+    r = r.replace(/\(\s*(true|false)\s*\(\s*\)\s*\)/g, "$1");
+    // bare pairs → equality
+    r = r.replace(
+      new RegExp(`\\(\\s*(${ATOM})\\s+(${ATOM})\\s*\\)`, "g"),
+      (_, a, b) => (OPS.has(a) ? `(${a} ${b})` : `(= ${a} ${b})`)
+    );
+    r = r.replace(/\s+/g, " ").trim();
+    return r || "true";
+  };
+
+  const looksSuspicious = (s) =>
+    !s ||
+    /\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(s) ||
+    /\(\s*[-+]?\d+(?:\.\d+)?\s*\)/.test(s) ||
+    /\(\s*\)/.test(s) ||
+    /\(\s*true\s*\(\s*\)/.test(s);
+
+  const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
+
+  let body = repairSmt(sanitizePrimes(text));
+  if (looksSuspicious(body)) return body;
+
+  try {
+    const astVec = _z3.parse_smtlib2_string(_context, buildScript(body), [], [], [], []);
+    const vecSize = _z3.ast_vector_size(_context, astVec);
+    if (vecSize === 0) return "true";
+
+    const goal = _z3.mk_goal(_context, true, false, false);
+    for (let i = 0; i < vecSize; i++) {
+      _z3.goal_assert(_context, goal, _z3.ast_vector_get(_context, astVec, i));
+    }
+    if (_z3.goal_size(_context, goal) === 0) return "true";
+
+    // Only lightweight tactics here
+    const tryTactic = async (g, name) => {
+      try {
+        const t = _z3.mk_tactic(_context, name);
+        const r = await _z3.tactic_apply(_context, t, g);
         const n = _z3.apply_result_get_num_subgoals(_context, r);
         return n === 0 ? g : _z3.apply_result_get_subgoal(_context, r, 0);
-      };
-      let g = await apply(goal, "simplify");
-      g = await apply(g, "solve-eqs");
-      g = await apply(g, "propagate-values");
-      const sz = _z3.goal_size(_context, g);
-      if (sz === 0) return "true";
-      if (sz === 1)
-        return _z3
-          .ast_to_string(_context, _z3.goal_formula(_context, g, 0))
-          .replace(/\s+/g, " ")
-          .trim();
-      const parts = [];
-      for (let i = 0; i < sz; i++)
-        parts.push(
-          _z3.ast_to_string(_context, _z3.goal_formula(_context, g, i))
-        );
-      return `(and ${parts.join(" ")})`.replace(/\s+/g, " ").trim();
-    } catch {
-      return f.replace(/\s+/g, " ").trim();
-    }
-  }
+      } catch (e) {
+        console.warn(`[Canon] Tactic '${name}' failed; skipping.`, e);
+        return g;
+      }
+    };
 
-  /**
-   * Logical equivalence check for formulas over the same variable set.
-   *
-   * :param f1: First formula.
-   * :param f2: Second formula.
-   * :return : of objects.
-   * :return: Whether f1 ⇔ f2.
-   */
-  async equivalentFormulas(f1, f2) {
-    const a = String(f1 || "true").trim() || "true";
-    const b = String(f2 || "true").trim() || "true";
-    if (a === b) return true;
-    const sat1 = await Z3Solver.isSatisfiable(`(and ${a} (not ${b}))`);
-    if (sat1) return false;
-    const sat2 = await Z3Solver.isSatisfiable(`(and ${b} (not ${a}))`);
-    return !sat2;
+    let g = goal;
+    g = await tryTactic(g, "simplify");
+    g = await tryTactic(g, "solve-eqs");
+    g = await tryTactic(g, "propagate-values");
+
+    // Pretty print back
+    const sz = _z3.goal_size(_context, g);
+    if (sz === 0) return "true";
+    if (sz === 1) {
+      return repairSmt(
+        _z3.ast_to_string(_context, _z3.goal_formula(_context, g, 0))
+      );
+    }
+    const parts = [];
+    for (let i = 0; i < sz; i++) {
+      parts.push(_z3.ast_to_string(_context, _z3.goal_formula(_context, g, i)));
+    }
+    return repairSmt(`(and ${parts.join(" ")})`);
+  } catch (e) {
+    console.warn("[Canon] Parse/simplify failed; returning repaired input.", e);
+    return body;
   }
+}
+
 
   /**
    * Construct LTS (Algorithm 2), merging states up to logical equivalence of constraints.
    * Nodes are ⟨marking, φ⟩ where φ is canonicalized. Edges labeled by transition ids.
    *
-   * :param dpn: Normalized DPN.
-   * :return : of objects.
-   * :return: LabeledTransitionSystem instance.
+   * @param {object} dpn - Normalized DPN.
+   * @returns {Promise<LabeledTransitionSystem>} LabeledTransitionSystem instance.
    */
   async constructLTS(dpn) {
     const lts = new LabeledTransitionSystem();
@@ -1224,21 +1311,20 @@ class DPNRefinementEngine {
   /**
    * Compute successor-state constraint φ ⊕ t (Algorithm 1, paper-aligned).
    * Steps:
-   *  1) Partition variables into reads (suffix _r) and writes (suffix _w) for transition t:
-   *       - In φ (stateFormula) and pre(t): v  → v_r
-   *       - In post(t): v' → v_w, unprimed v on RHS → v_r
-   *  2) Build body := pre_r ∧ post_rw ∧ φ_r
-   *  3) Existentially quantify W := { v_w | v is written by t }:
-   *       ψ := ∃ W . body
-   *  4) Quantifier elimination (QE) to stay within the image-closed fragment Φ
-   *  5) Project back to base variable names by dropping _r/_w suffixes
-   *  6) Canonicalize/simplify the result; if UNSAT at any step, return "false"
+   * 1) Partition variables into reads (suffix _r) and writes (suffix _w) for transition t:
+   * - In φ (stateFormula) and pre(t): v  → v_r
+   * - In post(t): v' → v_w, unprimed v on RHS → v_r
+   * 2) Build body := pre_r ∧ post_rw ∧ φ_r
+   * 3) Existentially quantify W := { v_w | v is written by t }:
+   * ψ := ∃ W . body
+   * 4) Quantifier elimination (QE) to stay within the image-closed fragment Φ
+   * 5) Project back to base variable names by dropping _r/_w suffixes
+   * 6) Canonicalize/simplify the result; if UNSAT at any step, return "false"
    *
-   * :param stateFormula: Current node’s constraint φ over base variables.
-   * :param transition:   Transition object { precondition, postcondition, ... }.
-   * :param dpn:          Normalized DPN with dataVariables [{id,name,type},...].
-   * :return : of objects.
-   * :return: SMT-LIB formula string for successor state constraint.
+   * @param {string} stateFormula - Current node’s constraint φ over base variables.
+   * @param {object} transition - Transition object { precondition, postcondition, ... }.
+   * @param {object} dpn - Normalized DPN with dataVariables [{id,name,type},...].
+   * @returns {Promise<string>} SMT-LIB formula string for successor state constraint.
    */
   async computeNewFormula(stateFormula, transition, dpn) {
     // ---- Helpers -------------------------------------------------------------
@@ -1281,10 +1367,19 @@ class DPNRefinementEngine {
       return r.trim();
     };
 
-    // Minimal infix → SMT prefix for boolean/arithmetic (kept consistent with the generator)
+    // Minimal infix → SMT prefix for boolean/arithmetic
     const toPrefix = (expr) => {
       const e0 = String(expr || "").trim();
       if (!e0) return "true";
+      // atom?
+      if (
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(e0) ||
+        /^[-+]?\d+(?:\.\d+)?$/.test(e0) ||
+        e0 === "true" ||
+        e0 === "false"
+      ) {
+        return e0;
+      }
       let e = e0
         .replace(/\bAND\b/gi, "and")
         .replace(/\bOR\b/gi, "or")
@@ -1292,7 +1387,6 @@ class DPNRefinementEngine {
         .replace(/\|\|/g, "or")
         .replace(/&&/g, "and");
 
-      // Parenthesis-safe split utility
       const splitTop = (s, op) => {
         const parts = [];
         let depth = 0,
@@ -1316,8 +1410,7 @@ class DPNRefinementEngine {
       const rec = (s) => {
         const t = s.trim();
         if (!t) return "true";
-        if (t.startsWith("(") && t.endsWith(")"))
-          return `(${rec(t.slice(1, -1))})`;
+        if (t.startsWith("(") && t.endsWith(")")) return rec(t.slice(1, -1));
         const a = splitTop(t, "and");
         if (a.length > 1) return `(and ${a.map(rec).join(" ")})`;
         const o = splitTop(t, "or");
@@ -1328,9 +1421,7 @@ class DPNRefinementEngine {
           const op = m[2] === "!=" ? "distinct" : m[2];
           const L = rec(m[1]),
             R = rec(m[3]);
-          return op === "distinct"
-            ? `(distinct ${L} ${R})`
-            : `(${op} ${L} ${R})`;
+          return op === "distinct" ? `(distinct ${L} ${R})` : `(${op} ${L} ${R})`;
         }
         // Arithmetic shims: a+b, a-b, a*b, a/b (greedy, not fully general)
         const ar = t
@@ -1338,11 +1429,24 @@ class DPNRefinementEngine {
           .replace(/([^()\s]+)\s*-\s*([^()\s]+)/g, "(- $1 $2)")
           .replace(/([^()\s]+)\s*\*\s*([^()\s]+)/g, "(* $1 $2)")
           .replace(/([^()\s]+)\s*\/\s*([^()\s]+)/g, "(/ $1 $2)");
-        return ar.startsWith("(") ? ar : `(${ar})`;
+        let out = ar.startsWith("(") ? ar : `(${ar})`;
+        // collapse double parens
+        while (/^\(\s*\((.*)\)\s*\)$/.test(out)) {
+          out = out.replace(/^\(\s*\((.*)\)\s*\)$/, "($1)");
+        }
+        return out;
       };
 
-      const res = rec(e).replace(/\s+/g, " ").trim();
-      return res || "true";
+      let res = rec(e).replace(/\s+/g, " ").trim();
+      if (
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(res) ||
+        /^[-+]?\d+(?:\.\d+)?$/.test(res) ||
+        res === "true" ||
+        res === "false"
+      ) {
+        return res;
+      }
+      return res.startsWith("(") ? res : `(${res})`;
     };
 
     // Written variables of t (appear as v' or explicitly as *_w)
@@ -1363,7 +1467,6 @@ class DPNRefinementEngine {
     // Project suffixes back to base names
     const dropSuffixes = (s) => {
       let r = String(s || "true");
-      // Remove _r/_w only for known variables
       for (const v of varNames) {
         r = r.replace(new RegExp(`\\b${escapeReg(v)}_(?:r|w)\\b`, "g"), v);
       }
@@ -1378,18 +1481,13 @@ class DPNRefinementEngine {
     const phi_r = toPrefix(mapVars(stateFormula || "true", (v) => `${v}_r`));
 
     // precondition: all reads → _r
-    const pre_r = toPrefix(
-      mapVars(transition.precondition || "true", (v) => `${v}_r`)
-    );
+    const pre_r = toPrefix(mapVars(transition.precondition || "true", (v) => `${v}_r`));
 
     // postcondition: v' → v_w ; bare v (on RHS) → v_r
     let post_rw = String(transition.postcondition || "").trim();
     // Replace primed occurrences first
     for (const v of varNames) {
-      post_rw = post_rw.replace(
-        new RegExp(`\\b${escapeReg(v)}\\s*'\\b`, "g"),
-        `${v}_w`
-      );
+      post_rw = post_rw.replace(new RegExp(`\\b${escapeReg(v)}\\s*'\\b`, "g"), `${v}_w`);
     }
     // Then map bare names to _r
     post_rw = toPrefix(mapVars(post_rw, (v) => `${v}_r`));
@@ -1429,15 +1527,16 @@ class DPNRefinementEngine {
     return phi_next;
   }
 
+
   /**
    * Refine all transitions according to Algorithm 4 (Suvorov–Lomazova).
    * - For each transition t that belongs to at least one maximal disjoint cycle,
-   *   collect exit transitions of those cycles.
+   * collect exit transitions of those cycles.
    * - Build a disjoint partition of exit predicates (evaluated AFTER t fires).
    * - For each case, compute a precondition over the current state:
-   *     ∃W(t).( pre_t(r) ∧ post_t(r,w) ∧ case_after_t(r,w) )
-   *   using quantifier elimination, then create a refined copy tr with that pre,
-   *   keeping post_t unchanged.
+   * ∃W(t).( pre_t(r) ∧ post_t(r,w) ∧ case_after_t(r,w) )
+   * using quantifier elimination, then create a refined copy tr with that pre,
+   * keeping post_t unchanged.
    * - Duplicate all arcs incident to t to each refined copy, then remove t.
    *
    * @param {Object} dpn
@@ -1592,7 +1691,7 @@ class DPNRefinementEngine {
    * Refine a single transition t using exit predicates of cycles containing t.
    * Builds a disjoint case partition over the exit predicates evaluated AFTER t.
    * For each case C, computes:
-   *   pre_ref(C) := QE( ∃W(t). ( pre_t(r) ∧ post_t(r,w) ∧ C(r,w) ) ) projected to base variables,
+   * pre_ref(C) := QE( ∃W(t). ( pre_t(r) ∧ post_t(r,w) ∧ C(r,w) ) ) projected to base variables,
    * and creates a refined copy with pre_ref(C) and the same post_t.
    *
    * @param {Object} t
@@ -1862,10 +1961,9 @@ class DPNRefinementEngine {
   /**
    * Logical equivalence check for formulas over the same variable set.
    *
-   * :param f1: First formula.
-   * :param f2: Second formula.
-   * :return : of objects.
-   * :return: Whether f1 ⇔ f2.
+   * @param {string} f1 - First formula.
+   * @param {string} f2 - Second formula.
+   * @returns {Promise<boolean>} Whether f1 ⇔ f2.
    */
   async equivalentFormulas(f1, f2) {
     const a = String(f1 || "true").trim() || "true";
@@ -1877,85 +1975,12 @@ class DPNRefinementEngine {
     return !sat2;
   }
 
-  /**
-   * Construct LTS (Algorithm 2), merging states up to logical equivalence of constraints.
-   * Nodes are ⟨marking, φ⟩ where φ is canonicalized. Edges labeled by transition ids.
-   *
-   * :param dpn: Normalized DPN.
-   * :return : of objects.
-   * :return: LabeledTransitionSystem instance.
-   */
-  async constructLTS(dpn) {
-    const lts = new LabeledTransitionSystem();
-    const maxNodes = 5000;
-
-    // Initial state (canonicalized)
-    const initM = this.getInitialMarking(dpn);
-    const initF = await this.canonicalizeFormula(this.getInitialFormula(dpn));
-    const initId = lts.addNode(initM, initF);
-
-    // Indices
-    const queue = [initId];
-    const processed = new Set();
-    const byMarking = new Map(); // markingKey -> nodeId[]
-    const markingKey = (M) =>
-      Object.entries(M)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => `${k}:${v}`)
-        .join(",");
-
-    byMarking.set(markingKey(initM), [initId]);
-
-    while (queue.length && lts.nodes.size < maxNodes) {
-      const nid = queue.shift();
-      const node = lts.nodes.get(nid);
-      const keyHere = this.getStateKey(node);
-      if (processed.has(keyHere)) continue;
-      processed.add(keyHere);
-
-      for (const t of dpn.transitions || []) {
-        const succ = await this.computeSuccessorState(
-          node.marking,
-          node.formula,
-          t,
-          dpn
-        );
-        if (!succ) continue;
-        if (!(await Z3Solver.isSatisfiable(succ.formula))) continue;
-
-        // Canonicalize successor constraint
-        succ.formula = await this.canonicalizeFormula(succ.formula);
-
-        // Try to reuse an existing node with same marking and equivalent φ
-        const mkey = markingKey(succ.marking);
-        let targetId = null;
-        const candIds = byMarking.get(mkey) || [];
-        for (const cid of candIds) {
-          const cnode = lts.nodes.get(cid);
-          if (await this.equivalentFormulas(cnode.formula, succ.formula)) {
-            targetId = cid;
-            break;
-          }
-        }
-        if (!targetId) {
-          targetId = lts.addNode(succ.marking, succ.formula);
-          if (!byMarking.has(mkey)) byMarking.set(mkey, []);
-          byMarking.get(mkey).push(targetId);
-          queue.push(targetId);
-        }
-        lts.addEdge(nid, targetId, t.id);
-      }
-    }
-
-    return lts;
-  }
 
   /**
    * Stable state key used only after canonicalization.
    *
-   * :param node: LTS node {marking, formula}.
-   * :return : of objects.
-   * :return: Key string.
+   * @param {object} node - LTS node {marking, formula}.
+   * @returns {string} Key string.
    */
   getStateKey(node) {
     const mk = Object.entries(node.marking)
@@ -2048,39 +2073,128 @@ class DPNRefinementEngine {
     }
   }
 
+/**
+ * Quantifier elimination with strong defensive parsing.
+ * - Repairs common malformed SMT patterns (e.g., "(x)" → "x", "(10)" → "10", "(true ())" → "true").
+ * - Skips tactics entirely if the input still looks suspicious (prevents WASM thread faults).
+ * - Wraps *every* Z3 call in try/catch and short-circuits to a safe fallback.
+ *
+ * @param {string} formula
+ * @returns {Promise<string>} Quantifier-free (best effort) or a sanitized fallback.
+ */
 async eliminateQuantifiers(formula) {
   const sanitizePrimes = (s) =>
-    s.replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
-  const sanitized = sanitizePrimes(String(formula || "").trim());
+    String(s || "")
+      .trim()
+      .replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
 
-  // Handle empty/trivial input early
-  if (!sanitized || sanitized === "true" || sanitized === "false") {
-    console.log({ originalFormula: String(formula || ""), result: sanitized || "true" });
-    return sanitized || "true";
-  }
+  // ---- Helpers kept local to this method -----------------------------------
+  const stripEmptyConj = (s) =>
+    String(s || "")
+      .replace(/\(\s*and\s+true\s+([^)]+)\)/g, "$1")
+      .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, "$1")
+      .replace(/\(\s*and\s*\)/g, "true")
+      .replace(/\(\s*or\s+false\s+([^)]+)\)/g, "$1")
+      .replace(/\(\s*or\s+([^)]+)\s+false\s*\)/g, "$1");
 
-  // --- Syntactic definitional QE: ∃v. (v = t) ∧ φ  ==>  φ[t/v]
-  const syntacticDefQE = (input) => {
-    let s = input;
+  // Heuristic fixer for malformed S-expressions that show up in your logs:
+  //   - Remove nullary applications "(x)" → "x", "(10)" → "10", "(true())" → "true"
+  //   - Drop empty "()" blobs
+  //   - Convert bare "(a b)" pairs to "(= a b)" (only if 'a' is not a known operator)
+  const repairSmt = (input) => {
+    let s = String(input || "").trim();
+
+    if (!s) return "true";
+
+    // Remove empty applications "()" first
+    s = s.replace(/\(\s*\)/g, "");
+
+    // Collapse "( true )", "( false )", "( 10 )", "( x )" → "true"/"false"/"10"/"x"
+    // (only when token is a single atom, not an operator)
+    const ATOM = "(?:[-+]?\\d+(?:\\.\\d+)?|[A-Za-z_][A-Za-z0-9_]*)";
+    const OPS = new Set([
+      "and",
+      "or",
+      "not",
+      "=",
+      "distinct",
+      "<",
+      "<=",
+      ">",
+      ">=",
+      "+",
+      "-",
+      "*",
+      "/",
+      "ite",
+      "=>",
+      "exists",
+      "forall",
+      "let",
+      "assert",
+      "true",
+      "false",
+    ]);
+
+    // "( atom )" → "atom" when atom ∉ OPS
+    s = s.replace(new RegExp(`\\(\\s*(${ATOM})\\s*\\)`, "g"), (_, tok) => {
+      return OPS.has(tok) ? `(${tok})` : tok;
+    });
+
+    // Fix weird "(true ())" or "(false ())"
+    s = s.replace(/\(\s*(true|false)\s*\(\s*\)\s*\)/g, "$1");
+
+    // Convert bare "(a b)" (two atoms, missing operator) into "(= a b)"
+    // Only if "a" is not an operator and both look atomic.
+    s = s.replace(
+      new RegExp(`\\(\\s*(${ATOM})\\s+(${ATOM})\\s*\\)`, "g"),
+      (_, a, b) => {
+        if (OPS.has(a)) return `(${a} ${b})`; // leave operator forms intact
+        return `(= ${a} ${b})`;
+      }
+    );
+
+    // Clean duplicated spaces
+    s = s.replace(/\s+/g, " ").trim();
+
+    // Quick normalizations of trivial "and/or" with true/false
+    s = stripEmptyConj(s)
+      .replace(/\(\s*and\s+true\s+true\s*\)/g, "true")
+      .replace(/\(\s*or\s+false\s+false\s*\)/g, "false");
+
+    return s || "true";
+  };
+
+  // A conservative detector for patterns we *never* want to feed into tactics.
+  const looksSuspicious = (s) => {
+    if (!s) return true;
+    // Nullary app still present?  e.g., "(x)" or "(10)" or "(true())"
+    if (/\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(s)) return true;
+    if (/\(\s*[-+]?\d+(?:\.\d+)?\s*\)/.test(s)) return true;
+    // Empty application
+    if (/\(\s*\)/.test(s)) return true;
+    // "(true () ...)" variants
+    if (/\(\s*true\s*\(\s*\)/.test(s)) return true;
+    // Lone pair without a known operator "(a b)" (missed by repair)
+    if (/\(\s*[A-Za-z_][A-Za-z0-9_]*\s+[A-Za-z_0-9.+-]+\s*\)/.test(s)) return true;
+    return false;
+  };
+
+  // Very light syntactic "definitional" QE: ∃x. (= x t) ∧ φ  ⇒  φ[t/x]
+  const defQE = (input) => {
+    let s = String(input || "").trim();
     const existsTop =
-      /^\(\s*exists\s*\(\s*((?:\(\s*[A-Za-z_][\w]*\s+[A-Za-z_][\w]*\s*\)\s*)+)\)\s*(.+)\)$/s;
-    const bindersRe = /\(\s*([A-Za-z_][\w]*)\s+[A-Za-z_][\w]*\s*\)/g;
+      /^\(\s*exists\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*(.+)\)$/s;
+    const bindersRe = /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g;
 
-    const replaceAll = (str, v, rhs) => {
-      const re = new RegExp(`\\b${v}\\b`, "g");
-      return str.replace(re, rhs);
-    };
+    const replaceAll = (str, v, rhs) =>
+      str.replace(new RegExp(`\\b${v}\\b`, "g"), rhs);
 
-    const stripTrueConj = (body) => {
-      // Remove trivial (and true X) / (and X true) / nested ands
-      let out = body
+    const dropTrue = (body) =>
+      body
         .replace(/\(\s*and\s+true\s+([^)]+)\)/g, "$1")
         .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, "$1")
-        .replace(/\(\s*and\s+([^)]+)\s*\)/g, "$1")
-        .trim();
-      if (out === "true") return "true";
-      return out;
-    };
+        .trim() || "true";
 
     let changed = true;
     while (changed) {
@@ -2091,269 +2205,152 @@ async eliminateQuantifiers(formula) {
       let bindersBlob = m[1];
       let body = m[2].trim();
 
-      // Collect binders (ordered)
       const binders = [];
       let bm;
-      while ((bm = bindersRe.exec(bindersBlob)) !== null) {
-        binders.push(bm[1]);
-      }
+      while ((bm = bindersRe.exec(bindersBlob)) !== null) binders.push(bm[1]);
 
       let removedAny = false;
       for (const v of binders) {
-        // Look for (= v t) or (= t v), where t does not contain v
         const pat1 = new RegExp(`\\(=\\s+${v}\\s+([^()]+|\\([^)]*\\))\\)`);
         const pat2 = new RegExp(`\\(=\\s+([^()]+|\\([^)]*\\))\\s+${v}\\)`);
         let mm = body.match(pat1);
         let rhs = null;
 
-        if (mm) {
-          rhs = mm[1].trim();
-        } else {
-          mm = body.match(pat2);
-          if (mm) rhs = mm[1].trim();
-        }
+        if (mm) rhs = mm[1].trim();
+        else if ((mm = body.match(pat2))) rhs = mm[1].trim();
 
         if (rhs && !new RegExp(`\\b${v}\\b`).test(rhs)) {
-          // Substitute and drop the equality conjunct
           const eqRe = mm[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           body = body.replace(new RegExp(`\\s*${eqRe}\\s*`), " true ");
           body = replaceAll(body, v, rhs);
           removedAny = true;
 
-          // Remove v from bindersBlob
           bindersBlob = bindersBlob
-            .replace(new RegExp(`\\(\\s*${v}\\s+[A-Za-z_][\\w]*\\s*\\)`), "")
+            .replace(new RegExp(`\\(\\s*${v}\\s+[A-Za-z_]\\w*\\s*\\)`), "")
             .trim();
         }
       }
 
       if (!removedAny) break;
 
-      body = stripTrueConj(body);
-      // If no binders remain, drop the quantifier
+      body = dropTrue(body);
       if (!bindersBlob.replace(/\s+/g, "")) {
         s = body;
       } else {
-        // Rebuild a compact binders list
-        const cleanedBinders = Array.from(bindersBlob.matchAll(bindersRe))
+        // Rebuild a compact binder list
+        const cleaned = Array.from(
+          bindersBlob.matchAll(/\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)/g)
+        )
           .map((x) => x[0])
           .join(" ");
-        s = `(exists (${cleanedBinders}) ${body})`;
+        s = `(exists (${cleaned}) ${body})`;
       }
       changed = true;
     }
     return s;
   };
 
-  // Try trivial definitional elimination first
-  const preprocessed = syntacticDefQE(sanitized);
-
-  // Check if preprocessing eliminated all quantifiers
-  if (!/\(\s*(?:exists|forall)\b/.test(preprocessed)) {
-    console.log({ originalFormula: String(formula || ""), result: preprocessed });
-    return preprocessed;
-  }
-
-  // --- Quantifier-aware symbol inference (free symbols only) ---
-  const bound = new Set();
-  const qre = /\(\s*(?:exists|forall)\s*\(\s*\(((?:\s*\([^)]+\)\s*)+)\)\s*/g;
-  let mq;
-  while ((mq = qre.exec(preprocessed)) !== null) {
-    const blob = mq[1];
-    for (const mm of blob.matchAll(
-      /\(\s*([A-Za-z_][\w]*)\s+[A-Za-z_][\w]*\s*\)/g
-    ))
-      bound.add(mm[1]);
-  }
-
-  const TOK = /[A-Za-z_][A-Za-z0-9_]*/g;
-  const keywords = new Set([
-    "assert",
-    "and",
-    "or",
-    "not",
-    "=>",
-    "exists",
-    "forall",
-    "let",
-    "ite",
-    "distinct",
-    "true",
-    "false",
-    "Real",
-    "Int",
-    "Bool",
-    "div",
-    "mod",
-    "rem",
-    "xor",
-    "select",
-    "store",
-    "as",
-  ]);
-  const inferredSort = new Map();
-
-  for (const re of [
-    /\(=\s+([A-Za-z_][\w]*)\s+(?:true|false)\s*\)/g,
-    /\(\s*not\s+([A-Za-z_][\w]*)\s*\)/g,
-  ]) {
-    let mb;
-    while ((mb = re.exec(preprocessed)) !== null)
-      inferredSort.set(mb[1], "Bool");
-  }
-  for (const re of [
-    /\(\s*(?:=|<|>|<=|>=)\s+([A-Za-z_][\w]*)\s+[-+]?(?:\d+(?:\.\d*)?|\.\d+)\s*\)/g,
-    /\(\s*(?:=|<|>|<=|>=)\s+[-+]?(?:\d+(?:\.\d*)?|\.\d+)\s+([A-Za-z_][\w]*)\s*\)/g,
-    /\(\s*(?:\+|\-|\*|\/)\s+([A-Za-z_][\w]*)\b/g,
-    /\(\s*(?:\+|\-|\*|\/)\s+[^)]*\s+([A-Za-z_][\w]*)\b/g,
-  ]) {
-    let mn;
-    while ((mn = re.exec(preprocessed)) !== null) {
-      if (inferredSort.get(mn[1]) !== "Bool") inferredSort.set(mn[1], "Real");
-    }
-  }
-
-  const symbols = new Set();
-  let mt;
-  while ((mt = TOK.exec(preprocessed)) !== null) {
-    const tok = mt[0];
-    if (keywords.has(tok)) continue;
-    if (bound.has(tok)) continue;
-    symbols.add(tok);
-  }
-
-  const decls = [];
-  for (const s of symbols) {
-    const sort = inferredSort.get(s) || "Real";
-    decls.push(`(declare-fun ${s} () ${sort})`);
-  }
-
-  const buildScript = (body) =>
-    ["(set-logic ALL)", ...decls, `(assert ${body})`].join("\n");
-
+  // Pretty-printer for a goal into a single string
   const prettyGoal = (g) => {
-    const parts = [];
-    const sz = _z3.goal_size(_context, g);
-    for (let i = 0; i < sz; i++) {
-      parts.push(_z3.ast_to_string(_context, _z3.goal_formula(_context, g, i)));
-    }
-    if (parts.length === 0) return "true";
-    if (parts.length === 1) return parts[0];
-    return `(and ${parts.join(" ")})`;
-  };
-
-  const applyTactic = async (g, name) => {
-    // Check if goal is empty before applying tactics
-    const goalSize = _z3.goal_size(_context, g);
-    if (goalSize === 0) {
-      console.log(`Skipping tactic ${name} on empty goal`);
-      return g;
-    }
-
-    const t = _z3.mk_tactic(_context, name);
-    console.log(`Applying tactic ${name} to goal with ${goalSize} formulas`);
-    
-    let r;
     try {
-      r = await _z3.tactic_apply(_context, t, g);
-    } catch (e) {
-      console.error(`Tactic ${name} failed:`, e);
-      // For worker thread errors, return the original goal
-      return g;
+      const sz = _z3.goal_size(_context, g);
+      if (sz === 0) return "true";
+      if (sz === 1) {
+        return _z3.ast_to_string(_context, _z3.goal_formula(_context, g, 0));
+      }
+      const parts = [];
+      for (let i = 0; i < sz; i++) {
+        parts.push(
+          _z3.ast_to_string(_context, _z3.goal_formula(_context, g, i))
+        );
+      }
+      return `(and ${parts.join(" ")})`;
+    } catch {
+      return "true";
     }
-
-    const n = _z3.apply_result_get_num_subgoals(_context, r);
-    if (n === 0) return g;
-    return _z3.apply_result_get_subgoal(_context, r, 0);
   };
+
+  // ---- Pipeline -------------------------------------------------------------
+  const original = sanitizePrimes(formula);
+  if (!original || original === "true" || original === "false") {
+    return original || "true";
+  }
+
+  // Cheap definitional QE first (safe, no Z3)
+  let pre = defQE(original);
+
+  // Repair malformed S-expressions *before* touching Z3
+  pre = repairSmt(pre);
+
+  // If anything still looks dangerous, bail out early with repaired string
+  if (looksSuspicious(pre)) {
+    console.warn("[QE] Suspicious SMT detected — skipping tactics:", pre);
+    return pre;
+  }
+
+  // Build a tiny script for parsing/tactics
+  const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
 
   try {
-    const script = buildScript(preprocessed);
-    console.log("Generated SMT script:", script);
-    
-    const astVec = _z3.parse_smtlib2_string(
-      _context,
-      script,
-      [],
-      [],
-      [],
-      []
-    );
-    
+    // Parse once; if it fails, bail out safely
+    const astVec = _z3.parse_smtlib2_string(_context, buildScript(pre), [], [], [], []);
     const vecSize = _z3.ast_vector_size(_context, astVec);
-    console.log(`Parsed AST vector size: ${vecSize}`);
-    
-    // Handle empty AST vector
     if (vecSize === 0) {
-      console.log("Empty AST vector - returning 'true'");
-      const result = "true";
-      console.log({ originalFormula: String(formula || ""), result });
-      return result;
+      console.warn("[QE] Empty AST after parse; returning repaired input.");
+      return pre;
     }
 
+    // Seed goal
     const goal = _z3.mk_goal(_context, true, false, false);
     for (let i = 0; i < vecSize; i++) {
       _z3.goal_assert(_context, goal, _z3.ast_vector_get(_context, astVec, i));
     }
 
-    // Verify goal has formulas before proceeding
-    const initialGoalSize = _z3.goal_size(_context, goal);
-    console.log(`Initial goal size: ${initialGoalSize}`);
-    
-    if (initialGoalSize === 0) {
-      console.log("Goal is empty after assertions - returning 'true'");
-      const result = "true";
-      console.log({ originalFormula: String(formula || ""), result });
-      return result;
-    }
-
-    // Stronger pipeline: simplify → reduce-quantifiers → solve-eqs → qe_lite → qe → qe_rec
-    let g = await applyTactic(goal, "simplify");
-    g = await applyTactic(g, "reduce-quantifiers");
-    g = await applyTactic(g, "solve-eqs");
-    g = await applyTactic(g, "qe_lite");
-    g = await applyTactic(g, "qe");
-
-    let out = prettyGoal(g);
-    if (/\(\s*(?:exists|forall)\b/.test(out)) {
-      g = await applyTactic(g, "qe_rec");
-      out = prettyGoal(g);
-    }
-
-    // Final cleanup
-    const av2 = _z3.parse_smtlib2_string(
-      _context,
-      buildScript(out),
-      [],
-      [],
-      [],
-      []
-    );
-    
-    if (_z3.ast_vector_size(_context, av2) === 0) {
-      console.log({ originalFormula: String(formula || ""), result: "true" });
+    // Guard: never run tactics on empty goal
+    if (_z3.goal_size(_context, goal) === 0) {
       return "true";
     }
-    
-    const gFin = _z3.mk_goal(_context, true, false, false);
-    for (let i = 0; i < _z3.ast_vector_size(_context, av2); i++) {
-      _z3.goal_assert(_context, gFin, _z3.ast_vector_get(_context, av2, i));
-    }
-    const gS = await applyTactic(gFin, "simplify");
-    const result = prettyGoal(gS);
 
-    console.log({ originalFormula: String(formula || ""), result });
-    return result;
+    // Safe tactic runner
+    const tryTactic = async (g, name) => {
+      try {
+        const t = _z3.mk_tactic(_context, name);
+        const r = await _z3.tactic_apply(_context, t, g);
+        const n = _z3.apply_result_get_num_subgoals(_context, r);
+        if (n === 0) return g;
+        return _z3.apply_result_get_subgoal(_context, r, 0);
+      } catch (e) {
+        console.warn(`[QE] Tactic '${name}' failed; keeping previous goal.`, e);
+        return g; // keep going with last good goal
+      }
+    };
+
+    // Tactic pipeline (each step guarded)
+    let g = goal;
+    g = await tryTactic(g, "simplify");
+    g = await tryTactic(g, "reduce-quantifiers");
+    g = await tryTactic(g, "solve-eqs");
+    g = await tryTactic(g, "qe_lite");
+    g = await tryTactic(g, "qe");
+    g = await tryTactic(g, "qe_rec");
+
+    // Print final goal back to a term
+    let out = prettyGoal(g);
+    out = repairSmt(out);        // final repair/cleanup
+    out = stripEmptyConj(out);   // and minor simplification
+
+    // Final safety net
+    if (looksSuspicious(out)) {
+      console.warn("[QE] Result still looks suspicious; returning repaired pre.");
+      return pre;
+    }
+    return out || "true";
   } catch (e) {
-    // Fall back to the preprocessed string; still log
-    console.error("Quantifier elimination failed, using fallback:", e);
-    console.log({
-      originalFormula: String(formula || ""),
-      result: preprocessed,
-    });
-    return preprocessed;
+    console.error("[QE] Z3 parse/apply failed; returning repaired fallback.", e);
+    return pre;
   }
-  }
+}
+
   async parseFormulaToAST(formula) {
     try {
       // Clean up the formula for parsing
@@ -2518,6 +2515,140 @@ const Z3Solver = {
     this._globalDataVariables = dataVariables || new Map();
     this._decls.clear();
   },
+  /**
+   * Validate a single SMT-LIB term (very small, conservative checker).
+   * Rejects: nullary apps like "(x)", empty "()", wrong arities for common ops,
+   * "true"/"false" used as heads with arguments, unknown function applications.
+   *
+   * @param {string} body
+   * @returns {{ ok: boolean, reason?: string }}
+   */
+  _validateSmtTerm(body) {
+    const src = String(body || "").trim();
+    if (!src) return { ok: false, reason: "empty formula" };
+
+    // Quick parenthesis balance check.
+    let bal = 0;
+    for (const ch of src) {
+      if (ch === "(") bal++;
+      else if (ch === ")") bal--;
+      if (bal < 0) return { ok: false, reason: "unbalanced ')'" };
+    }
+    if (bal !== 0) return { ok: false, reason: "unbalanced parentheses" };
+
+    // S-expression tokenizer and parser to nested arrays.
+    const toks = [];
+    {
+      let i = 0;
+      while (i < src.length) {
+        const c = src[i];
+        if (c === "(" || c === ")") {
+          toks.push(c);
+          i++;
+        } else if (/\s/.test(c)) {
+          i++;
+        } else {
+          let j = i;
+          while (j < src.length && !/[\s()]/.test(src[j])) j++;
+          toks.push(src.slice(i, j));
+          i = j;
+        }
+      }
+    }
+
+    let pos = 0;
+    const parse = () => {
+      if (pos >= toks.length) return null;
+      const t = toks[pos++];
+      if (t === "(") {
+        const list = [];
+        while (pos < toks.length && toks[pos] !== ")") {
+          const node = parse();
+          if (node === null) return null;
+          list.push(node);
+        }
+        if (pos >= toks.length || toks[pos] !== ")") return null;
+        pos++; // consume ')'
+        return list;
+      }
+      if (t === ")") return null;
+      return t; // atom
+    };
+
+    const ast = parse();
+    if (ast === null || pos !== toks.length) {
+      return { ok: false, reason: "parse error" };
+    }
+
+    // Operator arity table (conservative).
+    const MIN_ARITY = {
+      not: 1,
+      and: 1, // SMT allows 0, we require >=1 to catch "(and)" mistakes
+      or: 1,
+      "=": 2,
+      distinct: 2,
+      "<": 2,
+      "<=": 2,
+      ">": 2,
+      ">=": 2,
+      "+": 1,
+      "-": 1,
+      "*": 2,
+      "/": 2,
+      ite: 3,
+      "=>": 2,
+    };
+    const MAX_ARITY = {
+      not: 1,
+      ite: 3,
+      "=>": 2,
+    };
+
+    const isAtom = (x) => typeof x === "string";
+    const isNumber = (a) => /^[-+]?\d+(?:\.\d+)?$/.test(a);
+    const isIdent = (a) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(a);
+
+    const validateNode = (node) => {
+      if (isAtom(node)) return true;
+
+      if (!Array.isArray(node) || node.length === 0) return false;
+
+      // Head must be an atom
+      const head = node[0];
+      if (!isAtom(head)) return false;
+
+      // (true ...) or (false ...) are illegal (true/false are 0-arity constants)
+      if ((head === "true" || head === "false") && node.length > 1) return false;
+
+      const args = node.slice(1);
+
+      // Known logical/arithmetic operators
+      if (Object.prototype.hasOwnProperty.call(MIN_ARITY, head)) {
+        const min = MIN_ARITY[head];
+        const max = MAX_ARITY[head] ?? Infinity;
+        if (args.length < min || args.length > max) return false;
+        return args.every(validateNode);
+      }
+
+      // Comparators that might appear normalized from other pipelines
+      if (["distinct", "="].includes(head)) {
+        if (args.length < 2) return false;
+        return args.every(validateNode);
+      }
+
+      // Any other head means function application. We do not declare functions in this pipeline,
+      // so treat all non-operator applications as invalid (prevents "(x)" and "(f a)").
+      if (isIdent(head) || isNumber(head)) {
+        // Reject both nullary "(x)" and n-ary "(f a ...)" since we have no such decls.
+        return false;
+      }
+
+      return false;
+    };
+
+    const ok = validateNode(ast);
+    return ok ? { ok: true } : { ok: false, reason: "invalid operator/arity/application" };
+  },
 
   async initialize() {
     if (!_z3) {
@@ -2526,23 +2657,31 @@ const Z3Solver = {
   },
 
   /**
-   * Check satisfiability of a single formula body (not a full SMT script).
-   * Automatically declares free symbols (excluding bound variables) with sensible sorts:
-   *  - Uses Z3Solver._globalDataVariables when available (int|bool|real → Int|Bool|Real)
-   *  - Infers Bool if the symbol appears in boolean contexts (e.g., (= x true), (not x))
-   *  - Otherwise defaults to Real
+   * Check satisfiability of a single SMT-LIB term (no full script).
+   * Implements:
+   *   1) Early short-circuit for "true"/"false".
+   *   2) Early *validation* (reject malformed or unknown applications).
+   *   3) Parse → solver_assert (no solver_from_string).
+   *   4) Correct Z3_lbool mapping: SAT=1, UNSAT=0, UNDEF=-1 (UNDEF → failure).
    *
-   * :param {string} formula - SMT-LIB term to assert (e.g., "(and (> x 0) (< y x))" or "true").
-   * :return : of objects.
-   * :return: Promise<boolean> — true if SAT, false if UNSAT or an error occurs.
+   * @param {string} formula
+   * @returns {Promise<boolean>}
    */
   async isSatisfiable(formula) {
     await this.initialize();
 
-    const f = String(formula || "").trim();
-    if (!f || f === "true") return true;
-    if (f === "false") return false;
+    const body = String(formula || "").trim();
+    if (!body || body === "true") return true;
+    if (body === "false" || /^\(\s*false\s*\)$/.test(body)) return false;
 
+    // Early structural/arity validation. On failure, treat as UNSAT (fail fast).
+    const validation = this._validateSmtTerm(body);
+    if (!validation.ok) {
+      console.warn("[isSatisfiable] Rejected malformed SMT:", validation.reason, "— returning UNSAT.");
+      return false;
+    }
+
+    // Collect free symbols and declare them with sensible sorts (reusing your logic)
     const KEYWORDS = new Set([
       "assert",
       "check-sat",
@@ -2588,9 +2727,7 @@ const Z3Solver = {
       let m;
       while ((m = qre.exec(src)) !== null) {
         const blob = m[1];
-        for (const mm of blob.matchAll(
-          /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
-        )) {
+        for (const mm of blob.matchAll(/\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g)) {
           bound.add(mm[1]);
         }
       }
@@ -2599,18 +2736,18 @@ const Z3Solver = {
 
     const inferBool = (name, src) => {
       const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const boolPats = [
+      const ps = [
         new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
         new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
         new RegExp(`\\(not\\s+${n}\\)`),
         new RegExp(`\\(and\\s+${n}\\b`),
         new RegExp(`\\(or\\s+${n}\\b`),
       ];
-      return boolPats.some((re) => re.test(src));
+      return ps.some((re) => re.test(src));
     };
 
-    const tokens = f.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
-    const bound = collectBound(f);
+    const tokens = body.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+    const bound = collectBound(body);
     const seen = new Set();
     const decls = [];
 
@@ -2622,48 +2759,56 @@ const Z3Solver = {
 
       const base = getBase(tok);
       let sort = null;
-
       const meta = this._globalDataVariables?.get(base);
       if (meta) {
         sort = getSmtSortFromMeta(meta);
-      } else if (inferBool(tok, f)) {
+      } else if (inferBool(tok, body)) {
         sort = "Bool";
       } else {
         sort = "Real";
       }
-
       decls.push(`(declare-const ${tok} ${sort})`);
     }
 
     const script =
       `(set-logic ALL)\n` +
       (decls.length ? decls.join("\n") + "\n" : "") +
-      `(assert ${f})\n(check-sat)`;
+      `(assert ${body})`;
 
     try {
-        console.log("Checking satisfiability with script:", script);
-        
-        const solver = _z3.mk_solver(_context);
-        _z3.solver_from_string(_context, solver, script);
+      // Parse the script; collect asserted ASTs explicitly.
+      const astVec = _z3.parse_smtlib2_string(_context, script, [], [], [], []);
+      const n = _z3.ast_vector_size(_context, astVec);
 
-        const res = await _z3.solver_check(_context, solver);
-        console.log("Satisfiability result:", res);
-        return res === 1;
-    } catch (_e) {
-      console.error("Error checking satisfiability:", _e);
+      if (n <= 0) {
+        console.warn("[isSatisfiable] Parser produced 0 assertions — returning UNSAT.");
+        return false;
+      }
+
+      // Create a fresh solver, assert ASTs, then check.
+      const solver = _z3.mk_solver(_context);
+      for (let i = 0; i < n; i++) {
+        _z3.solver_assert(_context, solver, _z3.ast_vector_get(_context, astVec, i));
+      }
+
+      const res = await _z3.solver_check(_context, solver);
+      // Map: SAT=1, UNSAT=0, UNDEF=-1 (treat UNDEF as failure -> UNSAT here).
+      if (res === 1) return true;
+      if (res === 0) return false;
+      console.warn("[isSatisfiable] Z3 returned UNDEF; treating as UNSAT.");
+      return false;
+    } catch (e) {
+      console.error("[isSatisfiable] Z3 parse/assert failed; returning UNSAT.", e);
       return false;
     }
   },
 
   /**
-   * Run Z3 on either a full SMT-LIB script or a bare formula.
-   * If `scriptOrFormula` looks like a complete script (has "(check-sat" or "(assert"),
-   * it is passed through unchanged. Otherwise it is wrapped like `isSatisfiable` does.
-   * Returns the SAT result and a parsed model (if SAT).
+   * SAT check with model, using parse → assert (no solver_from_string).
+   * UNDEF is treated as failure. If parsing yields no assertions, returns UNSAT.
    *
-   * :param {string} scriptOrFormula - Full SMT script or a single formula to assert.
-   * :return : of objects.
-   * :return: Promise<{ isSat: boolean, model: Map<string,string>, rawModel: string, error?: string }>
+   * @param {string} scriptOrFormula  A single term (preferred) or a full script.
+   * @returns {Promise<{ isSat: boolean, model: Map<string,string>, rawModel: string, error?: string }>}
    */
   async checkSatWithModel(scriptOrFormula) {
     await this.initialize();
@@ -2672,13 +2817,31 @@ const Z3Solver = {
     const looksLikeScript =
       /\(\s*assert\b/.test(s) ||
       /\(\s*check-sat\b/.test(s) ||
-      /\(\s*set-logic\b/.test(s);
+      /\(\s*set-logic\b/.test(s) ||
+      /\(\s*declare-const\b/.test(s) ||
+      /\(\s*declare-fun\b/.test(s);
 
-    let script = s;
-    let addedWrapper = false;
-
+    // We prefer single-term inputs. If it's a term, validate and wrap with decls.
     if (!looksLikeScript) {
-      // Wrap a bare formula exactly as in isSatisfiable
+      // Short-circuit true/false
+      if (!s || s === "true") {
+        return { isSat: true, model: new Map(), rawModel: "" };
+      }
+      if (s === "false" || /^\(\s*false\s*\)$/.test(s)) {
+        return { isSat: false, model: new Map(), rawModel: "" };
+      }
+
+      const validation = this._validateSmtTerm(s);
+      if (!validation.ok) {
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: `Rejected malformed SMT: ${validation.reason}`,
+        };
+      }
+
+      // Reuse the same free-symbol declaration inference as in isSatisfiable
       const KEYWORDS = new Set([
         "assert",
         "check-sat",
@@ -2716,7 +2879,6 @@ const Z3Solver = {
         if (t === "bool" || t === "boolean") return "Bool";
         return "Real";
       };
-
       const collectBound = (src) => {
         const bound = new Set();
         const qre =
@@ -2724,30 +2886,28 @@ const Z3Solver = {
         let m;
         while ((m = qre.exec(src)) !== null) {
           const blob = m[1];
-          for (const mm of blob.matchAll(
-            /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
-          )) {
+          for (const mm of blob.matchAll(/\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g)) {
             bound.add(mm[1]);
           }
         }
         return bound;
       };
-
       const inferBool = (name, src) => {
         const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const boolPats = [
+        const ps = [
           new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
           new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
           new RegExp(`\\(not\\s+${n}\\)`),
+          new RegExp(`\\(and\\s+${n}\\b`),
+          new RegExp(`\\(or\\s+${n}\\b`),
         ];
-        return boolPats.some((re) => re.test(src));
+        return ps.some((re) => re.test(src));
       };
 
       const tokens = s.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
       const bound = collectBound(s);
       const seen = new Set();
       const decls = [];
-
       for (const tok of tokens) {
         if (KEYWORDS.has(tok)) continue;
         if (bound.has(tok)) continue;
@@ -2756,7 +2916,6 @@ const Z3Solver = {
 
         const base = getBase(tok);
         let sort = null;
-
         const meta = this._globalDataVariables?.get(base);
         if (meta) {
           sort = getSmtSortFromMeta(meta);
@@ -2765,47 +2924,110 @@ const Z3Solver = {
         } else {
           sort = "Real";
         }
-
         decls.push(`(declare-const ${tok} ${sort})`);
       }
 
-      script =
+      const script =
         `(set-logic ALL)\n` +
         (decls.length ? decls.join("\n") + "\n" : "") +
-        `(assert ${s})\n(check-sat)\n(get-model)`;
-      addedWrapper = true;
-    } else if (!/\(\s*get-model\b/.test(scriptOrFormula)) {
-      script = `${scriptOrFormula}\n(get-model)`;
+        `(assert ${s})`;
+
+      try {
+        const solver = _z3.mk_solver(_context);
+        const astVec = _z3.parse_smtlib2_string(_context, script, [], [], [], []);
+        const n = _z3.ast_vector_size(_context, astVec);
+        if (n <= 0) {
+          return {
+            isSat: false,
+            model: new Map(),
+            rawModel: "",
+            error: "Parser produced 0 assertions",
+          };
+        }
+
+        for (let i = 0; i < n; i++) {
+          _z3.solver_assert(_context, solver, _z3.ast_vector_get(_context, astVec, i));
+        }
+
+        const res = await _z3.solver_check(_context, solver);
+        if (res === 1) {
+          const mdl = _z3.solver_get_model(_context, solver);
+          const rawModel = _z3.model_to_string(_context, mdl);
+
+          // Parse simple (define-fun x () Sort value) lines into a Map
+          const modelMap = new Map();
+          for (const line of rawModel.split(/\r?\n/)) {
+            const m = line.match(
+              /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
+            );
+            if (m) modelMap.set(m[1], m[2].trim());
+          }
+          return { isSat: true, model: modelMap, rawModel };
+        }
+
+        if (res === 0) {
+          return { isSat: false, model: new Map(), rawModel: "" };
+        }
+
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: "Z3 returned UNDEF",
+        };
+      } catch (e) {
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: String(e?.message || e),
+        };
+      }
     }
 
+    // If it's a full script: we still avoid solver_from_string.
     try {
       const solver = _z3.mk_solver(_context);
-      _z3.solver_from_string(_context, solver, script);
+      const astVec = _z3.parse_smtlib2_string(_context, s, [], [], [], []);
+      const n = _z3.ast_vector_size(_context, astVec);
+      if (n <= 0) {
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: "Script parsed but had 0 assertions",
+        };
+      }
+
+      for (let i = 0; i < n; i++) {
+        _z3.solver_assert(_context, solver, _z3.ast_vector_get(_context, astVec, i));
+      }
+
       const res = await _z3.solver_check(_context, solver);
-      const isSat = res === 1;
-
-      let rawModel = "";
-      const modelMap = new Map();
-
-      if (isSat) {
+      if (res === 1) {
         const mdl = _z3.solver_get_model(_context, solver);
-        rawModel = _z3.model_to_string(_context, mdl);
-
-        // Parse lines like: (define-fun x () Int 1)
+        const rawModel = _z3.model_to_string(_context, mdl);
+        const modelMap = new Map();
         for (const line of rawModel.split(/\r?\n/)) {
           const m = line.match(
             /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
           );
-          if (m) {
-            modelMap.set(m[1], m[2].trim());
-          }
+          if (m) modelMap.set(m[1], m[2].trim());
         }
+        return { isSat: true, model: modelMap, rawModel };
       }
 
-      return { isSat, model: modelMap, rawModel };
+      if (res === 0) {
+        return { isSat: false, model: new Map(), rawModel: "" };
+      }
+
+      return {
+        isSat: false,
+        model: new Map(),
+        rawModel: "",
+        error: "Z3 returned UNDEF",
+      };
     } catch (e) {
-      console.error("Z3 checkSatWithModel failed:", e);
-      // Return an error object with the exception message
       return {
         isSat: false,
         model: new Map(),
@@ -2860,7 +3082,26 @@ class SuvorovLomazovaVerifier {
     this.verificationSteps = [];
     this.startTime = 0;
     this.counterexampleTraces = [];
-    this.finalMarkings = [];
+
+    const getFinalMarkingsFromPetriNet = (net) => {
+      // Extract final markings from the Petri net
+      let markings = [];
+      let tempMarking = {};
+      Array.from(net.places || []).forEach(([id, place]) => {
+        tempMarking[id] = place.finalMarking || 0;
+      });
+      markings.push(tempMarking);
+
+      return markings;
+    };
+
+    this.finalMarkings = getFinalMarkingsFromPetriNet(petriNet);
+
+    if (!this.finalMarkings.some((m) => Object.values(m).some((v) => v > 0))) {
+      throw new Error("Final markings without tokens are not supported in this verifier.");  
+    }
+
+    this.logStep("Get Final Markings", `Final markings: ${JSON.stringify(this.finalMarkings)}`);
   }
 
   /**
@@ -3082,7 +3323,7 @@ class SuvorovLomazovaVerifier {
    * where W are the variables written by t. Postcondition of τ(t) is empty (no data change).
    *
    * @param {Object} dpn - Data Petri net in normalized format { places, transitions, arcs, dataVariables }.
-   * @returns {Object} A new DPN with τ-transitions added and arcs duplicated to each τ(t).
+   * @returns {Promise<Object>} A new DPN with τ-transitions added and arcs duplicated to each τ(t).
    */
   async addTauTransitions(dpn) {
     this.logStep("TauTransitions", "Adding τ-transitions (¬∃W.(pre ∧ post))");
@@ -3556,15 +3797,6 @@ class SuvorovLomazovaVerifier {
         }
       }
       Z3Solver.setGlobalDataVariables(dataVariables);
-
-      this.finalMarkings = this.identifyFinalMarkings(dpn);
-
-      if (this.finalMarkings.length === 0) {
-        this.finalMarkings = [ { final: 1 } ];
-        console.warn(
-          "No final markings identified; using default final marking with placeId 'final'", this.finalMarkings
-        );
-      }
 
       this.logStep(
         "Initialization",
@@ -4108,24 +4340,23 @@ class SuvorovLomazovaVerifier {
 
       // Check if this transition can fire in any reachable state
       for (let k = 1; k <= this.options.maxBound && !transitionReachable; k++) {
-        // Use coverage to check if this specific transition can fire
+        // Assert coverage only for this transition (not global)
         const smtString = this.smtGenerator.generateSMT(dpn, {
           K: k,
           logic: "ALL",
-          coverage: true, // This should require all transitions to fire
+          coverage: false,
+          coverageFor: [String(transition.id)],
         });
 
         const result = await Z3Solver.checkSatWithModel(smtString);
         this.logStep("P3", `Coverage check bound ${k}: isSat=${result.isSat}`);
 
         if (result.isSat) {
-          // If coverage is satisfiable, all transitions (including this one) can fire
+          // If SAT, this transition can fire at least once within bound k
           transitionReachable = true;
           this.logStep(
             "P3",
-            `All transitions including ${
-              transition.label || transition.id
-            } are reachable`
+            `Transition ${transition.label || transition.id} is reachable`
           );
           break;
         }
@@ -4139,9 +4370,7 @@ class SuvorovLomazovaVerifier {
         return {
           name: "Dead transition (P3)",
           satisfied: false,
-          details: `Transition ${
-            transition.label || transition.id
-          } is never enabled`,
+          details: `Transition ${transition.label || transition.id} is never enabled`,
           deadTransition: {
             transitionId: transition.id,
             transitionLabel: transition.label || transition.id,
@@ -4157,6 +4386,7 @@ class SuvorovLomazovaVerifier {
       details: "All transitions are reachable",
     };
   }
+
 
   async checkWithTauTransitions(dpn) {
     // Enhanced check with tau transitions for comprehensive coverage
@@ -4207,9 +4437,9 @@ class SuvorovLomazovaVerifier {
    * Identify final markings M_F strictly from explicit model input.
    * Paper-aligned behavior: do not synthesize finals from topology (e.g., sinks).
    * Accepted sources, in order:
-   *   1) dpn.finalMarkings: Array<{ [placeId: string]: number }>
-   *   2) dpn.finalMarking:  { [placeId: string]: number }
-   *   3) Place-level flags: places with `isFinal===true` or `final===true` or `type==='final'`
+   * 1) dpn.finalMarkings: Array<{ [placeId: string]: number }>
+   * 2) dpn.finalMarking:  { [placeId: string]: number }
+   * 3) Place-level flags: places with `isFinal===true` or `final===true` or `type==='final'`
    * If none are present, return [] and log that P1/P2 cannot be evaluated.
    *
    * @param {Object} dpn
@@ -4408,8 +4638,7 @@ class SuvorovLomazovaVerifier {
 
 /**
  * Enhanced Trace Visualization Renderer for Suvorov-Lomazova Verification
- * Visualizes counterexamples and property violations directly on the Data Petri Net
- * Inspired by dpn-verification-trace-tracing.js but stable and non-intrusive
+ * Fixed version with proper coordinate handling and improved visuals
  */
 class SuvorovLomazovaTraceVisualizationRenderer {
   constructor(app) {
@@ -4422,21 +4651,52 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.responsibleVariables = new Map();
     this.violationInfo = null;
     this.isActive = false;
+    
+    // Animation properties
+    this.animationTime = 0;
+    this.animationFrame = null;
+    this.pulseIntensity = 0;
 
     // Store original render method and extend it properly
     this.originalRender = this.mainRenderer.render.bind(this.mainRenderer);
+    this.extendRenderer();
+  }
+
+  extendRenderer() {
+    // Override the main renderer's render method
     this.mainRenderer.render = () => {
+      // Call original render first
       this.originalRender();
+      
+      // Then add our overlays if active
       if (this.isActive) {
-        this.renderHighlights();
-        this.renderDataOverlays();
+        this.renderVisualization();
       }
     };
   }
 
   /**
+   * Main render method for all visualization elements
+   */
+  renderVisualization() {
+    // Update animation
+    this.updateAnimation();
+    
+    // Render in correct order
+    this.renderHighlights();
+    this.renderOverlays();
+  }
+
+  /**
+   * Update animation state
+   */
+  updateAnimation() {
+    this.animationTime += 0.05;
+    this.pulseIntensity = (Math.sin(this.animationTime) + 1) * 0.5;
+  }
+
+  /**
    * Visualize a verification check result
-   * @param {Object} check - The check result from the verifier
    */
   visualizeCheck(check) {
     this.clearHighlights();
@@ -4478,7 +4738,35 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       }
     }
 
+    // Start animation loop
+    this.startAnimation();
     this.mainRenderer.render();
+  }
+
+  /**
+   * Start animation loop
+   */
+  startAnimation() {
+    if (this.animationFrame) return;
+    
+    const animate = () => {
+      if (this.isActive) {
+        this.mainRenderer.render();
+        this.animationFrame = requestAnimationFrame(animate);
+      }
+    };
+    
+    animate();
+  }
+
+  /**
+   * Stop animation loop
+   */
+  stopAnimation() {
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
   }
 
   /**
@@ -4492,20 +4780,22 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     // If there's an offending state, highlight it specially
     if (check.offendingState) {
-      this.addStateOverlay('deadlock_state', {
-        type: 'deadlockState',
-        data: check.offendingState,
-        position: this.getCanvasCenter()
-      });
+      const nodeData = check.offendingState;
+      // Find places that correspond to the marking
+      if (nodeData.marking) {
+        Object.entries(nodeData.marking).forEach(([placeId, tokens]) => {
+          if (tokens > 0) {
+            this.dataOverlays.set(`deadlock_${placeId}`, {
+              type: 'deadlockMarking',
+              elementId: placeId,
+              elementType: 'place',
+              tokens,
+              data: nodeData
+            });
+          }
+        });
+      }
     }
-
-    // Add general deadlock indicator
-    this.addGeneralOverlay('deadlock_violation', {
-      type: 'deadlock',
-      title: 'Deadlock Freedom Violation (P1)',
-      details: check.details,
-      position: { x: 50, y: 50 }
-    });
   }
 
   /**
@@ -4515,13 +4805,13 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     if (check.overfinalNodes && check.overfinalNodes.length > 0) {
       check.overfinalNodes.forEach((node, index) => {
         if (node.marking) {
-          // Highlight places with excessive tokens
           Object.entries(node.marking).forEach(([placeId, tokens]) => {
             if (tokens > 0) {
               this.highlightedElements.add(placeId);
               this.dataOverlays.set(`overfinal_${placeId}_${index}`, {
                 type: 'overfinal',
-                placeId,
+                elementId: placeId,
+                elementType: 'place',
                 tokens,
                 nodeData: node,
                 formula: node.formula
@@ -4532,7 +4822,6 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       });
     }
 
-    // Show trace if available
     if (check.trace) {
       this.visualizeTracePath(check.trace, 'overfinal');
     }
@@ -4543,23 +4832,23 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   visualizeDeadTransitionViolation(check) {
     const deadTransitions = check.deadTransitions || (check.deadTransition ? [check.deadTransition] : []);
-    
+
     deadTransitions.forEach((deadTransition, index) => {
       const transitionId = deadTransition.transitionId;
       if (transitionId) {
         this.highlightedElements.add(transitionId);
         this.highlightConnectedElements(transitionId);
-        
-        this.dataOverlays.set(`dead_transition_${transitionId}_${index}`, {
+
+        this.dataOverlays.set(`dead_transition_${transitionId}`, {
           type: 'deadTransition',
-          transitionId,
+          elementId: transitionId,
+          elementType: 'transition',
           data: deadTransition,
           variants: deadTransition.variants || []
         });
       }
     });
 
-    // Show trace if available
     if (check.trace) {
       this.visualizeTracePath(check.trace, 'deadTransition');
     }
@@ -4571,14 +4860,6 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   visualizeBoundednessViolation(check) {
     if (check.trace && check.trace.length > 0) {
       this.visualizeTracePath(check.trace, 'boundedness');
-      
-      // Add special indication for unbounded behavior
-      this.addGeneralOverlay('boundedness_violation', {
-        type: 'boundedness',
-        title: 'Boundedness Violation',
-        details: 'Net exhibits unbounded behavior',
-        position: { x: 50, y: 100 }
-      });
     }
   }
 
@@ -4589,26 +4870,6 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     if (check.trace) {
       this.visualizeTracePath(check.trace, 'generic');
     }
-
-    this.addGeneralOverlay('generic_violation', {
-      type: 'generic',
-      title: check.name,
-      details: check.details,
-      position: this.getCanvasCenter()
-    });
-  }
-
-  /**
-   * Visualize passed check (subtle indication)
-   */
-  visualizePassedCheck(check) {
-    // Add a subtle overlay indicating the check passed
-    this.addGeneralOverlay('passed_check', {
-      type: 'passed',
-      title: check.name,
-      details: 'Property satisfied ✓',
-      position: { x: 50, y: 150 }
-    });
   }
 
   /**
@@ -4623,11 +4884,11 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         this.highlightedElements.add(transitionId);
         this.highlightConnectedElements(transitionId);
 
-        // Add step overlay with data values
-        this.dataOverlays.set(`trace_step_${stepIndex}_${transitionId}`, {
+        this.dataOverlays.set(`trace_step_${stepIndex}`, {
           type: 'traceStep',
+          elementId: transitionId,
+          elementType: 'transition',
           stepIndex,
-          transitionId,
           violationType,
           data: step,
           vars: step.vars || {}
@@ -4649,8 +4910,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     // Try to match by label or partial ID
     for (const [id, transition] of this.app.api.petriNet.transitions) {
-      if (transition.label === stepTransitionId || 
-          id.includes(stepTransitionId) || 
+      if (transition.label === stepTransitionId ||
+          id.includes(stepTransitionId) ||
           stepTransitionId.includes(id)) {
         return id;
       }
@@ -4675,39 +4936,17 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   }
 
   /**
-   * Add a state-specific overlay
-   */
-  addStateOverlay(id, overlayData) {
-    this.dataOverlays.set(id, overlayData);
-  }
-
-  /**
-   * Add a general overlay (not tied to specific elements)
-   */
-  addGeneralOverlay(id, overlayData) {
-    this.dataOverlays.set(id, overlayData);
-  }
-
-  /**
-   * Get canvas center coordinates
-   */
-  getCanvasCenter() {
-    const canvas = this.mainRenderer.canvas;
-    return {
-      x: canvas.width / 2,
-      y: canvas.height / 2
-    };
-  }
-
-  /**
    * Clear all highlights and overlays
    */
   clearHighlights() {
     this.highlightedElements.clear();
     this.highlightedArcs.clear();
     this.dataOverlays.clear();
+    this.problematicPlaces.clear();
+    this.responsibleVariables.clear();
     this.violationInfo = null;
     this.isActive = false;
+    this.stopAnimation();
     this.mainRenderer.render();
   }
 
@@ -4719,13 +4958,15 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     const ctx = this.mainRenderer.ctx;
     ctx.save();
+    
+    // Apply the same transformations as the main renderer
     ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
     ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
 
-    // Render highlighted arcs
+    // Render highlighted arcs first (behind nodes)
     this.renderHighlightedArcs(ctx);
-    
-    // Render highlighted nodes
+
+    // Then render highlighted nodes
     this.renderHighlightedNodes(ctx);
 
     ctx.restore();
@@ -4735,31 +4976,33 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Render highlighted arcs
    */
   renderHighlightedArcs(ctx) {
-    ctx.lineWidth = 6;
-    
     for (const arcId of this.highlightedArcs) {
       const arc = this.app.api.petriNet.arcs.get(arcId);
       if (!arc) continue;
 
-      const source = this.app.api.petriNet.places.get(arc.source) || 
-                    this.app.api.petriNet.transitions.get(arc.source);
-      const target = this.app.api.petriNet.places.get(arc.target) || 
-                    this.app.api.petriNet.transitions.get(arc.target);
+      const source = this.app.api.petriNet.places.get(arc.source) ||
+                     this.app.api.petriNet.transitions.get(arc.source);
+      const target = this.app.api.petriNet.places.get(arc.target) ||
+                     this.app.api.petriNet.transitions.get(arc.target);
 
       if (!source || !target) continue;
 
-      // Get color based on violation type
-      ctx.strokeStyle = this.getHighlightColor('arc');
-      ctx.globalAlpha = this.highlightIntensity;
-
       const { start, end } = this.mainRenderer.calculateArcEndpoints(source, target);
+      
+      // Draw highlight glow
+      ctx.save();
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = this.getHighlightColor('arc');
+      ctx.strokeStyle = this.getHighlightColor('arc');
+      ctx.lineWidth = 4;
+      ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.2;
+      
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
+      ctx.restore();
     }
-    
-    ctx.globalAlpha = 1.0;
   }
 
   /**
@@ -4783,22 +5026,26 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   renderHighlightedPlace(ctx, place, elementId) {
     const color = this.getHighlightColor('place', elementId);
+    
+    ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 8;
-    ctx.globalAlpha = this.highlightIntensity;
+    ctx.lineWidth = 4;
+    ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.3;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = color;
 
     ctx.beginPath();
-    ctx.arc(place.position.x, place.position.y, place.radius + 10, 0, Math.PI * 2);
+    ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Add pulsing fill for overfinal markings
+    // Add inner glow for overfinal markings
     if (this.isOverfinalPlace(elementId)) {
       ctx.fillStyle = color;
-      ctx.globalAlpha = this.highlightIntensity * 0.3;
+      ctx.globalAlpha = 0.2 * this.pulseIntensity;
       ctx.fill();
     }
 
-    ctx.globalAlpha = 1.0;
+    ctx.restore();
   }
 
   /**
@@ -4806,11 +5053,15 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   renderHighlightedTransition(ctx, transition, elementId) {
     const color = this.getHighlightColor('transition', elementId);
+    
+    ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 8;
-    ctx.globalAlpha = this.highlightIntensity;
+    ctx.lineWidth = 4;
+    ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.3;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = color;
 
-    const padding = 12;
+    const padding = 8;
     ctx.beginPath();
     ctx.rect(
       transition.position.x - transition.width / 2 - padding,
@@ -4820,23 +5071,23 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     );
     ctx.stroke();
 
-    // Add pulsing fill for dead transitions
+    // Add inner glow for dead transitions
     if (this.isDeadTransition(elementId)) {
       ctx.fillStyle = color;
-      ctx.globalAlpha = this.highlightIntensity * 0.3;
+      ctx.globalAlpha = 0.2 * this.pulseIntensity;
       ctx.fill();
     }
 
-    ctx.globalAlpha = 1.0;
+    ctx.restore();
   }
 
   /**
    * Get highlight color based on violation type
    */
   getHighlightColor(elementType, elementId) {
-    if (this.isDeadTransition(elementId)) return '#BF616A'; // Red for dead transitions
-    if (this.isOverfinalPlace(elementId)) return '#D08770'; // Orange for overfinal
-    if (this.isTraceElement(elementId)) return '#88C0D0'; // Blue for trace
+    if (this.isDeadTransition(elementId)) return '#BF616A'; // Red
+    if (this.isOverfinalPlace(elementId)) return '#D08770'; // Orange
+    if (this.isTraceElement(elementId)) return '#88C0D0'; // Blue
     return '#EBCB8B'; // Yellow default
   }
 
@@ -4844,154 +5095,219 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Check if element is a dead transition
    */
   isDeadTransition(elementId) {
-    if (!this.violationInfo) return false;
-    const deadTransitions = this.violationInfo.deadTransitions || [];
-    return deadTransitions.some(dt => dt.transitionId === elementId);
+    for (const [key, overlay] of this.dataOverlays) {
+      if (overlay.type === 'deadTransition' && overlay.elementId === elementId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
    * Check if element is an overfinal place
    */
   isOverfinalPlace(elementId) {
-    if (!this.violationInfo || !this.violationInfo.overfinalNodes) return false;
-    return this.violationInfo.overfinalNodes.some(node => 
-      node.marking && node.marking[elementId] > 0
-    );
+    for (const [key, overlay] of this.dataOverlays) {
+      if (overlay.type === 'overfinal' && overlay.elementId === elementId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
    * Check if element is part of a trace
    */
   isTraceElement(elementId) {
-    if (!this.violationInfo || !this.violationInfo.trace) return false;
-    return this.violationInfo.trace.some(step => 
-      this.findTransitionId(step.transitionId) === elementId
-    );
+    for (const [key, overlay] of this.dataOverlays) {
+      if (overlay.type === 'traceStep' && overlay.elementId === elementId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
-   * Render data overlays
+   * Render overlay tooltips - now in screen coordinates
    */
-  renderDataOverlays() {
+  renderOverlays() {
     if (!this.app.api || !this.app.api.petriNet) return;
 
     const ctx = this.mainRenderer.ctx;
     ctx.save();
-    ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
-    ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
 
+    // Render overlays in screen space (not world space)
     for (const [id, overlay] of this.dataOverlays) {
-      const position = this.getOverlayPosition(id, overlay);
-      if (position) {
-        this.renderOverlay(ctx, overlay, position);
-      }
+      this.renderOverlay(ctx, overlay);
     }
 
     ctx.restore();
   }
 
   /**
-   * Get position for an overlay
-   */
-  getOverlayPosition(id, overlay) {
-    // Extract element ID from overlay ID
-    const elementId = this.extractElementIdFromOverlayId(id, overlay);
-    
-    if (elementId) {
-      const place = this.app.api.petriNet.places.get(elementId);
-      const transition = this.app.api.petriNet.transitions.get(elementId);
-      
-      if (place) {
-        return { x: place.position.x + 40, y: place.position.y - 20 };
-      } else if (transition) {
-        return { x: transition.position.x + 50, y: transition.position.y - 30 };
-      }
-    }
-
-    // Use provided position or default
-    return overlay.position || this.getCanvasCenter();
-  }
-
-  /**
-   * Extract element ID from overlay ID
-   */
-  extractElementIdFromOverlayId(overlayId, overlay) {
-    if (overlay.placeId) return overlay.placeId;
-    if (overlay.transitionId) return overlay.transitionId;
-    
-    // Try to parse from overlay ID
-    const match = overlayId.match(/^(overfinal|dead_transition|trace_step)_(.+?)_/);
-    return match ? match[2] : null;
-  }
-
-  /**
    * Render a single overlay
    */
-  renderOverlay(ctx, overlay, position) {
-    const text = this.formatOverlayText(overlay);
-    const lines = text.split('\n');
-    const lineHeight = 16;
+  renderOverlay(ctx, overlay) {
+    // Get world position of the element
+    const worldPos = this.getElementWorldPosition(overlay);
+    if (!worldPos) return;
+
+    // Convert to screen coordinates
+    const screenPos = this.worldToScreen(worldPos);
     
-    ctx.font = '12px Arial';
-    ctx.textAlign = 'left';
+    // Calculate offset for the tooltip
+    const offset = { x: 30, y: -30 };
+    const position = {
+      x: screenPos.x + offset.x,
+      y: screenPos.y + offset.y
+    };
+
+    // Prepare overlay content
+    const content = this.formatOverlayContent(overlay);
+    const lines = content.split('\n');
     
+    // Style settings
+    const padding = 12;
+    const lineHeight = 18;
+    const fontSize = 13;
+    const borderRadius = 8;
+
+    ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    
+    // Calculate dimensions
     const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
-    const boxWidth = maxWidth + 16;
-    const boxHeight = lines.length * lineHeight + 12;
+    const boxWidth = maxWidth + padding * 2;
+    const boxHeight = lines.length * lineHeight + padding * 2;
+
+    // Ensure overlay stays on screen
+    if (position.x + boxWidth > this.mainRenderer.canvas.width - 20) {
+      position.x = screenPos.x - boxWidth - offset.x;
+    }
+    if (position.y < 20) {
+      position.y = screenPos.y + 50;
+    }
+
+    // Draw shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 4;
     
-    // Background
+    // Draw background with rounded corners
     ctx.fillStyle = this.getOverlayBackgroundColor(overlay.type);
+    this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
+    ctx.fill();
+    ctx.restore();
+
+    // Draw border
     ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
     ctx.lineWidth = 2;
-    
-    ctx.fillRect(position.x, position.y, boxWidth, boxHeight);
-    ctx.strokeRect(position.x, position.y, boxWidth, boxHeight);
-    
-    // Text
+    this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
+    ctx.stroke();
+
+    // Draw text
     ctx.fillStyle = '#ECEFF4';
+    ctx.textBaseline = 'top';
     lines.forEach((line, index) => {
-      ctx.fillText(line, position.x + 8, position.y + (index + 1) * lineHeight + 2);
+      const isHeader = index === 0;
+      if (isHeader) {
+        ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      } else {
+        ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      }
+      ctx.fillText(
+        line, 
+        position.x + padding, 
+        position.y + padding + index * lineHeight
+      );
     });
+
+    // Draw connection line from overlay to element
+    ctx.save();
+    ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.5;
+    ctx.setLineDash([4, 4]);
+    
+    ctx.beginPath();
+    ctx.moveTo(position.x + boxWidth / 2, position.y + boxHeight);
+    ctx.lineTo(screenPos.x, screenPos.y);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /**
-   * Format overlay text based on type
+   * Get world position of an element
    */
-  formatOverlayText(overlay) {
+  getElementWorldPosition(overlay) {
+    if (!overlay.elementId) return null;
+
+    const place = this.app.api.petriNet.places.get(overlay.elementId);
+    const transition = this.app.api.petriNet.transitions.get(overlay.elementId);
+
+    if (place) {
+      return { x: place.position.x, y: place.position.y };
+    } else if (transition) {
+      return { x: transition.position.x, y: transition.position.y };
+    }
+
+    return null;
+  }
+
+  /**
+   * Convert world coordinates to screen coordinates
+   */
+  worldToScreen(worldPos) {
+    return {
+      x: worldPos.x * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.x,
+      y: worldPos.y * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.y
+    };
+  }
+
+  /**
+   * Draw a rounded rectangle
+   */
+  roundRect(ctx, x, y, width, height, radius) {
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+  }
+
+  /**
+   * Format overlay content based on type
+   */
+  formatOverlayContent(overlay) {
     switch (overlay.type) {
       case 'deadTransition':
-        return `DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.transitionId}`;
-        
+        return `⚠️ DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.elementId}\nNever enabled in any reachable state`;
+
       case 'overfinal':
-        return `OVERFINAL\nTokens: ${overlay.tokens}\nPlace: ${overlay.placeId}`;
-        
+        return `⚠️ OVERFINAL MARKING\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nExceeds final marking`;
+
       case 'traceStep':
-        const stepInfo = [`Step ${overlay.stepIndex + 1}`];
-        if (Object.keys(overlay.vars).length > 0) {
-          stepInfo.push('Variables:');
+        const stepInfo = [`Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`];
+        if (overlay.vars && Object.keys(overlay.vars).length > 0) {
+          stepInfo.push('Data state:');
           Object.entries(overlay.vars).forEach(([k, v]) => {
             stepInfo.push(`  ${k} = ${v}`);
           });
         }
         return stepInfo.join('\n');
-        
-      case 'deadlockState':
-        return `DEADLOCK STATE\nCannot reach final`;
-        
-      case 'deadlock':
-        return `DEADLOCK VIOLATION\n${overlay.details}`;
-        
-      case 'boundedness':
-        return `UNBOUNDED\n${overlay.details}`;
-        
-      case 'generic':
-        return `${overlay.title}\n${overlay.details}`;
-        
-      case 'passed':
-        return `✓ ${overlay.title}`;
-        
+
+      case 'deadlockMarking':
+        return `🔒 DEADLOCK STATE\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nCannot reach final marking`;
+
       default:
-        return 'Verification Info';
+        return `Violation detected\n${overlay.elementId}`;
     }
   }
 
@@ -5000,13 +5316,16 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   getOverlayBackgroundColor(type) {
     switch (type) {
-      case 'deadTransition': return 'rgba(191, 97, 106, 0.9)';
-      case 'overfinal': return 'rgba(208, 135, 112, 0.9)';
-      case 'deadlock': return 'rgba(191, 97, 106, 0.9)';
-      case 'boundedness': return 'rgba(235, 203, 139, 0.9)';
-      case 'traceStep': return 'rgba(136, 192, 208, 0.9)';
-      case 'passed': return 'rgba(163, 190, 140, 0.9)';
-      default: return 'rgba(76, 86, 106, 0.9)';
+      case 'deadTransition': 
+        return 'rgba(46, 52, 64, 0.95)'; // Dark with red tint
+      case 'overfinal': 
+        return 'rgba(46, 52, 64, 0.95)'; // Dark with orange tint
+      case 'deadlockMarking':
+        return 'rgba(46, 52, 64, 0.95)'; // Dark with red tint
+      case 'traceStep': 
+        return 'rgba(46, 52, 64, 0.95)'; // Dark with blue tint
+      default: 
+        return 'rgba(46, 52, 64, 0.95)'; // Dark default
     }
   }
 
@@ -5015,32 +5334,20 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   getOverlayBorderColor(type) {
     switch (type) {
-      case 'deadTransition': return '#BF616A';
-      case 'overfinal': return '#D08770';
-      case 'deadlock': return '#BF616A';
-      case 'boundedness': return '#EBCB8B';
-      case 'traceStep': return '#88C0D0';
-      case 'passed': return '#A3BE8C';
-      default: return '#5E81AC';
+      case 'deadTransition': return '#BF616A'; // Red
+      case 'overfinal': return '#D08770'; // Orange
+      case 'deadlockMarking': return '#BF616A'; // Red
+      case 'traceStep': return '#88C0D0'; // Blue
+      default: return '#5E81AC'; // Blue default
     }
-  }
-
-  /**
-   * Render violation indicators (additional visual cues)
-   */
-  renderViolationIndicators() {
-    // Add any additional visual indicators for violations
-    // This could include arrows, special markers, etc.
   }
 
   /**
    * Cleanup when component is destroyed
    */
   destroy() {
-    if (this.animationFrame) {
-      cancelAnimationFrame(this.animationFrame);
-    }
     this.clearHighlights();
+    this.stopAnimation();
     // Restore original render method
     this.mainRenderer.render = this.originalRender;
   }
@@ -5057,7 +5364,7 @@ class SuvorovLomazovaVerificationUI {
     this.traceVisualizer = null;
     this.currentResults = null;
     this.activeCheckIndex = -1;
-    
+
     this.injectStyles();
     this.createVerificationSection();
     this.createVerificationModal();
@@ -5069,7 +5376,7 @@ class SuvorovLomazovaVerificationUI {
    */
   injectStyles() {
     if (document.getElementById('sl-verification-styles')) return;
-    
+
     const style = document.createElement('style');
     style.id = 'sl-verification-styles';
     style.textContent = `
@@ -5526,14 +5833,14 @@ class SuvorovLomazovaVerificationUI {
     // Disable button and show loading
     verifyButton.disabled = true;
     verifyButton.innerHTML = '⏳ Running Verification...';
-    
+
     this.showModal();
     modalBody.innerHTML = this.createProgressHTML('Initializing verification...');
 
     try {
       // Get selected algorithm
       const useImprovedAlgorithm = algorithmSelect.value === 'improved';
-      
+
       // Create verifier with options
       this.verifier = new SuvorovLomazovaVerifier(this.app.api.petriNet, {
         useImprovedAlgorithm: useImprovedAlgorithm,
@@ -5581,7 +5888,7 @@ class SuvorovLomazovaVerificationUI {
    */
   createResultsHTML(results) {
     const algorithmUsed = results.checks?.some(c => c.name.includes('Algorithm 6')) ? 'Improved (Algorithm 6)' : 'Direct (Algorithm 5)';
-    
+
     return `
       ${this.createStatusSection(results)}
       ${this.createAlgorithmInfoSection(algorithmUsed)}
@@ -5598,7 +5905,7 @@ class SuvorovLomazovaVerificationUI {
     const statusClass = results.isSound ? 'sound' : 'unsound';
     const statusIcon = results.isSound ? '✅' : '❌';
     const statusText = results.isSound ? 'Formally Sound' : 'Formally Unsound';
-    const statusDetails = results.isSound 
+    const statusDetails = results.isSound
       ? 'All soundness properties are satisfied'
       : 'One or more soundness properties are violated';
 
@@ -5633,7 +5940,7 @@ class SuvorovLomazovaVerificationUI {
       return '<p>No property checks available.</p>';
     }
 
-    const cardsHTML = checks.map((check, index) => 
+    const cardsHTML = checks.map((check, index) =>
       this.createPropertyCard(check, index)
     ).join('');
 
@@ -5651,11 +5958,11 @@ class SuvorovLomazovaVerificationUI {
     const statusClass = check.satisfied ? 'pass' : 'fail';
     const statusText = check.satisfied ? 'Pass' : 'Fail';
     const propertyName = this.getPropertyDisplayName(check.name);
-    
+
     const hasCounterexample = !check.satisfied && (
-      check.trace || 
-      check.deadTransitions || 
-      check.overfinalNodes || 
+      check.trace ||
+      check.deadTransitions ||
+      check.overfinalNodes ||
       check.violatingNodes
     );
 
@@ -5694,7 +6001,7 @@ class SuvorovLomazovaVerificationUI {
   getPropertyDisplayName(checkName) {
     const nameMap = {
       'Deadlock freedom': 'P1: Deadlock Freedom',
-      'Deadlock freedom (P1)': 'P1: Deadlock Freedom', 
+      'Deadlock freedom (P1)': 'P1: Deadlock Freedom',
       'DeadlockFreedom': 'P1: Deadlock Freedom',
       'Overfinal marking (P2)': 'P2: No Overfinal Markings',
       'OverfinalMarkings': 'P2: No Overfinal Markings',
@@ -5734,9 +6041,9 @@ class SuvorovLomazovaVerificationUI {
     if (check.trace && check.trace.length > 0) {
       return `Trace with ${check.trace.length} steps showing property violation`;
     }
-    
+
     if (check.deadTransitions && check.deadTransitions.length > 0) {
-      const transitions = check.deadTransitions.map(dt => 
+      const transitions = check.deadTransitions.map(dt =>
         dt.transitionLabel || dt.transitionId
       ).join(', ');
       return `Dead transitions: ${transitions}`;
@@ -5878,11 +6185,11 @@ class SuvorovLomazovaVerificationUI {
     }
 
     this.selectPropertyCard(index);
-    
+
     if (this.traceVisualizer) {
       const check = this.currentResults.checks[index];
       this.traceVisualizer.visualizeCheck(check);
-      
+
       // Show a brief message
       this.showNotification(`Visualizing ${this.getPropertyDisplayName(check.name)} on the Petri net`);
     }
@@ -5895,12 +6202,12 @@ class SuvorovLomazovaVerificationUI {
     if (this.traceVisualizer) {
       this.traceVisualizer.clearHighlights();
     }
-    
+
     // Remove active class from all cards
     document.querySelectorAll('.sl-property-card').forEach(card => {
       card.classList.remove('active');
     });
-    
+
     this.activeCheckIndex = -1;
     this.showNotification('Visualization cleared');
   }
@@ -5924,7 +6231,7 @@ class SuvorovLomazovaVerificationUI {
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {
       type: 'application/json'
     });
-    
+
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -5959,14 +6266,14 @@ class SuvorovLomazovaVerificationUI {
       transition: transform 0.3s ease;
     `;
     notification.textContent = message;
-    
+
     document.body.appendChild(notification);
-    
+
     // Animate in
     setTimeout(() => {
       notification.style.transform = 'translateX(0)';
     }, 10);
-    
+
     // Remove after delay
     setTimeout(() => {
       notification.style.transform = 'translateX(100%)';
@@ -5985,13 +6292,13 @@ class SuvorovLomazovaVerificationUI {
     if (this.traceVisualizer) {
       this.traceVisualizer.destroy();
     }
-    
+
     // Remove modal if it exists
     const modal = document.getElementById('sl-verification-modal');
     if (modal && modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
-    
+
     // Remove styles
     const styles = document.getElementById('sl-verification-styles');
     if (styles && styles.parentNode) {

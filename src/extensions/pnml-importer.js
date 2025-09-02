@@ -646,7 +646,15 @@ class PNMLImporter {
             tokens: parseInt(this.getTextContent(place.querySelector('initialMarking text')) || '0'),
             position: this.getPosition(place),
             capacity: null
-          };
+            };
+          const finalMarkingElement = place.querySelector('finalMarking text');
+          if (finalMarkingElement) {
+            const finalMarkingValue = parseInt(this.getTextContent(finalMarkingElement));
+            if (!isNaN(finalMarkingValue) && finalMarkingValue >= 0) {
+              placeData.finalMarking = finalMarkingValue;
+            }
+          }
+
           parsedNet.places.push(placeData);
         });
   

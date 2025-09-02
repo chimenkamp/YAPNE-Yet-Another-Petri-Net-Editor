@@ -81,7 +81,6 @@ class DataPetriNetIntegration {
       
 
       const oldAPI = this.app.api;
-      
 
       const newAPI = new DataPetriNetAPI(
         oldAPI.petriNet.id,
@@ -147,6 +146,7 @@ class DataPetriNetIntegration {
   async extendRenderer() {
     return new Promise((resolve) => {
       const api = this.app.api;
+    
       const canvas = api.canvas;
       
       if (!canvas) {

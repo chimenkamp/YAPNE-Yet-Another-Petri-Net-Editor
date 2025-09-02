@@ -497,9 +497,6 @@ initEventHandlers() {
     }
   }
 
-  /**
-   * Displays properties for a selected place
-   */
   showPlaceProperties(id) {
     const place = this.api.petriNet.places.get(id);
     if (!place) return;
@@ -523,14 +520,27 @@ initEventHandlers() {
           place.capacity || 0
         }" min="0">
       </div>
+      <div class="form-group">
+        <label for="place-final-marking">
+          Final Marking
+          ${place.hasFinalMarking() ? 
+            (place.hasReachedFinalMarking() ? '✅' : '⏳') : ''
+          }
+        </label>
+        <input type="number" id="place-final-marking" value="${
+          place.finalMarking !== null ? place.finalMarking : ''
+        }" min="0" placeholder="Leave empty for no final marking">
+      </div>
       <div class="info-section">
         <h4>💡 Quick Tip</h4>
+        <p><strong>Final Marking:</strong> Set the expected number of tokens this place should have when the process completes.</p>
+        <p><strong>Visual Indicators:</strong> Places with final markings show a colored outer ring - green when reached, yellow when not.</p>
         <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected transitions!</p>
         <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode instantly!</p>
       </div>
     `;
 
-
+    // Keep existing event listeners and add new one for final marking
     const labelInput = document.getElementById("place-label");
     if (labelInput) {
       labelInput.addEventListener("change", (e) => {
@@ -545,6 +555,8 @@ initEventHandlers() {
         if (!isNaN(value) && value >= 0) {
           this.api.setPlaceTokens(id, value);
           this.updateTokensDisplay();
+          this.updateFinalMarkingDisplay(); 
+          this.editor.render();
         }
       });
     }
@@ -557,6 +569,24 @@ initEventHandlers() {
           place.capacity = value === 0 ? null : value;
           this.editor.render();
         }
+      });
+    }
+
+    const finalMarkingInput = document.getElementById("place-final-marking");
+    if (finalMarkingInput) {
+      finalMarkingInput.addEventListener("change", (e) => {
+        const value = e.target.value.trim();
+        if (value === '') {
+          place.finalMarking = null;
+        } else {
+          const numValue = parseInt(value, 10);
+          if (!isNaN(numValue) && numValue >= 0) {
+            place.finalMarking = numValue;
+          }
+        }
+        this.editor.render();
+        this.updateFinalMarkingDisplay();
+        this.showPlaceProperties(id);
       });
     }
   }
@@ -817,13 +847,64 @@ initEventHandlers() {
     }
   }
 
-  /**
-   * Handles when the Petri net changes
-   */
+  updateFinalMarkingDisplay() {
+    const finalMarkingContent = document.getElementById("final-marking-content");
+    if (!finalMarkingContent) return;
+
+    const results = this.api.checkFinalMarkings();
+    
+    if (results.placesWithFinalMarkings === 0) {
+      finalMarkingContent.innerHTML = "<p>No final markings defined.</p>";
+      return;
+    }
+
+    let html = `
+      <div class="final-marking-summary">
+        <div style="margin-bottom: 10px;">
+          <strong>Progress:</strong> ${results.satisfiedFinalMarkings}/${results.placesWithFinalMarkings} 
+          ${results.allSatisfied ? '✅' : '⏳'}
+        </div>
+      </div>
+      <div class="final-marking-details">
+    `;
+
+    for (const [id, place] of this.api.petriNet.places) {
+      if (place.hasFinalMarking()) {
+        const status = place.hasReachedFinalMarking() ? '✅' : '⏳';
+        const statusClass = place.hasReachedFinalMarking() ? 'satisfied' : 'pending';
+        
+        html += `
+          <div class="final-marking-item ${statusClass}">
+            <span class="place-label">${place.label}</span>
+            <span class="marking-status">${place.tokens}/${place.finalMarking} ${status}</span>
+          </div>
+        `;
+      }
+    }
+
+    html += '</div>';
+    
+    if (results.allSatisfied) {
+      html += `
+        <div class="final-marking-completed" style="
+          background-color: rgba(163, 190, 140, 0.2); 
+          border: 1px solid #A3BE8C; 
+          border-radius: 4px; 
+          padding: 8px; 
+          margin-top: 10px;
+          text-align: center;
+        ">
+          🎉 All final markings reached!
+        </div>
+      `;
+    }
+
+    finalMarkingContent.innerHTML = html;
+  }
+
   handleNetworkChanged() {
-
     this.updateTokensDisplay();
-
+    this.updateFinalMarkingDisplay();
 
     if (this.editor.selectedElement) {
       this.handleElementSelected(
@@ -1005,23 +1086,57 @@ initEventHandlers() {
   }
 
   destroyCurrentEditor() {
-    // Stop any ongoing pan/zoom or drag operations immediately
-    if (this.editor) {
-      this.editor.stopAllInteractions();
+  // Force stop all interactions immediately
+  if (this.editor) {
+    this.editor.isPanning = false;
+    this.editor.lastPanPosition = null;
+    this.editor.dragStart = null;
+    this.editor.dragOffset = null;
+    this.editor.arcDrawing = null;
+    this.editor.selectedElement = null;
+    this.editor.ghostElement = null;
+    this.editor.ghostPosition = null;
+    this.editor.isShiftPressed = false;
+    
+    // Clear any renderer state and force canvas clear
+    if (this.editor.renderer) {
+      this.editor.renderer.panOffset = { x: 0, y: 0 };
+      this.editor.renderer.zoomFactor = 1.0;
+      
+      // Force renderer to clear its internal state
+      if (this.canvas) {
+        const ctx = this.canvas.getContext('2d');
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.restore();
+      }
     }
-    
-    // Clean up all app-level event listeners
-    this.cleanupAppEventListeners();
-    
-    // Clean up the editor's internal event listeners
-    if (this.editor) {
-      this.editor.destroy();
-      this.editor = null;
-    }
-    
-    // Clear the API reference
-    this.api = null;
   }
+  
+  // Clean up all app-level event listeners
+  this.cleanupAppEventListeners();
+  
+  // Destroy editor's internal event listeners
+  if (this.editor && typeof this.editor.destroy === 'function') {
+    this.editor.destroy();
+  }
+  
+  // Force complete object dereferencing
+  this.editor = null;
+  this.api = null;
+  
+  // Reset canvas cursor and ensure it's completely clean
+  if (this.canvas) {
+    this.canvas.style.cursor = 'default';
+    // Final canvas clear
+    const ctx = this.canvas.getContext('2d');
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+}
+
 
   /**
    * New method to stop all ongoing interactions
@@ -1048,54 +1163,61 @@ initEventHandlers() {
   /**
    * Resets the Petri net completely
    */
-resetPetriNet() {
-  this.stopAutoRun();
-  this.stopAllInteractions();
+  resetPetriNet() {
+    this.stopAutoRun();
+    this.stopAllInteractions();
 
-  // Clear any pending timeouts
-  if (this.fitCanvasTimeout) {
-    clearTimeout(this.fitCanvasTimeout);
-    this.fitCanvasTimeout = null;
-  }
-
-  // Completely destroy the old editor and clean up all references
-  this.destroyCurrentEditor();
-
-  setTimeout(() => {
-    this.api = new PetriNetAPI();
-    this.editor = this.api.attachEditor(this.canvas);
-
-    // Re-establish the app reference after reset
-    this.editor.app = this;
-
-    // Reset simulation state tracking
-    this.initialState = null;
-    this.simulationStarted = false;
-
-    // Ensure renderer starts with clean state
-    if (this.editor.renderer) {
-      this.editor.renderer.panOffset = { x: 0, y: 0 };
-      this.editor.renderer.zoomFactor = 1.0;
+    if (this.fitCanvasTimeout) {
+      clearTimeout(this.fitCanvasTimeout);
+      this.fitCanvasTimeout = null;
     }
 
-    // Re-initialize event handlers for the new editor
-    this.initEventHandlers();
+    this.destroyCurrentEditor();
 
-    this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
-    this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
-    this.editor.setSnapToGrid(this.gridEnabled);
-    this.editor.setMode("select");
-    this.updateActiveButton("btn-select");
+    if (this._resetTimeout) {
+      clearTimeout(this._resetTimeout);
+      this._resetTimeout = null;
+    }
 
-    // Add initial place after reset
-    this.addInitialPlace();
+    return new Promise((resolve, reject) => {
+      this._resetTimeout = setTimeout(() => {
+        try {
+          this.api = new PetriNetAPI();
+          this.editor = this.api.attachEditor(this.canvas);
 
-    this.editor.render();
-    this.updateTokensDisplay();
-    this.updateZoomDisplay();
-    this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
-  }, 10);
-}
+          this.editor.app = this;
+
+          this.initialState = null;
+          this.simulationStarted = false;
+
+          if (this.editor.renderer) {
+            this.editor.renderer.panOffset = { x: 0, y: 0 };
+            this.editor.renderer.zoomFactor = 1.0;
+          }
+
+          this.initEventHandlers();
+
+          this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
+          this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
+          this.editor.setSnapToGrid(this.gridEnabled);
+          this.editor.setMode("select");
+          this.updateActiveButton("btn-select");
+
+          this.editor.render();
+          this.updateTokensDisplay();
+          this.updateZoomDisplay();
+          this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+
+          this._resetTimeout = null;
+          resolve();
+        } catch (err) {
+          this._resetTimeout = null;
+          reject(err);
+        }
+      }, 10);
+    });
+  }
+
 
   /**
    * Creates a File object from JSON data
@@ -1163,45 +1285,101 @@ resetPetriNet() {
         const json = e.target?.result;
         if (!json) return;
 
-        // 1. Stop any ongoing simulations or interactions
-        this.stopAutoRun();
-        this.stopAllInteractions();
+        this.resetPetriNet().then(() => {
 
-        // 2. Clear any pending timeouts that might interfere with the new layout
+        });
+        
+
+        // 2. Clear any pending timeouts that might interfere
         if (this.fitCanvasTimeout) {
-            clearTimeout(this.fitCanvasTimeout);
+          clearTimeout(this.fitCanvasTimeout);
+          this.fitCanvasTimeout = null;
         }
 
+        const canvas = this.canvas;
+        const ctx = canvas.getContext('2d');
+        
+        // Method 1: Standard clear with transform reset
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.restore();
+        
+        // Method 2: Fill with background color to ensure complete override
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Method 3: Force canvas dimension reset (triggers complete buffer recreation)
+        const originalWidth = canvas.width;
+        const originalHeight = canvas.height;
+        canvas.width = 0;
+        canvas.height = 0;
+        // Force immediate buffer flush
+        ctx.clearRect(0, 0, 1, 1);
+        canvas.width = originalWidth;
+        canvas.height = originalHeight;
+
+        // 4. Completely destroy current editor and all references
         this.destroyCurrentEditor();
 
-        // Use a brief timeout to ensure the DOM has processed the cleanup
+        // 5. Force longer pause to ensure complete cleanup
         setTimeout(() => {
-            // 4. Create new API and Editor instances from the loaded file
-            this.api = PetriNetAPI.importFromJSON(json);
-            this.editor = this.api.attachEditor(this.canvas);
-    
-            // 5. Re-establish the app reference and re-initialize all handlers for the new editor
-            this.editor.app = this;
-            this.initEventHandlers();
-    
-            // 6. Reset UI and simulation state for the newly loaded model
-            this.initialState = null;
-            this.simulationStarted = false;
-            this.editor.setSnapToGrid(this.gridEnabled);
-            this.editor.setMode("select");
-            this.updateActiveButton("btn-select");
-            this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
-    
-            // 7. Render the new network and update all displays
-            this.editor.render();
-            this.updateTokensDisplay();
-            this.updateZoomDisplay();
-    
-            // 8. Fit the new model to the canvas after a short delay to ensure it's fully rendered
-            this.fitCanvasTimeout = setTimeout(() => {
-                this.fitNetworkToCanvas();
-            }, 150);
-        }, 10); // A small timeout of 10ms is usually sufficient
+          // Ensure canvas is still clear before proceeding
+          const freshCtx = this.canvas.getContext('2d');
+          freshCtx.fillStyle = 'white';
+          freshCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          
+          // Create completely new API and editor instances
+          this.api = PetriNetAPI.importFromJSON(json);
+          this.editor = this.api.attachEditor(this.canvas);
+
+          // Ensure renderer starts with completely clean state
+          if (this.editor.renderer) {
+            this.editor.renderer.panOffset = { x: 0, y: 0 };
+            this.editor.renderer.zoomFactor = 1.0;
+            // Force renderer to reinitialize its internal canvas state
+            this.editor.renderer.theme = { ...this.editor.renderer.theme };
+          }
+
+          // Clear any residual interaction states
+          this.editor.selectedElement = null;
+          this.editor.dragStart = null;
+          this.editor.dragOffset = null;
+          this.editor.arcDrawing = null;
+          this.editor.ghostElement = null;
+          this.editor.ghostPosition = null;
+          this.editor.isShiftPressed = false;
+          this.editor.isPanning = false;
+          this.editor.lastPanPosition = null;
+
+          // Re-establish app reference and callbacks
+          this.editor.app = this;
+          this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
+          this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
+          
+          // Reinitialize all handlers
+          this.initEventHandlers();
+
+          // Reset all simulation and UI state
+          this.initialState = null;
+          this.simulationStarted = false;
+          this.editor.setSnapToGrid(this.gridEnabled);
+          this.editor.setMode("select");
+          this.updateActiveButton("btn-select");
+          this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+
+          // Force immediate render - this should show only the new model
+          this.editor.render();
+          this.updateTokensDisplay();
+          this.updateZoomDisplay();
+          this.updateFinalMarkingDisplay();
+
+          // Fit canvas after ensuring everything is rendered cleanly
+          this.fitCanvasTimeout = setTimeout(() => {
+            this.fitNetworkToCanvas();
+          }, 100);
+
+        }, 100);
 
       } catch (error) {
         console.error("Error loading file:", error);
@@ -1214,6 +1392,62 @@ resetPetriNet() {
   loadTemplateFile(file) {
     return fetch(file).then((response) => response.json());
   }
+
+  /**
+   * Fully destroys a canvas and replaces it with a pristine one that keeps the same
+   * element ID and width/height properties. Any previous drawing state, pixel contents,
+   * and event listeners bound to the old element are discarded.
+   *
+   * @param {HTMLCanvasElement} canvas - The canvas element to reset.
+   * @returns {HTMLCanvasElement} - The newly created pristine canvas element.
+   */
+  recreatePristineCanvas(canvas) {
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      throw new TypeError("Expected an HTMLCanvasElement.");
+    }
+
+    const parent = canvas.parentNode;
+    const nextSibling = canvas.nextSibling;
+
+    const preservedId = canvas.id || "";
+    const preservedWidth = canvas.width;
+    const preservedHeight = canvas.height;
+
+    try {
+      const webgl2 = canvas.getContext("webgl2");
+      if (webgl2 && typeof webgl2.getExtension === "function") {
+        const ext = webgl2.getExtension("WEBGL_lose_context");
+        if (ext && typeof ext.loseContext === "function") ext.loseContext();
+      }
+    } catch (_) {}
+
+    try {
+      const webgl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+      if (webgl && typeof webgl.getExtension === "function") {
+        const ext = webgl.getExtension("WEBGL_lose_context");
+        if (ext && typeof ext.loseContext === "function") ext.loseContext();
+      }
+    } catch (_) {}
+
+    try {
+      const ctx2d = canvas.getContext("2d");
+      if (ctx2d) {
+        canvas.width = canvas.width;
+      }
+    } catch (_) {}
+
+    const fresh = document.createElement("canvas");
+    if (preservedId) fresh.id = preservedId;
+    fresh.width = preservedWidth;
+    fresh.height = preservedHeight;
+
+    if (parent) {
+      parent.replaceChild(fresh, canvas);
+    }
+
+    return fresh;
+  }
+
 
   /**
    * Exports the current Petri net to PNML format

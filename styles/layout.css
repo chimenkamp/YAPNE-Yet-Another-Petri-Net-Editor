@@ -614,3 +614,34 @@ z-index: 11;
 .petri-overlay-arrow:hover {
 transform: translate(15%, 15%) scale(1.2) !important; /* Override inline transform */
 }
+
+.final-marking-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(76, 86, 106, 0.3);
+}
+
+.final-marking-item.satisfied {
+  color: #A3BE8C;
+}
+
+.final-marking-item.pending {
+  color: #EBCB8B;
+}
+
+.place-label {
+  font-weight: 500;
+}
+
+.marking-status {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.final-marking-summary {
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(76, 86, 106, 0.3);
+  margin-bottom: 8px;
+}
