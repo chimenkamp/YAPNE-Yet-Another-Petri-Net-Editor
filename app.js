@@ -1209,7 +1209,9 @@ initEventHandlers() {
           this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
 
           this._resetTimeout = null;
-          resolve();
+          setTimeout(() => {
+            resolve();
+          }, 5000);
         } catch (err) {
           this._resetTimeout = null;
           reject(err);
@@ -1286,100 +1288,97 @@ initEventHandlers() {
         if (!json) return;
 
         this.resetPetriNet().then(() => {
-
-        });
-        
-
-        // 2. Clear any pending timeouts that might interfere
-        if (this.fitCanvasTimeout) {
-          clearTimeout(this.fitCanvasTimeout);
-          this.fitCanvasTimeout = null;
-        }
-
-        const canvas = this.canvas;
-        const ctx = canvas.getContext('2d');
-        
-        // Method 1: Standard clear with transform reset
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-        
-        // Method 2: Fill with background color to ensure complete override
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Method 3: Force canvas dimension reset (triggers complete buffer recreation)
-        const originalWidth = canvas.width;
-        const originalHeight = canvas.height;
-        canvas.width = 0;
-        canvas.height = 0;
-        // Force immediate buffer flush
-        ctx.clearRect(0, 0, 1, 1);
-        canvas.width = originalWidth;
-        canvas.height = originalHeight;
-
-        // 4. Completely destroy current editor and all references
-        this.destroyCurrentEditor();
-
-        // 5. Force longer pause to ensure complete cleanup
-        setTimeout(() => {
-          // Ensure canvas is still clear before proceeding
-          const freshCtx = this.canvas.getContext('2d');
-          freshCtx.fillStyle = 'white';
-          freshCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-          
-          // Create completely new API and editor instances
-          this.api = PetriNetAPI.importFromJSON(json);
-          this.editor = this.api.attachEditor(this.canvas);
-
-          // Ensure renderer starts with completely clean state
-          if (this.editor.renderer) {
-            this.editor.renderer.panOffset = { x: 0, y: 0 };
-            this.editor.renderer.zoomFactor = 1.0;
-            // Force renderer to reinitialize its internal canvas state
-            this.editor.renderer.theme = { ...this.editor.renderer.theme };
+          // 2. Clear any pending timeouts that might interfere
+          if (this.fitCanvasTimeout) {
+            clearTimeout(this.fitCanvasTimeout);
+            this.fitCanvasTimeout = null;
           }
 
-          // Clear any residual interaction states
-          this.editor.selectedElement = null;
-          this.editor.dragStart = null;
-          this.editor.dragOffset = null;
-          this.editor.arcDrawing = null;
-          this.editor.ghostElement = null;
-          this.editor.ghostPosition = null;
-          this.editor.isShiftPressed = false;
-          this.editor.isPanning = false;
-          this.editor.lastPanPosition = null;
-
-          // Re-establish app reference and callbacks
-          this.editor.app = this;
-          this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
-          this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
+          const canvas = this.canvas;
+          const ctx = canvas.getContext('2d');
           
-          // Reinitialize all handlers
-          this.initEventHandlers();
+          // Method 1: Standard clear with transform reset
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.restore();
+          
+          // Method 2: Fill with background color to ensure complete override
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Method 3: Force canvas dimension reset (triggers complete buffer recreation)
+          const originalWidth = canvas.width;
+          const originalHeight = canvas.height;
+          canvas.width = 0;
+          canvas.height = 0;
+          // Force immediate buffer flush
+          ctx.clearRect(0, 0, 1, 1);
+          canvas.width = originalWidth;
+          canvas.height = originalHeight;
 
-          // Reset all simulation and UI state
-          this.initialState = null;
-          this.simulationStarted = false;
-          this.editor.setSnapToGrid(this.gridEnabled);
-          this.editor.setMode("select");
-          this.updateActiveButton("btn-select");
-          this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+          // 4. Completely destroy current editor and all references
+          this.destroyCurrentEditor();
 
-          // Force immediate render - this should show only the new model
-          this.editor.render();
-          this.updateTokensDisplay();
-          this.updateZoomDisplay();
-          this.updateFinalMarkingDisplay();
+          // 5. Force longer pause to ensure complete cleanup
+          setTimeout(() => {
+            // Ensure canvas is still clear before proceeding
+            const freshCtx = this.canvas.getContext('2d');
+            freshCtx.fillStyle = 'white';
+            freshCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+            
+            // Create completely new API and editor instances
+            this.api = PetriNetAPI.importFromJSON(json);
+            this.editor = this.api.attachEditor(this.canvas);
 
-          // Fit canvas after ensuring everything is rendered cleanly
-          this.fitCanvasTimeout = setTimeout(() => {
-            this.fitNetworkToCanvas();
+            // Ensure renderer starts with completely clean state
+            if (this.editor.renderer) {
+              this.editor.renderer.panOffset = { x: 0, y: 0 };
+              this.editor.renderer.zoomFactor = 1.0;
+              // Force renderer to reinitialize its internal canvas state
+              this.editor.renderer.theme = { ...this.editor.renderer.theme };
+            }
+
+            // Clear any residual interaction states
+            this.editor.selectedElement = null;
+            this.editor.dragStart = null;
+            this.editor.dragOffset = null;
+            this.editor.arcDrawing = null;
+            this.editor.ghostElement = null;
+            this.editor.ghostPosition = null;
+            this.editor.isShiftPressed = false;
+            this.editor.isPanning = false;
+            this.editor.lastPanPosition = null;
+
+            // Re-establish app reference and callbacks
+            this.editor.app = this;
+            this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
+            this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
+            
+            // Reinitialize all handlers
+            this.initEventHandlers();
+
+            // Reset all simulation and UI state
+            this.initialState = null;
+            this.simulationStarted = false;
+            this.editor.setSnapToGrid(this.gridEnabled);
+            this.editor.setMode("select");
+            this.updateActiveButton("btn-select");
+            this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+
+            // Force immediate render - this should show only the new model
+            this.editor.render();
+            this.updateTokensDisplay();
+            this.updateZoomDisplay();
+            this.updateFinalMarkingDisplay();
+
+            // Fit canvas after ensuring everything is rendered cleanly
+            this.fitCanvasTimeout = setTimeout(() => {
+              this.fitNetworkToCanvas();
+            }, 100);
+
           }, 100);
-
-        }, 100);
+        });
 
       } catch (error) {
         console.error("Error loading file:", error);

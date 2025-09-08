@@ -42,6 +42,7 @@ class SmtFromDpnGenerator {
    * @returns {string} The generated SMT-LIB2 string.
    */
   generateSMT(petriNetObj, params = {}) {
+    params.K = 100000
     const cfg = this._normalizeConfig(petriNetObj, params);
     const {
       logic,
@@ -62,7 +63,11 @@ class SmtFromDpnGenerator {
     const coverageFor = Array.isArray(params.coverageFor)
       ? params.coverageFor.map(String)
       : null;
-    const firingPolicy = params.firing || "atMostOne"; // "atMostOne"|"exactlyOne"|"free"
+
+    // Interleaving semantics: normalize 'free' → 'atMostOne'
+    const firingPolicyRaw = params.firing || "atMostOne";
+    const firingPolicy =
+      firingPolicyRaw === "free" ? "atMostOne" : firingPolicyRaw; // "atMostOne"|"exactlyOne"
 
     // Detect explicit τ transitions (by id prefix "tau_")
     const isTauId = (id) => String(id).startsWith("tau_");
@@ -92,9 +97,9 @@ class SmtFromDpnGenerator {
     // --- Firing flags (and optional τ flags if τ not explicit)
     for (let i = 0; i < K; i++) {
       for (const t of transIds) {
-        out(`(declare-const ${this._fStep(t, i)} Bool)`);
+        out(`(declare-const ${this._fStep(t, i)} Bool)`); // visible/explicit-τ flag
         if (!hasExplicitTau && !isTauId(t)) {
-          out(`(declare-const ${this._ftStep(t, i)} Bool)`);
+          out(`(declare-const ${this._ftStep(t, i)} Bool)`); // implicit τ(t) flag
         }
       }
       if (firingPolicy !== "free") {
@@ -125,10 +130,8 @@ class SmtFromDpnGenerator {
 
     // --- Per-step constraints
     for (let i = 0; i < K; i++) {
-      // Semantics note:
       // Each step is either a single firing (visible or τ) or a stutter step.
-      // When no firing occurs, data and markings must stutter. This matches
-      // the paper’s step semantics and prevents unconstrained data jumps.
+      // When no firing occurs, data and markings must stutter.
 
       // 1) Firing policy + "must act or idle" discipline
       const boolFlags = [];
@@ -156,16 +159,20 @@ class SmtFromDpnGenerator {
         out(`(assert (iff ${idle} (not ${anyFire})))`);
       }
 
-      // 2) Token enabling for any firing (visible or τ)
+      // 2) Token enabling: for ALL firings that move tokens (visible and τ)
       for (const t of transIds) {
-        const fired = this._fStep(t, i);
-        const firedTau =
-          !hasExplicitTau && !isTauId(t) ? this._ftStep(t, i) : null;
-        const firedOrTau = firedTau ? `(or ${fired} ${firedTau})` : fired;
-
         const inArcs = arcsIn.get(t) || [];
+        // visible (including explicit τ whose id is "tau_*")
+        const firedVis = this._fStep(t, i);
         for (const [p, w] of inArcs) {
-          out(`(assert (=> ${firedOrTau} (>= ${this._mStep(p, i)} ${w})))`);
+          out(`(assert (=> ${firedVis} (>= ${this._mStep(p, i)} ${w})))`);
+        }
+        // implicit τ(t) when τ is not explicit
+        if (!hasExplicitTau && !isTauId(t)) {
+          const firedTau = this._ftStep(t, i);
+          for (const [p, w] of inArcs) {
+            out(`(assert (=> ${firedTau} (>= ${this._mStep(p, i)} ${w})))`);
+          }
         }
       }
 
@@ -180,12 +187,13 @@ class SmtFromDpnGenerator {
           !hasExplicitTau && !isTauTransition ? this._ftStep(t, i) : null;
 
         // Visible guard: pre at step i, post at step i+1
+        // For explicit τ, pre is the τ-guard; post is usually empty.
         const preVis = this._rewriteGuard(preStr, i, dataVarsList, false);
         const postVis = this._rewriteGuard(postStr, i, dataVarsList, true);
         if (preVis) out(`(assert (=> ${fVis} ${preVis}))`);
         if (postVis) out(`(assert (=> ${fVis} ${postVis}))`);
 
-        // Frame for variables not written by t under visible firing
+        // Frame for variables not written by visible t
         const writes = this._writtenVars(postStr, dataVarsList);
         for (const [vName] of dataVarsList) {
           if (!writes.has(vName)) {
@@ -198,7 +206,7 @@ class SmtFromDpnGenerator {
           }
         }
 
-        // τ semantics:
+        // τ semantics — implicit τ flags: guard_τ and full stutter on data
         if (fTau) {
           const tauInner = this._tauGuard(preStr, postStr, i, dataVarsList); // ¬∃W.(pre∧post)
           if (tauInner) out(`(assert (=> ${fTau} ${tauInner}))`);
@@ -212,41 +220,42 @@ class SmtFromDpnGenerator {
           }
         }
 
-        // Explicit τ: stutter if no post
+        // Explicit τ transitions: ALWAYS stutter data when they fire
         if (hasExplicitTau && isTauTransition) {
-          const hasPost = String(postStr || "").trim().length > 0;
-          if (!hasPost) {
-            for (const [vName] of dataVarsList) {
-              out(
-                `(assert (=> ${fVis} (= ${this._vStep(
-                  vName,
-                  i + 1
-                )} ${this._vStep(vName, i)})))`
-              );
-            }
+          for (const [vName] of dataVarsList) {
+            out(
+              `(assert (=> ${fVis} (= ${this._vStep(vName, i + 1)} ${this._vStep(
+                vName,
+                i
+              )})))`
+            );
           }
         }
       }
 
-      // 4) Marking update (incidence) for visible and τ firings
+      // 4) Marking update (incidence) — INCLUDE τ (τ moves tokens like its base t)
       for (const p of placeIds) {
         const inflow = [];
         const outflow = [];
+
         for (const t of transIds) {
           const vis = this._fStep(t, i);
-          const tau =
-            !hasExplicitTau && !isTauId(t) ? this._ftStep(t, i) : null;
-
+          // visible (includes explicit τ)
           for (const [pp, w] of arcsOut.get(t) || []) {
-            if (pp === p) {
-              inflow.push(`(* ${w} (b2i ${vis}))`);
-              if (tau) inflow.push(`(* ${w} (b2i ${tau}))`);
-            }
+            if (pp === p) inflow.push(`(* ${w} (b2i ${vis}))`);
           }
           for (const [pp, w] of arcsIn.get(t) || []) {
-            if (pp === p) {
-              outflow.push(`(* ${w} (b2i ${vis}))`);
-              if (tau) outflow.push(`(* ${w} (b2i ${tau}))`);
+            if (pp === p) outflow.push(`(* ${w} (b2i ${vis}))`);
+          }
+
+          // implicit τ(t) also contributes to token flow for base t
+          if (!hasExplicitTau && !isTauId(t)) {
+            const tau = this._ftStep(t, i);
+            for (const [pp, w] of arcsOut.get(t) || []) {
+              if (pp === p) inflow.push(`(* ${w} (b2i ${tau}))`);
+            }
+            for (const [pp, w] of arcsIn.get(t) || []) {
+              if (pp === p) outflow.push(`(* ${w} (b2i ${tau}))`);
             }
           }
         }
@@ -269,10 +278,10 @@ class SmtFromDpnGenerator {
         .map(([v]) => `(= ${this._vStep(v, i + 1)} ${this._vStep(v, i)})`)
         .join(" ");
 
-      // Always enforce stutter if no transition fires (covers 'free' policy too)
+      // Always enforce stutter if no transition fires
       out(`(assert (=> (not ${anyFire}) (and ${eqMs} ${eqVs})))`);
 
-      // Additionally, when idle_i exists, keep idle ⇒ stutter for clarity
+      // Additionally, when idle_i exists, keep idle ⇒ stutter
       if (firingPolicy !== "free") {
         out(`(assert (=> idle_${i} (and ${eqMs} ${eqVs})))`);
       }
@@ -286,7 +295,10 @@ class SmtFromDpnGenerator {
     }
 
     // --- Coverage (default excludes τ); supports coverageFor
-    if ((coverage || (coverageFor && coverageFor.length > 0)) && transIds.length > 0) {
+    if (
+      (coverage || (coverageFor && coverageFor.length > 0)) &&
+      transIds.length > 0
+    ) {
       const wanted =
         coverageFor && coverageFor.length
           ? transIds.filter((t) => coverageFor.includes(String(t)))
@@ -308,7 +320,6 @@ class SmtFromDpnGenerator {
   }
 
 
-
   /**
    * Normalize configuration: collect ids, arcs, guards, sorts, initial/final markings and data.
    *
@@ -319,7 +330,7 @@ class SmtFromDpnGenerator {
    */
   _normalizeConfig(pn, params) {
     const logic = params.logic || "ALL";
-    const K = Number.isInteger(params.K) ? params.K : 6;
+    const K = Number.isInteger(params.K) ? params.K : 100000;
 
     const placeIds = (pn.places || []).map((p) => this._sym(p.id));
     const transIds = (pn.transitions || []).map((t) => this._sym(t.id));
@@ -509,94 +520,92 @@ class SmtFromDpnGenerator {
    * @returns {string} SMT-LIB2 s-expression.
    * @private
    */
-_infixToSmt(expr) {
-  const e = String(expr || "").trim();
-  if (!e) return "";
-  const norm = e
-    .replace(/\s+/g, " ")
-    .replace(/\band\b/gi, "and")
-    .replace(/\bor\b/gi, "or")
-    .replace(/\bnot\b/gi, "not");
+  _infixToSmt(expr) {
+    const e = String(expr || "").trim();
+    if (!e) return "";
+    const norm = e
+      .replace(/\s+/g, " ")
+      .replace(/\band\b/gi, "and")
+      .replace(/\bor\b/gi, "or")
+      .replace(/\bnot\b/gi, "not");
 
-  const isAtom =
-    (s) =>
+    const isAtom = (s) =>
       /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ||
       /^[-+]?\d+(?:\.\d+)?$/.test(s) ||
       s === "true" ||
       s === "false";
 
-  const stripOuter = (s) => {
-    let t = String(s || "").trim();
-    const balanced = (x) => {
-      let d = 0;
-      for (const ch of x) {
-        if (ch === "(") d++;
-        else if (ch === ")") d--;
-        if (d < 0) return false;
-      }
-      return d === 0;
-    };
-    while (t.startsWith("(") && t.endsWith(")") && balanced(t)) {
-      const inner = t.slice(1, -1).trim();
-      if (!inner.startsWith("(") || !inner.endsWith(")")) {
-        // only strip once if inner isn't also wrapped
+    const stripOuter = (s) => {
+      let t = String(s || "").trim();
+      const balanced = (x) => {
+        let d = 0;
+        for (const ch of x) {
+          if (ch === "(") d++;
+          else if (ch === ")") d--;
+          if (d < 0) return false;
+        }
+        return d === 0;
+      };
+      while (t.startsWith("(") && t.endsWith(")") && balanced(t)) {
+        const inner = t.slice(1, -1).trim();
+        if (!inner.startsWith("(") || !inner.endsWith(")")) {
+          // only strip once if inner isn't also wrapped
+          t = inner;
+          break;
+        }
         t = inner;
-        break;
       }
-      t = inner;
-    }
-    return t;
-  };
+      return t;
+    };
 
-  const splitTop = (s, op) => {
-    const parts = [];
-    let depth = 0,
-      buf = [];
-    const tokens = s.split(" ");
-    for (let i = 0; i < tokens.length; i++) {
-      const tok = tokens[i];
-      for (const ch of tok) {
-        if (ch === "(") depth++;
-        if (ch === ")") depth--;
-      }
-      if (depth === 0 && tok === op) {
-        parts.push(buf.join(" ").trim());
+    const splitTop = (s, op) => {
+      const parts = [];
+      let depth = 0,
         buf = [];
-      } else {
-        buf.push(tok);
+      const tokens = s.split(" ");
+      for (let i = 0; i < tokens.length; i++) {
+        const tok = tokens[i];
+        for (const ch of tok) {
+          if (ch === "(") depth++;
+          if (ch === ")") depth--;
+        }
+        if (depth === 0 && tok === op) {
+          parts.push(buf.join(" ").trim());
+          buf = [];
+        } else {
+          buf.push(tok);
+        }
       }
-    }
-    const last = buf.join(" ").trim();
-    if (last) parts.push(last);
-    return parts;
-  };
+      const last = buf.join(" ").trim();
+      if (last) parts.push(last);
+      return parts;
+    };
 
-  const rec = (s) => {
-    const t = s.trim();
-    if (!t) return "true";
-    if (t.startsWith("(") && t.endsWith(")")) return rec(t.slice(1, -1));
-    const andParts = splitTop(t, "and");
-    if (andParts.length > 1) return `(and ${andParts.map(rec).join(" ")})`;
-    const orParts = splitTop(t, "or");
-    if (orParts.length > 1) return `(or ${orParts.map(rec).join(" ")})`;
-    if (t.startsWith("not ")) return `(not ${rec(t.slice(4))})`;
-    const cmp = t.match(/^(.+?)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
-    if (cmp) {
-      const lhs = rec(cmp[1]);
-      const rhs = rec(cmp[3]);
-      const op = cmp[2] === "!=" ? "distinct" : cmp[2];
-      if (op === "distinct") return `(distinct ${lhs} ${rhs})`;
-      if (["=", "<", "<=", ">", ">="].includes(op))
-        return `(${op} ${lhs} ${rhs})`;
-    }
-    return isAtom(t) ? t : t;
-  };
+    const rec = (s) => {
+      const t = s.trim();
+      if (!t) return "true";
+      if (t.startsWith("(") && t.endsWith(")")) return rec(t.slice(1, -1));
+      const andParts = splitTop(t, "and");
+      if (andParts.length > 1) return `(and ${andParts.map(rec).join(" ")})`;
+      const orParts = splitTop(t, "or");
+      if (orParts.length > 1) return `(or ${orParts.map(rec).join(" ")})`;
+      if (t.startsWith("not ")) return `(not ${rec(t.slice(4))})`;
+      const cmp = t.match(/^(.+?)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
+      if (cmp) {
+        const lhs = rec(cmp[1]);
+        const rhs = rec(cmp[3]);
+        const op = cmp[2] === "!=" ? "distinct" : cmp[2];
+        if (op === "distinct") return `(distinct ${lhs} ${rhs})`;
+        if (["=", "<", "<=", ">", ">="].includes(op))
+          return `(${op} ${lhs} ${rhs})`;
+      }
+      return isAtom(t) ? t : t;
+    };
 
-  let res = rec(norm).replace(/\s+/g, " ").trim();
-  if (isAtom(res)) return res;
-  return stripOuter(res.startsWith("(") ? res : `(${res})`);
-}
-
+    let res = rec(norm).replace(/\s+/g, " ").trim();
+    if (isAtom(res)) return res;
+    return stripOuter(res.startsWith("(") ? res : `(${res})`);
+  }
 
   /**
    * Compute the set of written variables (those with a primed occurrence) in a postcondition.
@@ -1100,123 +1109,138 @@ class DPNRefinementEngine {
     return currentDPN;
   }
 
-/**
- * Canonicalize/simplify a formula defensively.
- * Repairs malformed snippets and avoids tactics if the term looks risky.
- *
- * @param {string} formula
- * @returns {Promise<string>}
- */
-async canonicalizeFormula(formula) {
-  const text = String(formula || "true").trim() || "true";
-  if (text === "true" || text === "false") return text;
+  /**
+   * Canonicalize/simplify a formula defensively.
+   * Repairs malformed snippets and avoids tactics if the term looks risky.
+   *
+   * @param {string} formula
+   * @returns {Promise<string>}
+   */
+  async canonicalizeFormula(formula) {
+    const text = String(formula || "true").trim() || "true";
+    if (text === "true" || text === "false") return text;
 
-  const sanitizePrimes = (s) =>
-    s.replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
+    const sanitizePrimes = (s) =>
+      s.replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
 
-  const repairSmt = (s) => {
-    let r = String(s || "").trim();
-    if (!r) return "true";
-    // strip empty apps
-    r = r.replace(/\(\s*\)/g, "");
-    // collapse "(atom)" → "atom" for non-operators
-    const ATOM = "(?:[-+]?\\d+(?:\\.\\d+)?|[A-Za-z_][A-Za-z0-9_]*)";
-    const OPS = new Set([
-      "and",
-      "or",
-      "not",
-      "=",
-      "distinct",
-      "<",
-      "<=",
-      ">",
-      ">=",
-      "+",
-      "-",
-      "*",
-      "/",
-      "ite",
-      "=>",
-      "exists",
-      "forall",
-      "let",
-      "assert",
-      "true",
-      "false",
-    ]);
-    r = r.replace(new RegExp(`\\(\\s*(${ATOM})\\s*\\)`, "g"), (_, tok) => {
-      return OPS.has(tok) ? `(${tok})` : tok;
-    });
-    r = r.replace(/\(\s*(true|false)\s*\(\s*\)\s*\)/g, "$1");
-    // bare pairs → equality
-    r = r.replace(
-      new RegExp(`\\(\\s*(${ATOM})\\s+(${ATOM})\\s*\\)`, "g"),
-      (_, a, b) => (OPS.has(a) ? `(${a} ${b})` : `(= ${a} ${b})`)
-    );
-    r = r.replace(/\s+/g, " ").trim();
-    return r || "true";
-  };
-
-  const looksSuspicious = (s) =>
-    !s ||
-    /\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(s) ||
-    /\(\s*[-+]?\d+(?:\.\d+)?\s*\)/.test(s) ||
-    /\(\s*\)/.test(s) ||
-    /\(\s*true\s*\(\s*\)/.test(s);
-
-  const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
-
-  let body = repairSmt(sanitizePrimes(text));
-  if (looksSuspicious(body)) return body;
-
-  try {
-    const astVec = _z3.parse_smtlib2_string(_context, buildScript(body), [], [], [], []);
-    const vecSize = _z3.ast_vector_size(_context, astVec);
-    if (vecSize === 0) return "true";
-
-    const goal = _z3.mk_goal(_context, true, false, false);
-    for (let i = 0; i < vecSize; i++) {
-      _z3.goal_assert(_context, goal, _z3.ast_vector_get(_context, astVec, i));
-    }
-    if (_z3.goal_size(_context, goal) === 0) return "true";
-
-    // Only lightweight tactics here
-    const tryTactic = async (g, name) => {
-      try {
-        const t = _z3.mk_tactic(_context, name);
-        const r = await _z3.tactic_apply(_context, t, g);
-        const n = _z3.apply_result_get_num_subgoals(_context, r);
-        return n === 0 ? g : _z3.apply_result_get_subgoal(_context, r, 0);
-      } catch (e) {
-        console.warn(`[Canon] Tactic '${name}' failed; skipping.`, e);
-        return g;
-      }
+    const repairSmt = (s) => {
+      let r = String(s || "").trim();
+      if (!r) return "true";
+      // strip empty apps
+      r = r.replace(/\(\s*\)/g, "");
+      // collapse "(atom)" → "atom" for non-operators
+      const ATOM = "(?:[-+]?\\d+(?:\\.\\d+)?|[A-Za-z_][A-Za-z0-9_]*)";
+      const OPS = new Set([
+        "and",
+        "or",
+        "not",
+        "=",
+        "distinct",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "+",
+        "-",
+        "*",
+        "/",
+        "ite",
+        "=>",
+        "exists",
+        "forall",
+        "let",
+        "assert",
+        "true",
+        "false",
+      ]);
+      r = r.replace(new RegExp(`\\(\\s*(${ATOM})\\s*\\)`, "g"), (_, tok) => {
+        return OPS.has(tok) ? `(${tok})` : tok;
+      });
+      r = r.replace(/\(\s*(true|false)\s*\(\s*\)\s*\)/g, "$1");
+      // bare pairs → equality
+      r = r.replace(
+        new RegExp(`\\(\\s*(${ATOM})\\s+(${ATOM})\\s*\\)`, "g"),
+        (_, a, b) => (OPS.has(a) ? `(${a} ${b})` : `(= ${a} ${b})`)
+      );
+      r = r.replace(/\s+/g, " ").trim();
+      return r || "true";
     };
 
-    let g = goal;
-    g = await tryTactic(g, "simplify");
-    g = await tryTactic(g, "solve-eqs");
-    g = await tryTactic(g, "propagate-values");
+    const looksSuspicious = (s) =>
+      !s ||
+      /\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(s) ||
+      /\(\s*[-+]?\d+(?:\.\d+)?\s*\)/.test(s) ||
+      /\(\s*\)/.test(s) ||
+      /\(\s*true\s*\(\s*\)/.test(s);
 
-    // Pretty print back
-    const sz = _z3.goal_size(_context, g);
-    if (sz === 0) return "true";
-    if (sz === 1) {
-      return repairSmt(
-        _z3.ast_to_string(_context, _z3.goal_formula(_context, g, 0))
+    const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
+
+    let body = repairSmt(sanitizePrimes(text));
+    if (looksSuspicious(body)) return body;
+
+    try {
+      const astVec = _z3.parse_smtlib2_string(
+        _context,
+        buildScript(body),
+        [],
+        [],
+        [],
+        []
       );
-    }
-    const parts = [];
-    for (let i = 0; i < sz; i++) {
-      parts.push(_z3.ast_to_string(_context, _z3.goal_formula(_context, g, i)));
-    }
-    return repairSmt(`(and ${parts.join(" ")})`);
-  } catch (e) {
-    console.warn("[Canon] Parse/simplify failed; returning repaired input.", e);
-    return body;
-  }
-}
+      const vecSize = _z3.ast_vector_size(_context, astVec);
+      if (vecSize === 0) return "true";
 
+      const goal = _z3.mk_goal(_context, true, false, false);
+      for (let i = 0; i < vecSize; i++) {
+        _z3.goal_assert(
+          _context,
+          goal,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
+      }
+      if (_z3.goal_size(_context, goal) === 0) return "true";
+
+      // Only lightweight tactics here
+      const tryTactic = async (g, name) => {
+        try {
+          const t = _z3.mk_tactic(_context, name);
+          const r = await _z3.tactic_apply(_context, t, g);
+          const n = _z3.apply_result_get_num_subgoals(_context, r);
+          return n === 0 ? g : _z3.apply_result_get_subgoal(_context, r, 0);
+        } catch (e) {
+          console.warn(`[Canon] Tactic '${name}' failed; skipping.`, e);
+          return g;
+        }
+      };
+
+      let g = goal;
+      g = await tryTactic(g, "simplify");
+      g = await tryTactic(g, "solve-eqs");
+      g = await tryTactic(g, "propagate-values");
+
+      // Pretty print back
+      const sz = _z3.goal_size(_context, g);
+      if (sz === 0) return "true";
+      if (sz === 1) {
+        return repairSmt(
+          _z3.ast_to_string(_context, _z3.goal_formula(_context, g, 0))
+        );
+      }
+      const parts = [];
+      for (let i = 0; i < sz; i++) {
+        parts.push(
+          _z3.ast_to_string(_context, _z3.goal_formula(_context, g, i))
+        );
+      }
+      return repairSmt(`(and ${parts.join(" ")})`);
+    } catch (e) {
+      console.warn(
+        "[Canon] Parse/simplify failed; returning repaired input.",
+        e
+      );
+      return body;
+    }
+  }
 
   /**
    * Construct LTS (Algorithm 2), merging states up to logical equivalence of constraints.
@@ -1328,7 +1352,6 @@ async canonicalizeFormula(formula) {
    */
   async computeNewFormula(stateFormula, transition, dpn) {
     // ---- Helpers -------------------------------------------------------------
-
     const dataVars = Array.isArray(dpn.dataVariables) ? dpn.dataVariables : [];
     const varNames = dataVars.map((v) => String(v.name || v.id));
     const nameSet = new Set(varNames);
@@ -1421,7 +1444,9 @@ async canonicalizeFormula(formula) {
           const op = m[2] === "!=" ? "distinct" : m[2];
           const L = rec(m[1]),
             R = rec(m[3]);
-          return op === "distinct" ? `(distinct ${L} ${R})` : `(${op} ${L} ${R})`;
+          return op === "distinct"
+            ? `(distinct ${L} ${R})`
+            : `(${op} ${L} ${R})`;
         }
         // Arithmetic shims: a+b, a-b, a*b, a/b (greedy, not fully general)
         const ar = t
@@ -1477,27 +1502,29 @@ async canonicalizeFormula(formula) {
     const isFalse = async (f) => !(await Z3Solver.isSatisfiable(f));
 
     // ---- 1) Normalize pieces to read/write spaces --------------------------------
-
     const phi_r = toPrefix(mapVars(stateFormula || "true", (v) => `${v}_r`));
 
     // precondition: all reads → _r
-    const pre_r = toPrefix(mapVars(transition.precondition || "true", (v) => `${v}_r`));
+    const pre_r = toPrefix(
+      mapVars(transition.precondition || "true", (v) => `${v}_r`)
+    );
 
     // postcondition: v' → v_w ; bare v (on RHS) → v_r
     let post_rw = String(transition.postcondition || "").trim();
     // Replace primed occurrences first
     for (const v of varNames) {
-      post_rw = post_rw.replace(new RegExp(`\\b${escapeReg(v)}\\s*'\\b`, "g"), `${v}_w`);
+      post_rw = post_rw.replace(
+        new RegExp(`\\b${escapeReg(v)}\\s*'\\b`, "g"),
+        `${v}_w`
+      );
     }
     // Then map bare names to _r
     post_rw = toPrefix(mapVars(post_rw, (v) => `${v}_r`));
 
     // ---- 2) Compose body ----------------------------------------------------------
-
     const body_rw = `(and ${pre_r} ${post_rw} ${phi_r})`;
 
     // ---- 3) Existentially quantify writes W --------------------------------------
-
     const W = Array.from(writtenOf(transition.postcondition));
     let psi_rw = body_rw;
     if (W.length > 0) {
@@ -1505,28 +1532,30 @@ async canonicalizeFormula(formula) {
       psi_rw = `(exists (${binders}) ${body_rw})`;
     }
 
-    // ---- 4) QE --------------------------------------------------------------------
-
+    // ---- 4) QE (safe fallback) ---------------------------------------------------
     let qe;
     try {
       qe = await this.eliminateQuantifiers(psi_rw);
     } catch (_e) {
-      // Fallback: keep non-quantified body (sound under-approx for successor enabling)
-      qe = body_rw;
+      if (W.length === 0) {
+        // No quantifiers needed; body is exact.
+        qe = body_rw;
+      } else {
+        // Over-approximate: keep only read-only information (pre_r ∧ φ_r)
+        // Never merge reads/writes without eliminating ∃W.
+        qe = `(and ${pre_r} ${phi_r})`;
+      }
     }
 
     // ---- 5) Project back to base names -------------------------------------------
-
     let phi_next = dropSuffixes(qe);
 
     // ---- 6) Canonicalize & final sanity ------------------------------------------
-
     phi_next = await this.canonicalizeFormula(phi_next);
 
     if (await isFalse(phi_next)) return "false";
     return phi_next;
   }
-
 
   /**
    * Refine all transitions according to Algorithm 4 (Suvorov–Lomazova).
@@ -1544,147 +1573,262 @@ async canonicalizeFormula(formula) {
    * @param {LabeledTransitionSystem} lts
    * @returns {Promise<Object>} refined DPN (N_R)
    */
-  async refineTransitions(dpn, cycles, lts) {
-    this.logStep("Refinement", "Starting Algorithm 4 refinement over cycles");
-
-    const dpnR = this.cloneDPN(dpn);
-    const inCycle = new Set();
-    const exitsByInCycle = new Map(); // t.id -> Set(exitTransitionId)
-
-    // Collect which transitions are inside cycles and their exit transitions
-    for (const c of cycles || []) {
-      for (const tid of c.transitions || []) {
-        inCycle.add(tid);
-        if (!exitsByInCycle.has(tid)) exitsByInCycle.set(tid, new Set());
-        for (const eid of c.exitTransitions || []) {
-          exitsByInCycle.get(tid).add(eid);
-        }
-      }
-    }
-
-    const newTransitions = [];
-    const newArcs = [];
-
-    // Pre-index arcs by source/target for efficient rewiring
-    const arcsIn = new Map(); // t.id -> [arc objects where arc.target === t.id]
-    const arcsOut = new Map(); // t.id -> [arc objects where arc.source === t.id]
-    for (const a of dpnR.arcs || []) {
-      if (a.target && inCycle.has(a.target)) {
-        if (!arcsIn.has(a.target)) arcsIn.set(a.target, []);
-        arcsIn.get(a.target).push(a);
-      }
-      if (a.source && inCycle.has(a.source)) {
-        if (!arcsOut.has(a.source)) arcsOut.set(a.source, []);
-        arcsOut.get(a.source).push(a);
-      }
-    }
-
-    const transById = new Map(
-      (dpnR.transitions || []).map((t) => [String(t.id), t])
+  async refineTransition(t, exitTransitions, dpn) {
+    this.logStep(
+      "Refinement",
+      `Refining transition ${t.id} with ${exitTransitions.length} exit predicate(s)`
     );
 
-    for (const t of dpnR.transitions || []) {
-      const tid = String(t.id);
-      if (!inCycle.has(tid)) {
-        // Not refined; keep as is
-        newTransitions.push(t);
-        // Keep its arcs
-        for (const a of dpnR.arcs || []) {
-          if (a.source === tid || a.target === tid) newArcs.push(a);
-        }
-        continue;
-      }
-
-      // Gather exit transitions for cycles containing t
-      const exitIds = Array.from(exitsByInCycle.get(tid) || []);
-      const exitTransitions = exitIds
-        .map((id) => transById.get(id))
-        .filter((x) => !!x);
-
-      // If no exits, keep t unchanged
-      if (exitTransitions.length === 0) {
-        newTransitions.push(t);
-        for (const a of dpnR.arcs || []) {
-          if (a.source === tid || a.target === tid) newArcs.push(a);
-        }
-        continue;
-      }
-
-      // Produce refined copies R(t)
-      const refinedCopies = await this.refineTransition(
-        t,
-        exitTransitions,
-        dpnR
+    // Helpers pulled from computeNewFormula
+    const getSortOf = (name) => {
+      const dv = (dpn.dataVariables || []).find(
+        (v) => (v.name || v.id) === name
       );
+      const typ = (dv && (dv.type || "").toLowerCase()) || "real";
+      if (typ === "int" || typ === "integer") return "Int";
+      if (typ === "bool" || typ === "boolean") return "Bool";
+      return "Real";
+    };
 
-      // If refinement failed or empty, keep original t
-      if (!refinedCopies || refinedCopies.length === 0) {
-        newTransitions.push(t);
-        for (const a of dpnR.arcs || []) {
-          if (a.source === tid || a.target === tid) newArcs.push(a);
+    const toPrefixArithmetic = (s) => {
+      let out = String(s || "");
+      // boolean chains
+      for (let g = 0; g < 8; g++) {
+        const before = out;
+        out = out
+          .replace(/([^()\s][^()]*?)\s*\|\|\s*([^()\s][^()]*)/g, "(or $1 $2)")
+          .replace(/([^()\s][^()]*?)\s*&&\s*([^()\s][^()]*)/g, "(and $1 $2)");
+        if (out === before) break;
+      }
+      // unary not
+      out = out.replace(
+        /\(?\s*not\s+([A-Za-z_][\w]*\s*(?:=|<=|>=|<|>)\s*[^()\s]+)\s*\)?/g,
+        "(not $1)"
+      );
+      // arithmetic ops
+      const rules = [
+        { re: /([^()\s]+)\s*\+\s*([^()\s]+)/g, tpl: "(+ $1 $2)" },
+        { re: /([^()\s]+)\s*-\s*([^()\s]+)/g, tpl: "(- $1 $2)" },
+        { re: /([^()\s]+)\s*\*\s*([^()\s]+)/g, tpl: "(* $1 $2)" },
+        { re: /([^()\s]+)\s*\/\s*([^()\s]+)/g, tpl: "(/ $1 $2)" },
+      ];
+      for (let k = 0; k < 8; k++) {
+        let changed = false;
+        for (const r of rules) {
+          const tmp = out.replace(r.re, r.tpl);
+          if (tmp !== out) {
+            out = tmp;
+            changed = true;
+          }
         }
-        continue;
+        if (!changed) break;
+      }
+      // comparisons & equality
+      out = out
+        .replace(
+          /([A-Za-z_][\w]*)\s*<=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(<= $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*>=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(>= $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*<\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(< $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*>\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
+          "(> $1 $2)"
+        )
+        .replace(
+          /([A-Za-z_][\w]*)\s*=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w\(\)\/\*\+\-]+)/g,
+          "(= $1 $2)"
+        );
+      return out.trim().startsWith("(") ? out.trim() : `(${out.trim()})`;
+    };
+
+    const normalizePre = (expr) => {
+      if (!expr) return "true";
+      let s = String(expr).trim();
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), `${name}_r`);
+      }
+      return toPrefixArithmetic(s);
+    };
+
+    const normalizePost = (expr) => {
+      if (!expr) return "true";
+      let s = String(expr).trim();
+      s = s.replace(/([A-Za-z_][\w]*)'/g, "$1_w");
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), `${name}_r`);
+      }
+      return toPrefixArithmetic(s);
+    };
+
+    const written = new Set(this.getWrittenVariables(t, dpn) || []);
+
+    const normalizeExitAfterT = (exitPre) => {
+      if (!exitPre || String(exitPre).trim() === "") return "true";
+      let s = String(exitPre).trim();
+      // Map base names to _w if written by t, else to _r
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        const rep = written.has(name) ? `${name}_w` : `${name}_r`;
+        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), rep);
+      }
+      // Any accidental primes in exit go to _w
+      s = s.replace(/([A-Za-z_][\w]*)'/g, "$1_w");
+      return toPrefixArithmetic(s);
+    };
+
+    // Build a disjoint partition of exit predicates (2^n). Guard against blow-up.
+    const MAX_CASES = 64;
+    const predicates = exitTransitions.map((et) =>
+      normalizeExitAfterT(et.precondition || "true")
+    );
+    let cases = ["true"];
+    for (const p of predicates) {
+      const next = [];
+      for (const c of cases) {
+        next.push(c === "true" ? p : `(and ${c} ${p})`);
+        next.push(c === "true" ? `(not ${p})` : `(and ${c} (not ${p}))`);
+      }
+      cases = next;
+      if (cases.length > MAX_CASES) break; // soft cap
+    }
+
+    // For each case, compute pre_ref(C) := QE(∃W. pre_r ∧ post_rw ∧ C_rw) → base vars
+    const pre_r = normalizePre(t.precondition || "true");
+    const post_rw = normalizePost(t.postcondition || "true");
+
+    const quantifiedBinder = () => {
+      if (written.size === 0) return "";
+      const binds = Array.from(written)
+        .map((v) => `(${v}_w ${getSortOf(v)})`)
+        .join(" ");
+      return `(exists (${binds}) `;
+    };
+
+    const projectToBase = (s) => {
+      let r = String(s || "true");
+      for (const v of dpn.dataVariables || []) {
+        const name = v.name || v.id;
+        r = r.replace(new RegExp(`\\b${name}_(?:r|w)\\b`, "g"), name);
+      }
+      return r;
+    };
+
+    // Build refined copies and filter UNSAT / redundant (Flatten)
+    const candidates = [];
+
+    for (let i = 0; i < cases.length; i++) {
+      const c_rw = cases[i];
+      const body = `(and ${pre_r} ${post_rw} ${c_rw})`;
+      const existsOpen = quantifiedBinder();
+      const formulaRW = existsOpen ? `${existsOpen}${body})` : body;
+
+      // QE over writes
+      let preBase;
+      try {
+        const qe = await this.eliminateQuantifiers(formulaRW);
+        preBase = projectToBase(qe);
+      } catch (_e) {
+        // Fallback: include post/case conjuncts that do NOT mention writes (_w).
+        const filterAndDropWrites = (s) => {
+          const src = String(s || "true").trim();
+          if (src === "true" || src === "false") return src;
+          if (!/^\(\s*and\b/.test(src))
+            return src.includes("_w") ? "true" : src;
+          // split top-level (and a b c ...)
+          const parts = [];
+          let d = 0,
+            buf = "",
+            i = 0;
+          // skip "(and"
+          for (i = 1; i < src.length - 1; i++) {
+            const ch = src[i];
+            if (ch === "(") {
+              d++;
+              buf += ch;
+              continue;
+            }
+            if (ch === ")") {
+              d--;
+              buf += ch;
+              continue;
+            }
+            if (d === 0 && /\s/.test(ch)) {
+              if (buf.trim()) {
+                parts.push(buf.trim());
+                buf = "";
+              }
+            } else {
+              buf += ch;
+            }
+          }
+          if (buf.trim()) parts.push(buf.trim());
+          const kept = parts.filter((p) => !p.includes("_w"));
+          if (kept.length === 0) return "true";
+          if (kept.length === 1) return kept[0];
+          return `(and ${kept.join(" ")})`;
+        };
+        const postReadOnly =
+          written.size === 0 ? post_rw : filterAndDropWrites(post_rw);
+        const caseReadOnly =
+          written.size === 0 ? c_rw : filterAndDropWrites(c_rw);
+        preBase = projectToBase(
+          `(and ${pre_r} ${postReadOnly} ${caseReadOnly})`
+        );
       }
 
-      // Duplicate arcs to each refined copy and drop arcs of t
-      const inArcs =
-        arcsIn.get(tid) || (dpnR.arcs || []).filter((a) => a.target === tid);
-      const outArcs =
-        arcsOut.get(tid) || (dpnR.arcs || []).filter((a) => a.source === tid);
+      // Drop clearly malformed outcomes and UNSAT
+      const simplified = preBase.trim() || "true";
+      const isSat = await Z3Solver.isSatisfiable(simplified);
+      if (!isSat) continue;
 
-      for (let i = 0; i < refinedCopies.length; i++) {
-        const tr = refinedCopies[i];
-        newTransitions.push(tr);
+      candidates.push({
+        idx: i,
+        pre: simplified,
+      });
+    }
 
-        for (const a of inArcs) {
-          newArcs.push({
-            id: `${a.id}__to__${tr.id}`,
-            source: a.source,
-            target: tr.id,
-            weight: a.weight,
-            type: a.type,
-          });
-        }
-        for (const a of outArcs) {
-          newArcs.push({
-            id: `${tr.id}__to__${a.id}`,
-            source: tr.id,
-            target: a.target,
-            weight: a.weight,
-            type: a.type,
-          });
+    // Flatten: remove redundant cases A implied by some B (if A ⇒ B, drop A)
+    const keep = new Array(candidates.length).fill(true);
+    for (let i = 0; i < candidates.length; i++) {
+      if (!keep[i]) continue;
+      for (let j = 0; j < candidates.length; j++) {
+        if (i === j || !keep[j]) continue;
+        const A = candidates[i].pre;
+        const B = candidates[j].pre;
+        const implies = !(await Z3Solver.isSatisfiable(
+          `(and ${A} (not ${B}))`
+        ));
+        if (implies) {
+          // A is subset of B → prefer the more general one (B); drop A
+          keep[i] = false;
+          break;
         }
       }
     }
 
-    // Also keep arcs that do not touch any refined transition
-    for (const a of dpnR.arcs || []) {
-      const touchesRefinedSource = inCycle.has(a.source);
-      const touchesRefinedTarget = inCycle.has(a.target);
-      if (!touchesRefinedSource && !touchesRefinedTarget) {
-        newArcs.push(a);
-      }
+    const refined = [];
+    let counter = 0;
+    for (let k = 0; k < candidates.length; k++) {
+      if (!keep[k]) continue;
+      const c = candidates[k];
+      const rid = `${t.id}_refined_case_${counter++}`;
+      refined.push(this.createRefinedTransition(t, c.pre, rid));
     }
-
-    // Rebuild DPN
-    const seenArcIds = new Set();
-    const dedupArcs = [];
-    for (const a of newArcs) {
-      const key = `${a.source}->${a.target}@${a.weight}:${a.type}`;
-      if (seenArcIds.has(key)) continue;
-      seenArcIds.add(key);
-      dedupArcs.push(a);
-    }
-
-    const out = this.cloneDPN(dpnR);
-    out.transitions = newTransitions;
-    out.arcs = dedupArcs;
 
     this.logStep(
       "Refinement",
-      `Refinement complete: ${dpnR.transitions.length} → ${out.transitions.length} transitions`
+      `Transition ${t.id}: ${refined.length} refined copy(ies)`
     );
-    return out;
+    return refined.length ? refined : [t];
   }
 
   /**
@@ -1957,7 +2101,6 @@ async canonicalizeFormula(formula) {
     return conditions.length > 0 ? `(and ${conditions.join(" ")})` : "true";
   }
 
-
   /**
    * Logical equivalence check for formulas over the same variable set.
    *
@@ -1974,7 +2117,6 @@ async canonicalizeFormula(formula) {
     const sat2 = await Z3Solver.isSatisfiable(`(and ${b} (not ${a}))`);
     return !sat2;
   }
-
 
   /**
    * Stable state key used only after canonicalization.
@@ -2073,283 +2215,303 @@ async canonicalizeFormula(formula) {
     }
   }
 
-/**
- * Quantifier elimination with strong defensive parsing.
- * - Repairs common malformed SMT patterns (e.g., "(x)" → "x", "(10)" → "10", "(true ())" → "true").
- * - Skips tactics entirely if the input still looks suspicious (prevents WASM thread faults).
- * - Wraps *every* Z3 call in try/catch and short-circuits to a safe fallback.
- *
- * @param {string} formula
- * @returns {Promise<string>} Quantifier-free (best effort) or a sanitized fallback.
- */
-async eliminateQuantifiers(formula) {
-  const sanitizePrimes = (s) =>
-    String(s || "")
-      .trim()
-      .replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
+  /**
+   * Quantifier elimination with strong defensive parsing.
+   * - Repairs common malformed SMT patterns (e.g., "(x)" → "x", "(10)" → "10", "(true ())" → "true").
+   * - Skips tactics entirely if the input still looks suspicious (prevents WASM thread faults).
+   * - Wraps *every* Z3 call in try/catch and short-circuits to a safe fallback.
+   *
+   * @param {string} formula
+   * @returns {Promise<string>} Quantifier-free (best effort) or a sanitized fallback.
+   */
+  async eliminateQuantifiers(formula) {
+    const sanitizePrimes = (s) =>
+      String(s || "")
+        .trim()
+        .replace(/([A-Za-z_][A-Za-z0-9_]*)'/g, "$1_prime");
 
-  // ---- Helpers kept local to this method -----------------------------------
-  const stripEmptyConj = (s) =>
-    String(s || "")
-      .replace(/\(\s*and\s+true\s+([^)]+)\)/g, "$1")
-      .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, "$1")
-      .replace(/\(\s*and\s*\)/g, "true")
-      .replace(/\(\s*or\s+false\s+([^)]+)\)/g, "$1")
-      .replace(/\(\s*or\s+([^)]+)\s+false\s*\)/g, "$1");
-
-  // Heuristic fixer for malformed S-expressions that show up in your logs:
-  //   - Remove nullary applications "(x)" → "x", "(10)" → "10", "(true())" → "true"
-  //   - Drop empty "()" blobs
-  //   - Convert bare "(a b)" pairs to "(= a b)" (only if 'a' is not a known operator)
-  const repairSmt = (input) => {
-    let s = String(input || "").trim();
-
-    if (!s) return "true";
-
-    // Remove empty applications "()" first
-    s = s.replace(/\(\s*\)/g, "");
-
-    // Collapse "( true )", "( false )", "( 10 )", "( x )" → "true"/"false"/"10"/"x"
-    // (only when token is a single atom, not an operator)
-    const ATOM = "(?:[-+]?\\d+(?:\\.\\d+)?|[A-Za-z_][A-Za-z0-9_]*)";
-    const OPS = new Set([
-      "and",
-      "or",
-      "not",
-      "=",
-      "distinct",
-      "<",
-      "<=",
-      ">",
-      ">=",
-      "+",
-      "-",
-      "*",
-      "/",
-      "ite",
-      "=>",
-      "exists",
-      "forall",
-      "let",
-      "assert",
-      "true",
-      "false",
-    ]);
-
-    // "( atom )" → "atom" when atom ∉ OPS
-    s = s.replace(new RegExp(`\\(\\s*(${ATOM})\\s*\\)`, "g"), (_, tok) => {
-      return OPS.has(tok) ? `(${tok})` : tok;
-    });
-
-    // Fix weird "(true ())" or "(false ())"
-    s = s.replace(/\(\s*(true|false)\s*\(\s*\)\s*\)/g, "$1");
-
-    // Convert bare "(a b)" (two atoms, missing operator) into "(= a b)"
-    // Only if "a" is not an operator and both look atomic.
-    s = s.replace(
-      new RegExp(`\\(\\s*(${ATOM})\\s+(${ATOM})\\s*\\)`, "g"),
-      (_, a, b) => {
-        if (OPS.has(a)) return `(${a} ${b})`; // leave operator forms intact
-        return `(= ${a} ${b})`;
-      }
-    );
-
-    // Clean duplicated spaces
-    s = s.replace(/\s+/g, " ").trim();
-
-    // Quick normalizations of trivial "and/or" with true/false
-    s = stripEmptyConj(s)
-      .replace(/\(\s*and\s+true\s+true\s*\)/g, "true")
-      .replace(/\(\s*or\s+false\s+false\s*\)/g, "false");
-
-    return s || "true";
-  };
-
-  // A conservative detector for patterns we *never* want to feed into tactics.
-  const looksSuspicious = (s) => {
-    if (!s) return true;
-    // Nullary app still present?  e.g., "(x)" or "(10)" or "(true())"
-    if (/\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(s)) return true;
-    if (/\(\s*[-+]?\d+(?:\.\d+)?\s*\)/.test(s)) return true;
-    // Empty application
-    if (/\(\s*\)/.test(s)) return true;
-    // "(true () ...)" variants
-    if (/\(\s*true\s*\(\s*\)/.test(s)) return true;
-    // Lone pair without a known operator "(a b)" (missed by repair)
-    if (/\(\s*[A-Za-z_][A-Za-z0-9_]*\s+[A-Za-z_0-9.+-]+\s*\)/.test(s)) return true;
-    return false;
-  };
-
-  // Very light syntactic "definitional" QE: ∃x. (= x t) ∧ φ  ⇒  φ[t/x]
-  const defQE = (input) => {
-    let s = String(input || "").trim();
-    const existsTop =
-      /^\(\s*exists\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*(.+)\)$/s;
-    const bindersRe = /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g;
-
-    const replaceAll = (str, v, rhs) =>
-      str.replace(new RegExp(`\\b${v}\\b`, "g"), rhs);
-
-    const dropTrue = (body) =>
-      body
+    // ---- Helpers kept local to this method -----------------------------------
+    const stripEmptyConj = (s) =>
+      String(s || "")
         .replace(/\(\s*and\s+true\s+([^)]+)\)/g, "$1")
         .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, "$1")
-        .trim() || "true";
+        .replace(/\(\s*and\s*\)/g, "true")
+        .replace(/\(\s*or\s+false\s+([^)]+)\)/g, "$1")
+        .replace(/\(\s*or\s+([^)]+)\s+false\s*\)/g, "$1");
 
-    let changed = true;
-    while (changed) {
-      changed = false;
-      const m = s.match(existsTop);
-      if (!m) break;
+    // Heuristic fixer for malformed S-expressions that show up in your logs:
+    //   - Remove nullary applications "(x)" → "x", "(10)" → "10", "(true())" → "true"
+    //   - Drop empty "()" blobs
+    //   - Convert bare "(a b)" pairs to "(= a b)" (only if 'a' is not a known operator)
+    const repairSmt = (input) => {
+      let s = String(input || "").trim();
 
-      let bindersBlob = m[1];
-      let body = m[2].trim();
+      if (!s) return "true";
 
-      const binders = [];
-      let bm;
-      while ((bm = bindersRe.exec(bindersBlob)) !== null) binders.push(bm[1]);
+      // Remove empty applications "()" first
+      s = s.replace(/\(\s*\)/g, "");
 
-      let removedAny = false;
-      for (const v of binders) {
-        const pat1 = new RegExp(`\\(=\\s+${v}\\s+([^()]+|\\([^)]*\\))\\)`);
-        const pat2 = new RegExp(`\\(=\\s+([^()]+|\\([^)]*\\))\\s+${v}\\)`);
-        let mm = body.match(pat1);
-        let rhs = null;
+      // Collapse "( true )", "( false )", "( 10 )", "( x )" → "true"/"false"/"10"/"x"
+      // (only when token is a single atom, not an operator)
+      const ATOM = "(?:[-+]?\\d+(?:\\.\\d+)?|[A-Za-z_][A-Za-z0-9_]*)";
+      const OPS = new Set([
+        "and",
+        "or",
+        "not",
+        "=",
+        "distinct",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "+",
+        "-",
+        "*",
+        "/",
+        "ite",
+        "=>",
+        "exists",
+        "forall",
+        "let",
+        "assert",
+        "true",
+        "false",
+      ]);
 
-        if (mm) rhs = mm[1].trim();
-        else if ((mm = body.match(pat2))) rhs = mm[1].trim();
+      // "( atom )" → "atom" when atom ∉ OPS
+      s = s.replace(new RegExp(`\\(\\s*(${ATOM})\\s*\\)`, "g"), (_, tok) => {
+        return OPS.has(tok) ? `(${tok})` : tok;
+      });
 
-        if (rhs && !new RegExp(`\\b${v}\\b`).test(rhs)) {
-          const eqRe = mm[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          body = body.replace(new RegExp(`\\s*${eqRe}\\s*`), " true ");
-          body = replaceAll(body, v, rhs);
-          removedAny = true;
+      // Fix weird "(true ())" or "(false ())"
+      s = s.replace(/\(\s*(true|false)\s*\(\s*\)\s*\)/g, "$1");
 
-          bindersBlob = bindersBlob
-            .replace(new RegExp(`\\(\\s*${v}\\s+[A-Za-z_]\\w*\\s*\\)`), "")
-            .trim();
+      // Convert bare "(a b)" (two atoms, missing operator) into "(= a b)"
+      // Only if "a" is not an operator and both look atomic.
+      s = s.replace(
+        new RegExp(`\\(\\s*(${ATOM})\\s+(${ATOM})\\s*\\)`, "g"),
+        (_, a, b) => {
+          if (OPS.has(a)) return `(${a} ${b})`; // leave operator forms intact
+          return `(= ${a} ${b})`;
         }
+      );
+
+      // Clean duplicated spaces
+      s = s.replace(/\s+/g, " ").trim();
+
+      // Quick normalizations of trivial "and/or" with true/false
+      s = stripEmptyConj(s)
+        .replace(/\(\s*and\s+true\s+true\s*\)/g, "true")
+        .replace(/\(\s*or\s+false\s+false\s*\)/g, "false");
+
+      return s || "true";
+    };
+
+    // A conservative detector for patterns we *never* want to feed into tactics.
+    const looksSuspicious = (s) => {
+      if (!s) return true;
+      // Nullary app still present?  e.g., "(x)" or "(10)" or "(true())"
+      if (/\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(s)) return true;
+      if (/\(\s*[-+]?\d+(?:\.\d+)?\s*\)/.test(s)) return true;
+      // Empty application
+      if (/\(\s*\)/.test(s)) return true;
+      // "(true () ...)" variants
+      if (/\(\s*true\s*\(\s*\)/.test(s)) return true;
+      // Lone pair without a known operator "(a b)" (missed by repair)
+      if (/\(\s*[A-Za-z_][A-Za-z0-9_]*\s+[A-Za-z_0-9.+-]+\s*\)/.test(s))
+        return true;
+      return false;
+    };
+
+    // Very light syntactic "definitional" QE: ∃x. (= x t) ∧ φ  ⇒  φ[t/x]
+    const defQE = (input) => {
+      let s = String(input || "").trim();
+      const existsTop =
+        /^\(\s*exists\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*(.+)\)$/s;
+      const bindersRe = /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g;
+
+      const replaceAll = (str, v, rhs) =>
+        str.replace(new RegExp(`\\b${v}\\b`, "g"), rhs);
+
+      const dropTrue = (body) =>
+        body
+          .replace(/\(\s*and\s+true\s+([^)]+)\)/g, "$1")
+          .replace(/\(\s*and\s+([^)]+)\s+true\s*\)/g, "$1")
+          .trim() || "true";
+
+      let changed = true;
+      while (changed) {
+        changed = false;
+        const m = s.match(existsTop);
+        if (!m) break;
+
+        let bindersBlob = m[1];
+        let body = m[2].trim();
+
+        const binders = [];
+        let bm;
+        while ((bm = bindersRe.exec(bindersBlob)) !== null) binders.push(bm[1]);
+
+        let removedAny = false;
+        for (const v of binders) {
+          const pat1 = new RegExp(`\\(=\\s+${v}\\s+([^()]+|\\([^)]*\\))\\)`);
+          const pat2 = new RegExp(`\\(=\\s+([^()]+|\\([^)]*\\))\\s+${v}\\)`);
+          let mm = body.match(pat1);
+          let rhs = null;
+
+          if (mm) rhs = mm[1].trim();
+          else if ((mm = body.match(pat2))) rhs = mm[1].trim();
+
+          if (rhs && !new RegExp(`\\b${v}\\b`).test(rhs)) {
+            const eqRe = mm[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            body = body.replace(new RegExp(`\\s*${eqRe}\\s*`), " true ");
+            body = replaceAll(body, v, rhs);
+            removedAny = true;
+
+            bindersBlob = bindersBlob
+              .replace(new RegExp(`\\(\\s*${v}\\s+[A-Za-z_]\\w*\\s*\\)`), "")
+              .trim();
+          }
+        }
+
+        if (!removedAny) break;
+
+        body = dropTrue(body);
+        if (!bindersBlob.replace(/\s+/g, "")) {
+          s = body;
+        } else {
+          // Rebuild a compact binder list
+          const cleaned = Array.from(
+            bindersBlob.matchAll(/\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)/g)
+          )
+            .map((x) => x[0])
+            .join(" ");
+          s = `(exists (${cleaned}) ${body})`;
+        }
+        changed = true;
       }
+      return s;
+    };
 
-      if (!removedAny) break;
-
-      body = dropTrue(body);
-      if (!bindersBlob.replace(/\s+/g, "")) {
-        s = body;
-      } else {
-        // Rebuild a compact binder list
-        const cleaned = Array.from(
-          bindersBlob.matchAll(/\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)/g)
-        )
-          .map((x) => x[0])
-          .join(" ");
-        s = `(exists (${cleaned}) ${body})`;
-      }
-      changed = true;
-    }
-    return s;
-  };
-
-  // Pretty-printer for a goal into a single string
-  const prettyGoal = (g) => {
-    try {
-      const sz = _z3.goal_size(_context, g);
-      if (sz === 0) return "true";
-      if (sz === 1) {
-        return _z3.ast_to_string(_context, _z3.goal_formula(_context, g, 0));
-      }
-      const parts = [];
-      for (let i = 0; i < sz; i++) {
-        parts.push(
-          _z3.ast_to_string(_context, _z3.goal_formula(_context, g, i))
-        );
-      }
-      return `(and ${parts.join(" ")})`;
-    } catch {
-      return "true";
-    }
-  };
-
-  // ---- Pipeline -------------------------------------------------------------
-  const original = sanitizePrimes(formula);
-  if (!original || original === "true" || original === "false") {
-    return original || "true";
-  }
-
-  // Cheap definitional QE first (safe, no Z3)
-  let pre = defQE(original);
-
-  // Repair malformed S-expressions *before* touching Z3
-  pre = repairSmt(pre);
-
-  // If anything still looks dangerous, bail out early with repaired string
-  if (looksSuspicious(pre)) {
-    console.warn("[QE] Suspicious SMT detected — skipping tactics:", pre);
-    return pre;
-  }
-
-  // Build a tiny script for parsing/tactics
-  const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
-
-  try {
-    // Parse once; if it fails, bail out safely
-    const astVec = _z3.parse_smtlib2_string(_context, buildScript(pre), [], [], [], []);
-    const vecSize = _z3.ast_vector_size(_context, astVec);
-    if (vecSize === 0) {
-      console.warn("[QE] Empty AST after parse; returning repaired input.");
-      return pre;
-    }
-
-    // Seed goal
-    const goal = _z3.mk_goal(_context, true, false, false);
-    for (let i = 0; i < vecSize; i++) {
-      _z3.goal_assert(_context, goal, _z3.ast_vector_get(_context, astVec, i));
-    }
-
-    // Guard: never run tactics on empty goal
-    if (_z3.goal_size(_context, goal) === 0) {
-      return "true";
-    }
-
-    // Safe tactic runner
-    const tryTactic = async (g, name) => {
+    // Pretty-printer for a goal into a single string
+    const prettyGoal = (g) => {
       try {
-        const t = _z3.mk_tactic(_context, name);
-        const r = await _z3.tactic_apply(_context, t, g);
-        const n = _z3.apply_result_get_num_subgoals(_context, r);
-        if (n === 0) return g;
-        return _z3.apply_result_get_subgoal(_context, r, 0);
-      } catch (e) {
-        console.warn(`[QE] Tactic '${name}' failed; keeping previous goal.`, e);
-        return g; // keep going with last good goal
+        const sz = _z3.goal_size(_context, g);
+        if (sz === 0) return "true";
+        if (sz === 1) {
+          return _z3.ast_to_string(_context, _z3.goal_formula(_context, g, 0));
+        }
+        const parts = [];
+        for (let i = 0; i < sz; i++) {
+          parts.push(
+            _z3.ast_to_string(_context, _z3.goal_formula(_context, g, i))
+          );
+        }
+        return `(and ${parts.join(" ")})`;
+      } catch {
+        return "true";
       }
     };
 
-    // Tactic pipeline (each step guarded)
-    let g = goal;
-    g = await tryTactic(g, "simplify");
-    g = await tryTactic(g, "reduce-quantifiers");
-    g = await tryTactic(g, "solve-eqs");
-    g = await tryTactic(g, "qe_lite");
-    g = await tryTactic(g, "qe");
-    g = await tryTactic(g, "qe_rec");
+    // ---- Pipeline -------------------------------------------------------------
+    const original = sanitizePrimes(formula);
+    if (!original || original === "true" || original === "false") {
+      return original || "true";
+    }
 
-    // Print final goal back to a term
-    let out = prettyGoal(g);
-    out = repairSmt(out);        // final repair/cleanup
-    out = stripEmptyConj(out);   // and minor simplification
+    // Cheap definitional QE first (safe, no Z3)
+    let pre = defQE(original);
 
-    // Final safety net
-    if (looksSuspicious(out)) {
-      console.warn("[QE] Result still looks suspicious; returning repaired pre.");
+    // Repair malformed S-expressions *before* touching Z3
+    pre = repairSmt(pre);
+
+    // If anything still looks dangerous, bail out early with repaired string
+    if (looksSuspicious(pre)) {
+      console.warn("[QE] Suspicious SMT detected — skipping tactics:", pre);
       return pre;
     }
-    return out || "true";
-  } catch (e) {
-    console.error("[QE] Z3 parse/apply failed; returning repaired fallback.", e);
-    return pre;
+
+    // Build a tiny script for parsing/tactics
+    const buildScript = (body) => `(set-logic ALL)\n(assert ${body})`;
+
+    try {
+      // Parse once; if it fails, bail out safely
+      const astVec = _z3.parse_smtlib2_string(
+        _context,
+        buildScript(pre),
+        [],
+        [],
+        [],
+        []
+      );
+      const vecSize = _z3.ast_vector_size(_context, astVec);
+      if (vecSize === 0) {
+        console.warn("[QE] Empty AST after parse; returning repaired input.");
+        return pre;
+      }
+
+      // Seed goal
+      const goal = _z3.mk_goal(_context, true, false, false);
+      for (let i = 0; i < vecSize; i++) {
+        _z3.goal_assert(
+          _context,
+          goal,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
+      }
+
+      // Guard: never run tactics on empty goal
+      if (_z3.goal_size(_context, goal) === 0) {
+        return "true";
+      }
+
+      // Safe tactic runner
+      const tryTactic = async (g, name) => {
+        try {
+          const t = _z3.mk_tactic(_context, name);
+          const r = await _z3.tactic_apply(_context, t, g);
+          const n = _z3.apply_result_get_num_subgoals(_context, r);
+          if (n === 0) return g;
+          return _z3.apply_result_get_subgoal(_context, r, 0);
+        } catch (e) {
+          console.warn(
+            `[QE] Tactic '${name}' failed; keeping previous goal.`,
+            e
+          );
+          return g; // keep going with last good goal
+        }
+      };
+
+      // Tactic pipeline (each step guarded)
+      let g = goal;
+      g = await tryTactic(g, "simplify");
+      g = await tryTactic(g, "reduce-quantifiers");
+      g = await tryTactic(g, "solve-eqs");
+      g = await tryTactic(g, "qe_lite");
+      g = await tryTactic(g, "qe");
+      g = await tryTactic(g, "qe_rec");
+
+      // Print final goal back to a term
+      let out = prettyGoal(g);
+      out = repairSmt(out); // final repair/cleanup
+      out = stripEmptyConj(out); // and minor simplification
+
+      // Final safety net
+      if (looksSuspicious(out)) {
+        console.warn(
+          "[QE] Result still looks suspicious; returning repaired pre."
+        );
+        return pre;
+      }
+      return out || "true";
+    } catch (e) {
+      console.error(
+        "[QE] Z3 parse/apply failed; returning repaired fallback.",
+        e
+      );
+      return pre;
+    }
   }
-}
 
   async parseFormulaToAST(formula) {
     try {
@@ -2618,7 +2780,8 @@ const Z3Solver = {
       if (!isAtom(head)) return false;
 
       // (true ...) or (false ...) are illegal (true/false are 0-arity constants)
-      if ((head === "true" || head === "false") && node.length > 1) return false;
+      if ((head === "true" || head === "false") && node.length > 1)
+        return false;
 
       const args = node.slice(1);
 
@@ -2647,7 +2810,9 @@ const Z3Solver = {
     };
 
     const ok = validateNode(ast);
-    return ok ? { ok: true } : { ok: false, reason: "invalid operator/arity/application" };
+    return ok
+      ? { ok: true }
+      : { ok: false, reason: "invalid operator/arity/application" };
   },
 
   async initialize() {
@@ -2677,7 +2842,11 @@ const Z3Solver = {
     // Early structural/arity validation. On failure, treat as UNSAT (fail fast).
     const validation = this._validateSmtTerm(body);
     if (!validation.ok) {
-      console.warn("[isSatisfiable] Rejected malformed SMT:", validation.reason, "— returning UNSAT.");
+      console.warn(
+        "[isSatisfiable] Rejected malformed SMT:",
+        validation.reason,
+        "— returning UNSAT."
+      );
       return false;
     }
 
@@ -2727,7 +2896,9 @@ const Z3Solver = {
       let m;
       while ((m = qre.exec(src)) !== null) {
         const blob = m[1];
-        for (const mm of blob.matchAll(/\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g)) {
+        for (const mm of blob.matchAll(
+          /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+        )) {
           bound.add(mm[1]);
         }
       }
@@ -2781,14 +2952,20 @@ const Z3Solver = {
       const n = _z3.ast_vector_size(_context, astVec);
 
       if (n <= 0) {
-        console.warn("[isSatisfiable] Parser produced 0 assertions — returning UNSAT.");
+        console.warn(
+          "[isSatisfiable] Parser produced 0 assertions — returning UNSAT."
+        );
         return false;
       }
 
       // Create a fresh solver, assert ASTs, then check.
       const solver = _z3.mk_solver(_context);
       for (let i = 0; i < n; i++) {
-        _z3.solver_assert(_context, solver, _z3.ast_vector_get(_context, astVec, i));
+        _z3.solver_assert(
+          _context,
+          solver,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
       }
 
       const res = await _z3.solver_check(_context, solver);
@@ -2798,7 +2975,10 @@ const Z3Solver = {
       console.warn("[isSatisfiable] Z3 returned UNDEF; treating as UNSAT.");
       return false;
     } catch (e) {
-      console.error("[isSatisfiable] Z3 parse/assert failed; returning UNSAT.", e);
+      console.error(
+        "[isSatisfiable] Z3 parse/assert failed; returning UNSAT.",
+        e
+      );
       return false;
     }
   },
@@ -2886,7 +3066,9 @@ const Z3Solver = {
         let m;
         while ((m = qre.exec(src)) !== null) {
           const blob = m[1];
-          for (const mm of blob.matchAll(/\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g)) {
+          for (const mm of blob.matchAll(
+            /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+          )) {
             bound.add(mm[1]);
           }
         }
@@ -2934,7 +3116,14 @@ const Z3Solver = {
 
       try {
         const solver = _z3.mk_solver(_context);
-        const astVec = _z3.parse_smtlib2_string(_context, script, [], [], [], []);
+        const astVec = _z3.parse_smtlib2_string(
+          _context,
+          script,
+          [],
+          [],
+          [],
+          []
+        );
         const n = _z3.ast_vector_size(_context, astVec);
         if (n <= 0) {
           return {
@@ -2946,7 +3135,11 @@ const Z3Solver = {
         }
 
         for (let i = 0; i < n; i++) {
-          _z3.solver_assert(_context, solver, _z3.ast_vector_get(_context, astVec, i));
+          _z3.solver_assert(
+            _context,
+            solver,
+            _z3.ast_vector_get(_context, astVec, i)
+          );
         }
 
         const res = await _z3.solver_check(_context, solver);
@@ -3000,7 +3193,11 @@ const Z3Solver = {
       }
 
       for (let i = 0; i < n; i++) {
-        _z3.solver_assert(_context, solver, _z3.ast_vector_get(_context, astVec, i));
+        _z3.solver_assert(
+          _context,
+          solver,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
       }
 
       const res = await _z3.solver_check(_context, solver);
@@ -3098,10 +3295,15 @@ class SuvorovLomazovaVerifier {
     this.finalMarkings = getFinalMarkingsFromPetriNet(petriNet);
 
     if (!this.finalMarkings.some((m) => Object.values(m).some((v) => v > 0))) {
-      throw new Error("Final markings without tokens are not supported in this verifier.");  
+      throw new Error(
+        "Final markings without tokens are not supported in this verifier."
+      );
     }
 
-    this.logStep("Get Final Markings", `Final markings: ${JSON.stringify(this.finalMarkings)}`);
+    this.logStep(
+      "Get Final Markings",
+      `Final markings: ${JSON.stringify(this.finalMarkings)}`
+    );
   }
 
   /**
@@ -3326,45 +3528,88 @@ class SuvorovLomazovaVerifier {
    * @returns {Promise<Object>} A new DPN with τ-transitions added and arcs duplicated to each τ(t).
    */
   async addTauTransitions(dpn) {
-    this.logStep("TauTransitions", "Adding τ-transitions (¬∃W.(pre ∧ post))");
+    this.logStep("TauTransitions", "Adding τ-transitions (¬∃W.(pre ∧ post)) with token flow identical to base t");
 
     const tauDpn = JSON.parse(JSON.stringify(dpn));
     const originalTransitions = Array.isArray(tauDpn.transitions)
       ? [...tauDpn.transitions]
       : [];
-    const makeTauId = (id) => `tau_${String(id)}`; // unique-enough for this scope
+
+    const makeTauId = (id) => `tau_${String(id)}`;
+    const isTauId = (id) => String(id).startsWith("tau_");
 
     let added = 0;
 
+    // Helper: get SMT sort for a variable name
+    const getSort = (name) => {
+      const dv = (tauDpn.dataVariables || []).find(
+        (v) => String(v.name || v.id) === String(name)
+      );
+      const typ = (dv && String(dv.type || "").toLowerCase()) || "real";
+      if (typ === "int" || typ === "integer") return "Int";
+      if (typ === "bool" || typ === "boolean") return "Bool";
+      return "Real";
+    };
+
+    const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // Build fast arc indices
+    const allArcs = Array.isArray(tauDpn.arcs) ? tauDpn.arcs : [];
+    const inByT = new Map();
+    const outByT = new Map();
+    for (const t of originalTransitions) {
+      inByT.set(t.id, []);
+      outByT.set(t.id, []);
+    }
+    for (const a of allArcs) {
+      if (originalTransitions.some((t) => t.id === a.target)) {
+        const arr = inByT.get(a.target);
+        if (arr) arr.push(a);
+      }
+      if (originalTransitions.some((t) => t.id === a.source)) {
+        const arr = outByT.get(a.source);
+        if (arr) arr.push(a);
+      }
+    }
+
     for (const t of originalTransitions) {
       if (!t || typeof t.id === "undefined") continue;
-      if (String(t.id).startsWith("tau_")) continue; // Skip existing τ transitions
+      if (isTauId(t.id)) continue; // Skip existing τ transitions (if any)
 
-      // Build guard(t) := ∃W.(pre_r ∧ post_w/r) using the ⊕ pipeline with state=true.
-      // Then τ-pre := (not guard(t)).
-      let guardT = "true";
-      try {
-        guardT = await this.refinementEngine.computeNewFormula(
-          "true",
-          t,
-          tauDpn
+      // Determine written variables W from postcondition (v' or v_w)
+      const written = new Set(
+        this.refinementEngine.getWrittenVariables(t, tauDpn) || []
+      );
+
+      // Build post body where each v' is replaced by a fresh bound symbol v_w
+      let postBody = String(t.postcondition || "").trim();
+      for (const v of (tauDpn.dataVariables || []).map(
+        (dv) => dv.name || dv.id
+      )) {
+        postBody = postBody.replace(
+          new RegExp(`\\b${esc(v)}\\s*'\\b`, "g"),
+          `${v}_w`
         );
-      } catch (_e) {
-        // If guard construction fails, conservatively skip τ for this t.
-        this.logStep(
-          "TauTransitions",
-          `Skipping τ for ${t.id} due to guard build error`
-        );
-        continue;
       }
 
-      const tauPre = `(not ${guardT})`;
+      // τ-pre := ¬∃W.( pre ∧ post[v'↦v_w] ) ; if W=∅ then τ-pre := ¬(pre ∧ post)
+      let tauPre;
+      if (written.size === 0) {
+        tauPre = `(not (and ${t.precondition || "true"} ${postBody || "true"}))`;
+      } else {
+        const binders = Array.from(written)
+          .map((v) => `(${v}_w ${getSort(v)})`)
+          .join(" ");
+        tauPre = `(not (exists (${binders}) (and ${t.precondition || "true"} ${
+          postBody || "true"
+        })))`;
+      }
 
       const tauTransition = {
         id: makeTauId(t.id),
         label: `τ(${t.label || t.id})`,
         precondition: tauPre,
-        postcondition: "",
+        postcondition: "", // data stutter
         priority: typeof t.priority === "number" ? t.priority : 1,
         delay: 0,
         position: t.position,
@@ -3374,18 +3619,28 @@ class SuvorovLomazovaVerifier {
       tauDpn.transitions.push(tauTransition);
       added += 1;
 
-      // Duplicate all arcs incident to t, redirecting endpoints to τ(t).
-      const relatedArcs = (tauDpn.arcs || []).filter(
-        (a) => a.source === t.id || a.target === t.id
-      );
+      // DUPLICATE ALL ARCS of t to τ(t) — τ moves tokens exactly like t
+      const tauId = tauTransition.id;
 
-      for (const arc of relatedArcs) {
+      // P → t  becomes  P → τ(t)
+      for (const a of inByT.get(t.id) || []) {
         tauDpn.arcs.push({
-          id: makeTauId(arc.id),
-          source: arc.source === t.id ? tauTransition.id : arc.source,
-          target: arc.target === t.id ? tauTransition.id : arc.target,
-          weight: arc.weight,
-          type: arc.type,
+          id: `${a.id || `${a.source}_${tauId}`}_tau_in`,
+          source: a.source,
+          target: tauId,
+          weight: a.weight || 1,
+          type: a.type || "regular",
+        });
+      }
+
+      // t → P'  becomes  τ(t) → P'
+      for (const a of outByT.get(t.id) || []) {
+        tauDpn.arcs.push({
+          id: `${a.id || `${tauId}_${a.target}`}_tau_out`,
+          source: tauId,
+          target: a.target,
+          weight: a.weight || 1,
+          type: a.type || "regular",
         });
       }
     }
@@ -3398,6 +3653,7 @@ class SuvorovLomazovaVerifier {
 
     return tauDpn;
   }
+
 
   /**
    * Deadlock detection aligned with the paper’s intent:
@@ -4370,7 +4626,9 @@ class SuvorovLomazovaVerifier {
         return {
           name: "Dead transition (P3)",
           satisfied: false,
-          details: `Transition ${transition.label || transition.id} is never enabled`,
+          details: `Transition ${
+            transition.label || transition.id
+          } is never enabled`,
           deadTransition: {
             transitionId: transition.id,
             transitionLabel: transition.label || transition.id,
@@ -4386,7 +4644,6 @@ class SuvorovLomazovaVerifier {
       details: "All transitions are reachable",
     };
   }
-
 
   async checkWithTauTransitions(dpn) {
     // Enhanced check with tau transitions for comprehensive coverage
@@ -4651,7 +4908,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.responsibleVariables = new Map();
     this.violationInfo = null;
     this.isActive = false;
-    
+
     // Animation properties
     this.animationTime = 0;
     this.animationFrame = null;
@@ -4667,7 +4924,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.mainRenderer.render = () => {
       // Call original render first
       this.originalRender();
-      
+
       // Then add our overlays if active
       if (this.isActive) {
         this.renderVisualization();
@@ -4681,7 +4938,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   renderVisualization() {
     // Update animation
     this.updateAnimation();
-    
+
     // Render in correct order
     this.renderHighlights();
     this.renderOverlays();
@@ -4703,7 +4960,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.isActive = true;
     this.violationInfo = check;
 
-    console.log('Visualizing check:', check);
+    console.log("Visualizing check:", check);
 
     // Store problematic elements for special highlighting
     if (check.problematicPlaces) {
@@ -4720,16 +4977,16 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     if (!check.satisfied) {
       switch (true) {
-        case check.name.includes('Deadlock') || check.name.includes('P1'):
+        case check.name.includes("Deadlock") || check.name.includes("P1"):
           this.visualizeDeadlockViolation(check);
           break;
-        case check.name.includes('Overfinal') || check.name.includes('P2'):
+        case check.name.includes("Overfinal") || check.name.includes("P2"):
           this.visualizeOverfinalViolation(check);
           break;
-        case check.name.includes('Dead') || check.name.includes('P3'):
+        case check.name.includes("Dead") || check.name.includes("P3"):
           this.visualizeDeadTransitionViolation(check);
           break;
-        case check.name.includes('Boundedness'):
+        case check.name.includes("Boundedness"):
           this.visualizeBoundednessViolation(check);
           break;
         default:
@@ -4748,14 +5005,14 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   startAnimation() {
     if (this.animationFrame) return;
-    
+
     const animate = () => {
       if (this.isActive) {
         this.mainRenderer.render();
         this.animationFrame = requestAnimationFrame(animate);
       }
     };
-    
+
     animate();
   }
 
@@ -4775,7 +5032,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   visualizeDeadlockViolation(check) {
     // Highlight the violating states/path
     if (check.trace && check.trace.length > 0) {
-      this.visualizeTracePath(check.trace, 'deadlock');
+      this.visualizeTracePath(check.trace, "deadlock");
     }
 
     // If there's an offending state, highlight it specially
@@ -4786,11 +5043,11 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         Object.entries(nodeData.marking).forEach(([placeId, tokens]) => {
           if (tokens > 0) {
             this.dataOverlays.set(`deadlock_${placeId}`, {
-              type: 'deadlockMarking',
+              type: "deadlockMarking",
               elementId: placeId,
-              elementType: 'place',
+              elementType: "place",
               tokens,
-              data: nodeData
+              data: nodeData,
             });
           }
         });
@@ -4809,12 +5066,12 @@ class SuvorovLomazovaTraceVisualizationRenderer {
             if (tokens > 0) {
               this.highlightedElements.add(placeId);
               this.dataOverlays.set(`overfinal_${placeId}_${index}`, {
-                type: 'overfinal',
+                type: "overfinal",
                 elementId: placeId,
-                elementType: 'place',
+                elementType: "place",
                 tokens,
                 nodeData: node,
-                formula: node.formula
+                formula: node.formula,
               });
             }
           });
@@ -4823,7 +5080,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     }
 
     if (check.trace) {
-      this.visualizeTracePath(check.trace, 'overfinal');
+      this.visualizeTracePath(check.trace, "overfinal");
     }
   }
 
@@ -4831,7 +5088,9 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Visualize dead transition violation (P3)
    */
   visualizeDeadTransitionViolation(check) {
-    const deadTransitions = check.deadTransitions || (check.deadTransition ? [check.deadTransition] : []);
+    const deadTransitions =
+      check.deadTransitions ||
+      (check.deadTransition ? [check.deadTransition] : []);
 
     deadTransitions.forEach((deadTransition, index) => {
       const transitionId = deadTransition.transitionId;
@@ -4840,17 +5099,17 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         this.highlightConnectedElements(transitionId);
 
         this.dataOverlays.set(`dead_transition_${transitionId}`, {
-          type: 'deadTransition',
+          type: "deadTransition",
           elementId: transitionId,
-          elementType: 'transition',
+          elementType: "transition",
           data: deadTransition,
-          variants: deadTransition.variants || []
+          variants: deadTransition.variants || [],
         });
       }
     });
 
     if (check.trace) {
-      this.visualizeTracePath(check.trace, 'deadTransition');
+      this.visualizeTracePath(check.trace, "deadTransition");
     }
   }
 
@@ -4859,7 +5118,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   visualizeBoundednessViolation(check) {
     if (check.trace && check.trace.length > 0) {
-      this.visualizeTracePath(check.trace, 'boundedness');
+      this.visualizeTracePath(check.trace, "boundedness");
     }
   }
 
@@ -4868,7 +5127,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   visualizeGenericViolation(check) {
     if (check.trace) {
-      this.visualizeTracePath(check.trace, 'generic');
+      this.visualizeTracePath(check.trace, "generic");
     }
   }
 
@@ -4885,13 +5144,13 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         this.highlightConnectedElements(transitionId);
 
         this.dataOverlays.set(`trace_step_${stepIndex}`, {
-          type: 'traceStep',
+          type: "traceStep",
           elementId: transitionId,
-          elementType: 'transition',
+          elementType: "transition",
           stepIndex,
           violationType,
           data: step,
-          vars: step.vars || {}
+          vars: step.vars || {},
         });
       }
     });
@@ -4910,9 +5169,11 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     // Try to match by label or partial ID
     for (const [id, transition] of this.app.api.petriNet.transitions) {
-      if (transition.label === stepTransitionId ||
-          id.includes(stepTransitionId) ||
-          stepTransitionId.includes(id)) {
+      if (
+        transition.label === stepTransitionId ||
+        id.includes(stepTransitionId) ||
+        stepTransitionId.includes(id)
+      ) {
         return id;
       }
     }
@@ -4929,7 +5190,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     for (const arc of this.app.api.petriNet.arcs.values()) {
       if (arc.source === transitionId || arc.target === transitionId) {
         this.highlightedArcs.add(arc.id);
-        const connectedElementId = arc.source === transitionId ? arc.target : arc.source;
+        const connectedElementId =
+          arc.source === transitionId ? arc.target : arc.source;
         this.highlightedElements.add(connectedElementId);
       }
     }
@@ -4958,7 +5220,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     const ctx = this.mainRenderer.ctx;
     ctx.save();
-    
+
     // Apply the same transformations as the main renderer
     ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
     ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
@@ -4980,23 +5242,28 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       const arc = this.app.api.petriNet.arcs.get(arcId);
       if (!arc) continue;
 
-      const source = this.app.api.petriNet.places.get(arc.source) ||
-                     this.app.api.petriNet.transitions.get(arc.source);
-      const target = this.app.api.petriNet.places.get(arc.target) ||
-                     this.app.api.petriNet.transitions.get(arc.target);
+      const source =
+        this.app.api.petriNet.places.get(arc.source) ||
+        this.app.api.petriNet.transitions.get(arc.source);
+      const target =
+        this.app.api.petriNet.places.get(arc.target) ||
+        this.app.api.petriNet.transitions.get(arc.target);
 
       if (!source || !target) continue;
 
-      const { start, end } = this.mainRenderer.calculateArcEndpoints(source, target);
-      
+      const { start, end } = this.mainRenderer.calculateArcEndpoints(
+        source,
+        target
+      );
+
       // Draw highlight glow
       ctx.save();
       ctx.shadowBlur = 10;
-      ctx.shadowColor = this.getHighlightColor('arc');
-      ctx.strokeStyle = this.getHighlightColor('arc');
+      ctx.shadowColor = this.getHighlightColor("arc");
+      ctx.strokeStyle = this.getHighlightColor("arc");
       ctx.lineWidth = 4;
       ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.2;
-      
+
       ctx.beginPath();
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
@@ -5025,8 +5292,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Render highlighted place
    */
   renderHighlightedPlace(ctx, place, elementId) {
-    const color = this.getHighlightColor('place', elementId);
-    
+    const color = this.getHighlightColor("place", elementId);
+
     ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
@@ -5035,7 +5302,13 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     ctx.shadowColor = color;
 
     ctx.beginPath();
-    ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
+    ctx.arc(
+      place.position.x,
+      place.position.y,
+      place.radius + 8,
+      0,
+      Math.PI * 2
+    );
     ctx.stroke();
 
     // Add inner glow for overfinal markings
@@ -5052,8 +5325,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Render highlighted transition
    */
   renderHighlightedTransition(ctx, transition, elementId) {
-    const color = this.getHighlightColor('transition', elementId);
-    
+    const color = this.getHighlightColor("transition", elementId);
+
     ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = 4;
@@ -5085,10 +5358,10 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Get highlight color based on violation type
    */
   getHighlightColor(elementType, elementId) {
-    if (this.isDeadTransition(elementId)) return '#BF616A'; // Red
-    if (this.isOverfinalPlace(elementId)) return '#D08770'; // Orange
-    if (this.isTraceElement(elementId)) return '#88C0D0'; // Blue
-    return '#EBCB8B'; // Yellow default
+    if (this.isDeadTransition(elementId)) return "#BF616A"; // Red
+    if (this.isOverfinalPlace(elementId)) return "#D08770"; // Orange
+    if (this.isTraceElement(elementId)) return "#88C0D0"; // Blue
+    return "#EBCB8B"; // Yellow default
   }
 
   /**
@@ -5096,7 +5369,10 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   isDeadTransition(elementId) {
     for (const [key, overlay] of this.dataOverlays) {
-      if (overlay.type === 'deadTransition' && overlay.elementId === elementId) {
+      if (
+        overlay.type === "deadTransition" &&
+        overlay.elementId === elementId
+      ) {
         return true;
       }
     }
@@ -5108,7 +5384,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   isOverfinalPlace(elementId) {
     for (const [key, overlay] of this.dataOverlays) {
-      if (overlay.type === 'overfinal' && overlay.elementId === elementId) {
+      if (overlay.type === "overfinal" && overlay.elementId === elementId) {
         return true;
       }
     }
@@ -5120,7 +5396,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   isTraceElement(elementId) {
     for (const [key, overlay] of this.dataOverlays) {
-      if (overlay.type === 'traceStep' && overlay.elementId === elementId) {
+      if (overlay.type === "traceStep" && overlay.elementId === elementId) {
         return true;
       }
     }
@@ -5154,18 +5430,18 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     // Convert to screen coordinates
     const screenPos = this.worldToScreen(worldPos);
-    
+
     // Calculate offset for the tooltip
     const offset = { x: 30, y: -30 };
     const position = {
       x: screenPos.x + offset.x,
-      y: screenPos.y + offset.y
+      y: screenPos.y + offset.y,
     };
 
     // Prepare overlay content
     const content = this.formatOverlayContent(overlay);
-    const lines = content.split('\n');
-    
+    const lines = content.split("\n");
+
     // Style settings
     const padding = 12;
     const lineHeight = 18;
@@ -5173,9 +5449,11 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     const borderRadius = 8;
 
     ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-    
+
     // Calculate dimensions
-    const maxWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
+    const maxWidth = Math.max(
+      ...lines.map((line) => ctx.measureText(line).width)
+    );
     const boxWidth = maxWidth + padding * 2;
     const boxHeight = lines.length * lineHeight + padding * 2;
 
@@ -5189,26 +5467,40 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
     // Draw shadow
     ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
     ctx.shadowBlur = 10;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 4;
-    
+
     // Draw background with rounded corners
     ctx.fillStyle = this.getOverlayBackgroundColor(overlay.type);
-    this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
+    this.roundRect(
+      ctx,
+      position.x,
+      position.y,
+      boxWidth,
+      boxHeight,
+      borderRadius
+    );
     ctx.fill();
     ctx.restore();
 
     // Draw border
     ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
     ctx.lineWidth = 2;
-    this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
+    this.roundRect(
+      ctx,
+      position.x,
+      position.y,
+      boxWidth,
+      boxHeight,
+      borderRadius
+    );
     ctx.stroke();
 
     // Draw text
-    ctx.fillStyle = '#ECEFF4';
-    ctx.textBaseline = 'top';
+    ctx.fillStyle = "#ECEFF4";
+    ctx.textBaseline = "top";
     lines.forEach((line, index) => {
       const isHeader = index === 0;
       if (isHeader) {
@@ -5217,8 +5509,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
       }
       ctx.fillText(
-        line, 
-        position.x + padding, 
+        line,
+        position.x + padding,
         position.y + padding + index * lineHeight
       );
     });
@@ -5229,7 +5521,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     ctx.lineWidth = 1;
     ctx.globalAlpha = 0.5;
     ctx.setLineDash([4, 4]);
-    
+
     ctx.beginPath();
     ctx.moveTo(position.x + boxWidth / 2, position.y + boxHeight);
     ctx.lineTo(screenPos.x, screenPos.y);
@@ -5260,8 +5552,12 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   worldToScreen(worldPos) {
     return {
-      x: worldPos.x * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.x,
-      y: worldPos.y * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.y
+      x:
+        worldPos.x * this.mainRenderer.zoomFactor +
+        this.mainRenderer.panOffset.x,
+      y:
+        worldPos.y * this.mainRenderer.zoomFactor +
+        this.mainRenderer.panOffset.y,
     };
   }
 
@@ -5287,23 +5583,27 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   formatOverlayContent(overlay) {
     switch (overlay.type) {
-      case 'deadTransition':
-        return `⚠️ DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.elementId}\nNever enabled in any reachable state`;
+      case "deadTransition":
+        return `⚠️ DEAD TRANSITION\n${
+          overlay.data?.transitionLabel || overlay.elementId
+        }\nNever enabled in any reachable state`;
 
-      case 'overfinal':
+      case "overfinal":
         return `⚠️ OVERFINAL MARKING\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nExceeds final marking`;
 
-      case 'traceStep':
-        const stepInfo = [`Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`];
+      case "traceStep":
+        const stepInfo = [
+          `Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`,
+        ];
         if (overlay.vars && Object.keys(overlay.vars).length > 0) {
-          stepInfo.push('Data state:');
+          stepInfo.push("Data state:");
           Object.entries(overlay.vars).forEach(([k, v]) => {
             stepInfo.push(`  ${k} = ${v}`);
           });
         }
-        return stepInfo.join('\n');
+        return stepInfo.join("\n");
 
-      case 'deadlockMarking':
+      case "deadlockMarking":
         return `🔒 DEADLOCK STATE\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nCannot reach final marking`;
 
       default:
@@ -5316,16 +5616,16 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   getOverlayBackgroundColor(type) {
     switch (type) {
-      case 'deadTransition': 
-        return 'rgba(46, 52, 64, 0.95)'; // Dark with red tint
-      case 'overfinal': 
-        return 'rgba(46, 52, 64, 0.95)'; // Dark with orange tint
-      case 'deadlockMarking':
-        return 'rgba(46, 52, 64, 0.95)'; // Dark with red tint
-      case 'traceStep': 
-        return 'rgba(46, 52, 64, 0.95)'; // Dark with blue tint
-      default: 
-        return 'rgba(46, 52, 64, 0.95)'; // Dark default
+      case "deadTransition":
+        return "rgba(46, 52, 64, 0.95)"; // Dark with red tint
+      case "overfinal":
+        return "rgba(46, 52, 64, 0.95)"; // Dark with orange tint
+      case "deadlockMarking":
+        return "rgba(46, 52, 64, 0.95)"; // Dark with red tint
+      case "traceStep":
+        return "rgba(46, 52, 64, 0.95)"; // Dark with blue tint
+      default:
+        return "rgba(46, 52, 64, 0.95)"; // Dark default
     }
   }
 
@@ -5334,11 +5634,16 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   getOverlayBorderColor(type) {
     switch (type) {
-      case 'deadTransition': return '#BF616A'; // Red
-      case 'overfinal': return '#D08770'; // Orange
-      case 'deadlockMarking': return '#BF616A'; // Red
-      case 'traceStep': return '#88C0D0'; // Blue
-      default: return '#5E81AC'; // Blue default
+      case "deadTransition":
+        return "#BF616A"; // Red
+      case "overfinal":
+        return "#D08770"; // Orange
+      case "deadlockMarking":
+        return "#BF616A"; // Red
+      case "traceStep":
+        return "#88C0D0"; // Blue
+      default:
+        return "#5E81AC"; // Blue default
     }
   }
 
@@ -5375,10 +5680,10 @@ class SuvorovLomazovaVerificationUI {
    * Inject CSS styles for the verification UI
    */
   injectStyles() {
-    if (document.getElementById('sl-verification-styles')) return;
+    if (document.getElementById("sl-verification-styles")) return;
 
-    const style = document.createElement('style');
-    style.id = 'sl-verification-styles';
+    const style = document.createElement("style");
+    style.id = "sl-verification-styles";
     style.textContent = `
       .sl-verification-modal {
         position: fixed;
@@ -5724,11 +6029,11 @@ class SuvorovLomazovaVerificationUI {
    */
   createVerificationSection() {
     const modelTab = document.querySelector('.sidebar-pane[data-tab="model"]');
-    if (!modelTab || document.getElementById('sl-verification-section')) return;
+    if (!modelTab || document.getElementById("sl-verification-section")) return;
 
-    const section = document.createElement('div');
-    section.id = 'sl-verification-section';
-    section.className = 'sidebar-section';
+    const section = document.createElement("div");
+    section.id = "sl-verification-section";
+    section.className = "sidebar-section";
     section.innerHTML = `
       <div class="section-header">
         <div class="section-title">
@@ -5756,7 +6061,7 @@ class SuvorovLomazovaVerificationUI {
     modelTab.appendChild(section);
 
     // Add event listener
-    document.getElementById('btn-sl-verify').addEventListener('click', () => {
+    document.getElementById("btn-sl-verify").addEventListener("click", () => {
       this.startVerification();
     });
   }
@@ -5765,11 +6070,11 @@ class SuvorovLomazovaVerificationUI {
    * Create verification modal dialog
    */
   createVerificationModal() {
-    if (document.getElementById('sl-verification-modal')) return;
+    if (document.getElementById("sl-verification-modal")) return;
 
-    const modal = document.createElement('div');
-    modal.id = 'sl-verification-modal';
-    modal.className = 'sl-verification-modal';
+    const modal = document.createElement("div");
+    modal.id = "sl-verification-modal";
+    modal.className = "sl-verification-modal";
     modal.innerHTML = `
       <div class="sl-modal-content">
         <div class="sl-modal-header">
@@ -5788,11 +6093,11 @@ class SuvorovLomazovaVerificationUI {
     document.body.appendChild(modal);
 
     // Event listeners
-    document.getElementById('sl-close-modal').addEventListener('click', () => {
+    document.getElementById("sl-close-modal").addEventListener("click", () => {
       this.closeModal();
     });
 
-    modal.addEventListener('click', (e) => {
+    modal.addEventListener("click", (e) => {
       if (e.target === modal) this.closeModal();
     });
   }
@@ -5802,7 +6107,9 @@ class SuvorovLomazovaVerificationUI {
    */
   initializeTraceVisualizer() {
     if (this.app.editor && this.app.editor.renderer && !this.traceVisualizer) {
-      this.traceVisualizer = new SuvorovLomazovaTraceVisualizationRenderer(this.app);
+      this.traceVisualizer = new SuvorovLomazovaTraceVisualizationRenderer(
+        this.app
+      );
     }
   }
 
@@ -5810,43 +6117,45 @@ class SuvorovLomazovaVerificationUI {
    * Show the verification modal
    */
   showModal() {
-    const modal = document.getElementById('sl-verification-modal');
-    modal.classList.add('show');
+    const modal = document.getElementById("sl-verification-modal");
+    modal.classList.add("show");
   }
 
   /**
    * Close the verification modal
    */
   closeModal() {
-    const modal = document.getElementById('sl-verification-modal');
-    modal.classList.remove('show');
+    const modal = document.getElementById("sl-verification-modal");
+    modal.classList.remove("show");
   }
 
   /**
    * Start the verification process
    */
   async startVerification() {
-    const verifyButton = document.getElementById('btn-sl-verify');
-    const algorithmSelect = document.getElementById('sl-algorithm-select');
-    const modalBody = document.getElementById('sl-modal-body');
+    const verifyButton = document.getElementById("btn-sl-verify");
+    const algorithmSelect = document.getElementById("sl-algorithm-select");
+    const modalBody = document.getElementById("sl-modal-body");
 
     // Disable button and show loading
     verifyButton.disabled = true;
-    verifyButton.innerHTML = '⏳ Running Verification...';
+    verifyButton.innerHTML = "⏳ Running Verification...";
 
     this.showModal();
-    modalBody.innerHTML = this.createProgressHTML('Initializing verification...');
+    modalBody.innerHTML = this.createProgressHTML(
+      "Initializing verification..."
+    );
 
     try {
       // Get selected algorithm
-      const useImprovedAlgorithm = algorithmSelect.value === 'improved';
+      const useImprovedAlgorithm = algorithmSelect.value === "improved";
 
       // Create verifier with options
       this.verifier = new SuvorovLomazovaVerifier(this.app.api.petriNet, {
         useImprovedAlgorithm: useImprovedAlgorithm,
         maxBound: 10,
         enableTauTransitions: true,
-        enableCoverage: true
+        enableCoverage: true,
       });
 
       // Run verification with progress updates
@@ -5854,19 +6163,18 @@ class SuvorovLomazovaVerificationUI {
         modalBody.innerHTML = this.createProgressHTML(progress);
       });
 
-      console.log('Verification completed:', this.currentResults);
+      console.log("Verification completed:", this.currentResults);
 
       // Display results
       modalBody.innerHTML = this.createResultsHTML(this.currentResults);
       this.attachEventListeners();
-
     } catch (error) {
-      console.error('Verification error:', error);
+      console.error("Verification error:", error);
       modalBody.innerHTML = this.createErrorHTML(error);
     } finally {
       // Re-enable button
       verifyButton.disabled = false;
-      verifyButton.innerHTML = '🔬 Run Formal Verification';
+      verifyButton.innerHTML = "🔬 Run Formal Verification";
     }
   }
 
@@ -5887,7 +6195,11 @@ class SuvorovLomazovaVerificationUI {
    * Create results HTML
    */
   createResultsHTML(results) {
-    const algorithmUsed = results.checks?.some(c => c.name.includes('Algorithm 6')) ? 'Improved (Algorithm 6)' : 'Direct (Algorithm 5)';
+    const algorithmUsed = results.checks?.some((c) =>
+      c.name.includes("Algorithm 6")
+    )
+      ? "Improved (Algorithm 6)"
+      : "Direct (Algorithm 5)";
 
     return `
       ${this.createStatusSection(results)}
@@ -5902,12 +6214,12 @@ class SuvorovLomazovaVerificationUI {
    * Create status section
    */
   createStatusSection(results) {
-    const statusClass = results.isSound ? 'sound' : 'unsound';
-    const statusIcon = results.isSound ? '✅' : '❌';
-    const statusText = results.isSound ? 'Formally Sound' : 'Formally Unsound';
+    const statusClass = results.isSound ? "sound" : "unsound";
+    const statusIcon = results.isSound ? "✅" : "❌";
+    const statusText = results.isSound ? "Formally Sound" : "Formally Unsound";
     const statusDetails = results.isSound
-      ? 'All soundness properties are satisfied'
-      : 'One or more soundness properties are violated';
+      ? "All soundness properties are satisfied"
+      : "One or more soundness properties are violated";
 
     return `
       <div class="sl-verification-status ${statusClass}">
@@ -5937,12 +6249,12 @@ class SuvorovLomazovaVerificationUI {
    */
   createPropertiesSection(checks) {
     if (!checks.length) {
-      return '<p>No property checks available.</p>';
+      return "<p>No property checks available.</p>";
     }
 
-    const cardsHTML = checks.map((check, index) =>
-      this.createPropertyCard(check, index)
-    ).join('');
+    const cardsHTML = checks
+      .map((check, index) => this.createPropertyCard(check, index))
+      .join("");
 
     return `
       <div class="sl-properties-grid">
@@ -5955,18 +6267,19 @@ class SuvorovLomazovaVerificationUI {
    * Create a property card
    */
   createPropertyCard(check, index) {
-    const statusClass = check.satisfied ? 'pass' : 'fail';
-    const statusText = check.satisfied ? 'Pass' : 'Fail';
+    const statusClass = check.satisfied ? "pass" : "fail";
+    const statusText = check.satisfied ? "Pass" : "Fail";
     const propertyName = this.getPropertyDisplayName(check.name);
 
-    const hasCounterexample = !check.satisfied && (
-      check.trace ||
-      check.deadTransitions ||
-      check.overfinalNodes ||
-      check.violatingNodes
-    );
+    const hasCounterexample =
+      !check.satisfied &&
+      (check.trace ||
+        check.deadTransitions ||
+        check.overfinalNodes ||
+        check.violatingNodes);
 
-    const counterexampleSection = hasCounterexample ? `
+    const counterexampleSection = hasCounterexample
+      ? `
       <div class="sl-counterexample-section">
         <div class="sl-counterexample-header">
           <h4 class="sl-counterexample-title">Counterexample</h4>
@@ -5978,7 +6291,8 @@ class SuvorovLomazovaVerificationUI {
           ${this.getCounterexampleDescription(check)}
         </div>
       </div>
-    ` : '';
+    `
+      : "";
 
     return `
       <div class="sl-property-card" data-check-index="${index}">
@@ -5987,7 +6301,7 @@ class SuvorovLomazovaVerificationUI {
           <span class="sl-property-status ${statusClass}">${statusText}</span>
         </div>
         <div class="sl-property-description">
-          ${check.details || 'No additional details available.'}
+          ${check.details || "No additional details available."}
         </div>
         ${this.getPropertySpecificDetails(check)}
         ${counterexampleSection}
@@ -6000,15 +6314,15 @@ class SuvorovLomazovaVerificationUI {
    */
   getPropertyDisplayName(checkName) {
     const nameMap = {
-      'Deadlock freedom': 'P1: Deadlock Freedom',
-      'Deadlock freedom (P1)': 'P1: Deadlock Freedom',
-      'DeadlockFreedom': 'P1: Deadlock Freedom',
-      'Overfinal marking (P2)': 'P2: No Overfinal Markings',
-      'OverfinalMarkings': 'P2: No Overfinal Markings',
-      'Dead transitions (P3)': 'P3: No Dead Transitions',
-      'DeadTransitions': 'P3: No Dead Transitions',
-      'Boundedness (Alg. 3)': 'Boundedness Check',
-      'Boundedness': 'Boundedness Check'
+      "Deadlock freedom": "P1: Deadlock Freedom",
+      "Deadlock freedom (P1)": "P1: Deadlock Freedom",
+      DeadlockFreedom: "P1: Deadlock Freedom",
+      "Overfinal marking (P2)": "P2: No Overfinal Markings",
+      OverfinalMarkings: "P2: No Overfinal Markings",
+      "Dead transitions (P3)": "P3: No Dead Transitions",
+      DeadTransitions: "P3: No Dead Transitions",
+      "Boundedness (Alg. 3)": "Boundedness Check",
+      Boundedness: "Boundedness Check",
     };
     return nameMap[checkName] || checkName;
   }
@@ -6017,7 +6331,7 @@ class SuvorovLomazovaVerificationUI {
    * Get property-specific details
    */
   getPropertySpecificDetails(check) {
-    let details = '';
+    let details = "";
 
     if (check.deadTransitions && check.deadTransitions.length > 0) {
       details += `<div class="sl-property-details">Dead transitions: ${check.deadTransitions.length}</div>`;
@@ -6043,9 +6357,9 @@ class SuvorovLomazovaVerificationUI {
     }
 
     if (check.deadTransitions && check.deadTransitions.length > 0) {
-      const transitions = check.deadTransitions.map(dt =>
-        dt.transitionLabel || dt.transitionId
-      ).join(', ');
+      const transitions = check.deadTransitions
+        .map((dt) => dt.transitionLabel || dt.transitionId)
+        .join(", ");
       return `Dead transitions: ${transitions}`;
     }
 
@@ -6053,7 +6367,7 @@ class SuvorovLomazovaVerificationUI {
       return `${check.overfinalNodes.length} state(s) with overfinal markings`;
     }
 
-    return 'Property violation detected';
+    return "Property violation detected";
   }
 
   /**
@@ -6084,21 +6398,30 @@ class SuvorovLomazovaVerificationUI {
    */
   createTimingSection(results) {
     const steps = results.verificationSteps || [];
-    const stepsHTML = steps.slice(-5).map(step => `
+    const stepsHTML = steps
+      .slice(-5)
+      .map(
+        (step) => `
       <div class="sl-step">
         [${step.name}] ${step.details} (+${step.timestamp}ms)
       </div>
-    `).join('');
+    `
+      )
+      .join("");
 
     return `
       <div class="sl-timing-info">
         <strong>Verification completed in ${results.duration || 0} ms</strong>
-        ${steps.length > 0 ? `
+        ${
+          steps.length > 0
+            ? `
           <div class="sl-verification-steps">
             <strong>Recent Steps:</strong>
             ${stepsHTML}
           </div>
-        ` : ''}
+        `
+            : ""
+        }
       </div>
     `;
   }
@@ -6112,7 +6435,11 @@ class SuvorovLomazovaVerificationUI {
         <div class="sl-status-icon">❌</div>
         <div class="sl-status-details">
           <h3>Verification Error</h3>
-          <p>${error?.message || error || 'An unexpected error occurred during verification.'}</p>
+          <p>${
+            error?.message ||
+            error ||
+            "An unexpected error occurred during verification."
+          }</p>
         </div>
       </div>
       <div class="sl-control-panel">
@@ -6128,35 +6455,41 @@ class SuvorovLomazovaVerificationUI {
    */
   attachEventListeners() {
     // Property card clicks and visualize buttons
-    document.querySelectorAll('.sl-property-card').forEach((card, index) => {
-      card.addEventListener('click', (e) => {
-        if (!e.target.classList.contains('sl-visualize-btn')) {
+    document.querySelectorAll(".sl-property-card").forEach((card, index) => {
+      card.addEventListener("click", (e) => {
+        if (!e.target.classList.contains("sl-visualize-btn")) {
           this.selectPropertyCard(index);
         }
       });
     });
 
-    document.querySelectorAll('.sl-visualize-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+    document.querySelectorAll(".sl-visualize-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        const index = parseInt(btn.getAttribute('data-check-index'));
+        const index = parseInt(btn.getAttribute("data-check-index"));
         this.visualizeCheck(index);
       });
     });
 
     // Control panel buttons
-    document.getElementById('sl-clear-highlights')?.addEventListener('click', () => {
-      this.clearVisualization();
-    });
+    document
+      .getElementById("sl-clear-highlights")
+      ?.addEventListener("click", () => {
+        this.clearVisualization();
+      });
 
-    document.getElementById('sl-export-results')?.addEventListener('click', () => {
-      this.exportResults();
-    });
+    document
+      .getElementById("sl-export-results")
+      ?.addEventListener("click", () => {
+        this.exportResults();
+      });
 
-    document.getElementById('sl-rerun-verification')?.addEventListener('click', () => {
-      this.closeModal();
-      this.startVerification();
-    });
+    document
+      .getElementById("sl-rerun-verification")
+      ?.addEventListener("click", () => {
+        this.closeModal();
+        this.startVerification();
+      });
   }
 
   /**
@@ -6164,14 +6497,16 @@ class SuvorovLomazovaVerificationUI {
    */
   selectPropertyCard(index) {
     // Remove active class from all cards
-    document.querySelectorAll('.sl-property-card').forEach(card => {
-      card.classList.remove('active');
+    document.querySelectorAll(".sl-property-card").forEach((card) => {
+      card.classList.remove("active");
     });
 
     // Add active class to selected card
-    const selectedCard = document.querySelector(`.sl-property-card[data-check-index="${index}"]`);
+    const selectedCard = document.querySelector(
+      `.sl-property-card[data-check-index="${index}"]`
+    );
     if (selectedCard) {
-      selectedCard.classList.add('active');
+      selectedCard.classList.add("active");
       this.activeCheckIndex = index;
     }
   }
@@ -6180,7 +6515,11 @@ class SuvorovLomazovaVerificationUI {
    * Visualize a check result
    */
   visualizeCheck(index) {
-    if (!this.currentResults || !this.currentResults.checks || index >= this.currentResults.checks.length) {
+    if (
+      !this.currentResults ||
+      !this.currentResults.checks ||
+      index >= this.currentResults.checks.length
+    ) {
       return;
     }
 
@@ -6191,7 +6530,11 @@ class SuvorovLomazovaVerificationUI {
       this.traceVisualizer.visualizeCheck(check);
 
       // Show a brief message
-      this.showNotification(`Visualizing ${this.getPropertyDisplayName(check.name)} on the Petri net`);
+      this.showNotification(
+        `Visualizing ${this.getPropertyDisplayName(
+          check.name
+        )} on the Petri net`
+      );
     }
   }
 
@@ -6204,12 +6547,12 @@ class SuvorovLomazovaVerificationUI {
     }
 
     // Remove active class from all cards
-    document.querySelectorAll('.sl-property-card').forEach(card => {
-      card.classList.remove('active');
+    document.querySelectorAll(".sl-property-card").forEach((card) => {
+      card.classList.remove("active");
     });
 
     this.activeCheckIndex = -1;
-    this.showNotification('Visualization cleared');
+    this.showNotification("Visualization cleared");
   }
 
   /**
@@ -6225,15 +6568,15 @@ class SuvorovLomazovaVerificationUI {
       isSound: this.currentResults.isSound,
       duration: this.currentResults.duration,
       checks: this.currentResults.checks,
-      verificationSteps: this.currentResults.verificationSteps
+      verificationSteps: this.currentResults.verificationSteps,
     };
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json'
+      type: "application/json",
     });
 
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `verification-results-${new Date().getTime()}.json`;
     document.body.appendChild(a);
@@ -6241,7 +6584,7 @@ class SuvorovLomazovaVerificationUI {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    this.showNotification('Results exported successfully');
+    this.showNotification("Results exported successfully");
   }
 
   /**
@@ -6249,7 +6592,7 @@ class SuvorovLomazovaVerificationUI {
    */
   showNotification(message) {
     // Create and show a temporary notification
-    const notification = document.createElement('div');
+    const notification = document.createElement("div");
     notification.style.cssText = `
       position: fixed;
       top: 20px;
@@ -6271,12 +6614,12 @@ class SuvorovLomazovaVerificationUI {
 
     // Animate in
     setTimeout(() => {
-      notification.style.transform = 'translateX(0)';
+      notification.style.transform = "translateX(0)";
     }, 10);
 
     // Remove after delay
     setTimeout(() => {
-      notification.style.transform = 'translateX(100%)';
+      notification.style.transform = "translateX(100%)";
       setTimeout(() => {
         if (notification.parentNode) {
           document.body.removeChild(notification);
@@ -6294,13 +6637,13 @@ class SuvorovLomazovaVerificationUI {
     }
 
     // Remove modal if it exists
-    const modal = document.getElementById('sl-verification-modal');
+    const modal = document.getElementById("sl-verification-modal");
     if (modal && modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
 
     // Remove styles
-    const styles = document.getElementById('sl-verification-styles');
+    const styles = document.getElementById("sl-verification-styles");
     if (styles && styles.parentNode) {
       styles.parentNode.removeChild(styles);
     }
@@ -6308,10 +6651,11 @@ class SuvorovLomazovaVerificationUI {
 }
 
 // Export classes for use in the main application
-window.SuvorovLomazovaTraceVisualizationRenderer = SuvorovLomazovaTraceVisualizationRenderer;
+window.SuvorovLomazovaTraceVisualizationRenderer =
+  SuvorovLomazovaTraceVisualizationRenderer;
 window.SuvorovLomazovaVerificationUI = SuvorovLomazovaVerificationUI;
 
 export {
   SuvorovLomazovaTraceVisualizationRenderer,
-  SuvorovLomazovaVerificationUI
+  SuvorovLomazovaVerificationUI,
 };
