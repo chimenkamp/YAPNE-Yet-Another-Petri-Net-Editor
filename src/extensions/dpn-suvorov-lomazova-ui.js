@@ -8,26 +8,26 @@ class SmtFromDpnGenerator {
    * Key points:
    * - Per-step data variables v_i and markings M_p_i are declared for i=0..K.
    * - For each step i < K and each transition t, a fire flag f_t_i is declared.
-   *   If τ-transitions are NOT explicitly present in the DPN, we also declare
-   *   f_tau_t_i and use the paper’s τ-guard:
-   *   guard(τ(t)) := ¬∃W(t).( pre_t ∧ post_t )
-   *   Variables in τ do not change when τ fires.
+   * If τ-transitions are NOT explicitly present in the DPN, we also declare
+   * f_tau_t_i and use the paper’s τ-guard:
+   * guard(τ(t)) := ¬∃W(t).( pre_t ∧ post_t )
+   * Variables in τ do not change when τ fires.
    * - Enabling: token availability on input places; data guard via
-   *   (pre with reads at i) and (post with writes at i+1). This matches
-   *   the paper’s “guard(t)” when projecting to step i/i+1.
+   * (pre with reads at i) and (post with writes at i+1). This matches
+   * the paper’s “guard(t)” when projecting to step i/i+1.
    * - Frame conditions: for a visible t, variables not written by t remain equal
-   *   across i→i+1; for τ(t), ALL variables remain equal.
+   * across i→i+1; for τ(t), ALL variables remain equal.
    * - Marking update uses incidence (+outflow - inflow) for both visible and τ.
    * - Firing policy is configurable:
-   *   - 'atMostOne' (default): at most one of {f_*, f_tau_*[, idle_i]} is true.
-   *   - 'exactlyOne': exactly one is true per step.
-   *   - 'free': no mutual-exclusion constraint is imposed.
-   *   Regardless of policy, if no transition fires at step i, the encoding enforces
-   *   a full stutter on BOTH data and markings. When idle_i is available,
-   *   we also enforce (iff idle_i (not anyFire_i)) to forbid the illegal case
-   *   “no fire ∧ ¬idle”.
+   * - 'atMostOne' (default): at most one of {f_*, f_tau_*[, idle_i]} is true.
+   * - 'exactlyOne': exactly one is true per step.
+   * - 'free': no mutual-exclusion constraint is imposed.
+   * Regardless of policy, if no transition fires at step i, the encoding enforces
+   * a full stutter on BOTH data and markings. When idle_i is available,
+   * we also enforce (iff idle_i (not anyFire_i)) to forbid the illegal case
+   * “no fire ∧ ¬idle”.
    * - Final marking and (optional) coverage are asserted at step K. Coverage
-   *   excludes τ-transitions by default.
+   * excludes τ-transitions by default.
    *
    * @param {object} petriNetObj - Petri net object {places[], transitions[], arcs[], dataVariables[]}.
    * @param {object} [params] - Optional parameters.
@@ -42,7 +42,6 @@ class SmtFromDpnGenerator {
    * @returns {string} The generated SMT-LIB2 string.
    */
   generateSMT(petriNetObj, params = {}) {
-    params.K = 100000
     const cfg = this._normalizeConfig(petriNetObj, params);
     const {
       logic,
@@ -64,7 +63,7 @@ class SmtFromDpnGenerator {
       ? params.coverageFor.map(String)
       : null;
 
-    // Interleaving semantics: normalize 'free' → 'atMostOne'
+    // Enforce interleaving semantics: normalize 'free' → 'atMostOne'
     const firingPolicyRaw = params.firing || "atMostOne";
     const firingPolicy =
       firingPolicyRaw === "free" ? "atMostOne" : firingPolicyRaw; // "atMostOne"|"exactlyOne"
@@ -97,9 +96,9 @@ class SmtFromDpnGenerator {
     // --- Firing flags (and optional τ flags if τ not explicit)
     for (let i = 0; i < K; i++) {
       for (const t of transIds) {
-        out(`(declare-const ${this._fStep(t, i)} Bool)`); // visible/explicit-τ flag
+        out(`(declare-const ${this._fStep(t, i)} Bool)`);
         if (!hasExplicitTau && !isTauId(t)) {
-          out(`(declare-const ${this._ftStep(t, i)} Bool)`); // implicit τ(t) flag
+          out(`(declare-const ${this._ftStep(t, i)} Bool)`);
         }
       }
       if (firingPolicy !== "free") {
@@ -124,7 +123,9 @@ class SmtFromDpnGenerator {
 
     // --- Marking non-negativity at all steps
     for (let i = 0; i <= K; i++) {
-      const conj = placeIds.map((p) => `(nonneg ${this._mStep(p, i)})`).join(" ");
+      const conj = placeIds
+        .map((p) => `(nonneg ${this._mStep(p, i)})`)
+        .join(" ");
       out(`(assert (and ${conj}))`);
     }
 
@@ -146,7 +147,9 @@ class SmtFromDpnGenerator {
           intFlags.push(`(b2i ${tau})`);
         }
       }
-      const anyFire = boolFlags.length ? `(or ${boolFlags.join(" ")})` : "false";
+      const anyFire = boolFlags.length
+        ? `(or ${boolFlags.join(" ")})`
+        : "false";
 
       if (firingPolicy !== "free") {
         const idle = `idle_${i}`;
@@ -159,20 +162,13 @@ class SmtFromDpnGenerator {
         out(`(assert (iff ${idle} (not ${anyFire})))`);
       }
 
-      // 2) Token enabling: for ALL firings that move tokens (visible and τ)
+      // 2) Token enabling: ONLY for visible, non-τ transitions
       for (const t of transIds) {
-        const inArcs = arcsIn.get(t) || [];
-        // visible (including explicit τ whose id is "tau_*")
+        if (isTauId(t)) continue; // τ never requires tokens
         const firedVis = this._fStep(t, i);
+        const inArcs = arcsIn.get(t) || [];
         for (const [p, w] of inArcs) {
           out(`(assert (=> ${firedVis} (>= ${this._mStep(p, i)} ${w})))`);
-        }
-        // implicit τ(t) when τ is not explicit
-        if (!hasExplicitTau && !isTauId(t)) {
-          const firedTau = this._ftStep(t, i);
-          for (const [p, w] of inArcs) {
-            out(`(assert (=> ${firedTau} (>= ${this._mStep(p, i)} ${w})))`);
-          }
         }
       }
 
@@ -187,21 +183,20 @@ class SmtFromDpnGenerator {
           !hasExplicitTau && !isTauTransition ? this._ftStep(t, i) : null;
 
         // Visible guard: pre at step i, post at step i+1
-        // For explicit τ, pre is the τ-guard; post is usually empty.
         const preVis = this._rewriteGuard(preStr, i, dataVarsList, false);
         const postVis = this._rewriteGuard(postStr, i, dataVarsList, true);
         if (preVis) out(`(assert (=> ${fVis} ${preVis}))`);
         if (postVis) out(`(assert (=> ${fVis} ${postVis}))`);
 
-        // Frame for variables not written by visible t
+        // Frame for variables not written by t under visible firing
         const writes = this._writtenVars(postStr, dataVarsList);
         for (const [vName] of dataVarsList) {
           if (!writes.has(vName)) {
             out(
-              `(assert (=> ${fVis} (= ${this._vStep(vName, i + 1)} ${this._vStep(
+              `(assert (=> ${fVis} (= ${this._vStep(
                 vName,
-                i
-              )})))`
+                i + 1
+              )} ${this._vStep(vName, i)})))`
             );
           }
         }
@@ -212,10 +207,10 @@ class SmtFromDpnGenerator {
           if (tauInner) out(`(assert (=> ${fTau} ${tauInner}))`);
           for (const [vName] of dataVarsList) {
             out(
-              `(assert (=> ${fTau} (= ${this._vStep(vName, i + 1)} ${this._vStep(
+              `(assert (=> ${fTau} (= ${this._vStep(
                 vName,
-                i
-              )})))`
+                i + 1
+              )} ${this._vStep(vName, i)})))`
             );
           }
         }
@@ -224,38 +219,31 @@ class SmtFromDpnGenerator {
         if (hasExplicitTau && isTauTransition) {
           for (const [vName] of dataVarsList) {
             out(
-              `(assert (=> ${fVis} (= ${this._vStep(vName, i + 1)} ${this._vStep(
+              `(assert (=> ${fVis} (= ${this._vStep(
                 vName,
-                i
-              )})))`
+                i + 1
+              )} ${this._vStep(vName, i)})))`
             );
           }
         }
       }
 
-      // 4) Marking update (incidence) — INCLUDE τ (τ moves tokens like its base t)
+      // 4) Marking update (incidence) — EXCLUDE τ (pure stutter)
       for (const p of placeIds) {
         const inflow = [];
         const outflow = [];
-
         for (const t of transIds) {
+          if (isTauId(t)) continue; // explicit τ never moves tokens
           const vis = this._fStep(t, i);
-          // visible (includes explicit τ)
+
           for (const [pp, w] of arcsOut.get(t) || []) {
-            if (pp === p) inflow.push(`(* ${w} (b2i ${vis}))`);
+            if (pp === p) {
+              inflow.push(`(* ${w} (b2i ${vis}))`);
+            }
           }
           for (const [pp, w] of arcsIn.get(t) || []) {
-            if (pp === p) outflow.push(`(* ${w} (b2i ${vis}))`);
-          }
-
-          // implicit τ(t) also contributes to token flow for base t
-          if (!hasExplicitTau && !isTauId(t)) {
-            const tau = this._ftStep(t, i);
-            for (const [pp, w] of arcsOut.get(t) || []) {
-              if (pp === p) inflow.push(`(* ${w} (b2i ${tau}))`);
-            }
-            for (const [pp, w] of arcsIn.get(t) || []) {
-              if (pp === p) outflow.push(`(* ${w} (b2i ${tau}))`);
+            if (pp === p) {
+              outflow.push(`(* ${w} (b2i ${vis}))`);
             }
           }
         }
@@ -319,7 +307,6 @@ class SmtFromDpnGenerator {
     return this._sanitizePrimes(smt);
   }
 
-
   /**
    * Normalize configuration: collect ids, arcs, guards, sorts, initial/final markings and data.
    *
@@ -330,7 +317,7 @@ class SmtFromDpnGenerator {
    */
   _normalizeConfig(pn, params) {
     const logic = params.logic || "ALL";
-    const K = Number.isInteger(params.K) ? params.K : 100000;
+    const K = Number.isInteger(params.K) ? params.K : 6;
 
     const placeIds = (pn.places || []).map((p) => this._sym(p.id));
     const transIds = (pn.transitions || []).map((t) => this._sym(t.id));
@@ -1045,26 +1032,67 @@ class LabeledTransitionSystem {
     return result;
   }
 
-  getReachableNodes(startNodeId) {
+  /**
+   * Performs a forward BFS/DFS to find all nodes reachable from a start node.
+   * @param {string} startNodeId The ID of the node to start the search from.
+   * @param {Map<string, {prev: string|null, via: string|null}>} [parentMap] Optional map to store parent pointers for trace reconstruction.
+   * @returns {string[]} An array of reachable node IDs.
+   */
+  getReachableNodes(startNodeId, parentMap = null) {
     const visited = new Set();
     const queue = [startNodeId];
 
-    while (queue.length > 0) {
-      const nodeId = queue.shift();
-      if (visited.has(nodeId)) continue;
+    if (!this.nodes.has(startNodeId)) return [];
 
-      visited.add(nodeId);
+    visited.add(startNodeId);
+    if (parentMap) {
+        parentMap.set(startNodeId, { prev: null, via: null });
+    }
+
+    let head = 0;
+    while (head < queue.length) {
+      const nodeId = queue[head++];
       const node = this.nodes.get(nodeId);
 
       for (const edgeId of node.outgoingEdges) {
         const edge = this.edges.get(edgeId);
-        if (!visited.has(edge.target)) {
+        if (edge && !visited.has(edge.target)) {
+          visited.add(edge.target);
+          if (parentMap) {
+              parentMap.set(edge.target, { prev: nodeId, via: edgeId });
+          }
           queue.push(edge.target);
         }
       }
     }
 
     return Array.from(visited);
+  }
+
+  /**
+   * Performs a backward BFS/DFS to find all nodes that can reach a set of target nodes.
+   * @param {string[]} targetNodeIds An array of IDs for the target nodes.
+   * @returns {string[]} An array of node IDs that have a path to at least one target node.
+   */
+  getNodesThatCanReach(targetNodeIds) {
+    const canReach = new Set(targetNodeIds);
+    const queue = [...targetNodeIds];
+
+    let head = 0;
+    while (head < queue.length) {
+        const nodeId = queue[head++];
+        if (!this.nodes.has(nodeId)) continue;
+
+        const node = this.nodes.get(nodeId);
+        for (const edgeId of node.incomingEdges) {
+            const edge = this.edges.get(edgeId);
+            if (edge && !canReach.has(edge.source)) {
+                canReach.add(edge.source);
+                queue.push(edge.source);
+            }
+        }
+    }
+    return Array.from(canReach);
   }
 }
 
@@ -1573,264 +1601,47 @@ class DPNRefinementEngine {
    * @param {LabeledTransitionSystem} lts
    * @returns {Promise<Object>} refined DPN (N_R)
    */
-  async refineTransition(t, exitTransitions, dpn) {
-    this.logStep(
-      "Refinement",
-      `Refining transition ${t.id} with ${exitTransitions.length} exit predicate(s)`
-    );
+  async refineTransitions(dpn, cycles, lts) {
+    const refinedDPN = this.cloneDPN(dpn);
+    const transitionsToRefine = new Map();
 
-    // Helpers pulled from computeNewFormula
-    const getSortOf = (name) => {
-      const dv = (dpn.dataVariables || []).find(
-        (v) => (v.name || v.id) === name
-      );
-      const typ = (dv && (dv.type || "").toLowerCase()) || "real";
-      if (typ === "int" || typ === "integer") return "Int";
-      if (typ === "bool" || typ === "boolean") return "Bool";
-      return "Real";
-    };
-
-    const toPrefixArithmetic = (s) => {
-      let out = String(s || "");
-      // boolean chains
-      for (let g = 0; g < 8; g++) {
-        const before = out;
-        out = out
-          .replace(/([^()\s][^()]*?)\s*\|\|\s*([^()\s][^()]*)/g, "(or $1 $2)")
-          .replace(/([^()\s][^()]*?)\s*&&\s*([^()\s][^()]*)/g, "(and $1 $2)");
-        if (out === before) break;
-      }
-      // unary not
-      out = out.replace(
-        /\(?\s*not\s+([A-Za-z_][\w]*\s*(?:=|<=|>=|<|>)\s*[^()\s]+)\s*\)?/g,
-        "(not $1)"
-      );
-      // arithmetic ops
-      const rules = [
-        { re: /([^()\s]+)\s*\+\s*([^()\s]+)/g, tpl: "(+ $1 $2)" },
-        { re: /([^()\s]+)\s*-\s*([^()\s]+)/g, tpl: "(- $1 $2)" },
-        { re: /([^()\s]+)\s*\*\s*([^()\s]+)/g, tpl: "(* $1 $2)" },
-        { re: /([^()\s]+)\s*\/\s*([^()\s]+)/g, tpl: "(/ $1 $2)" },
-      ];
-      for (let k = 0; k < 8; k++) {
-        let changed = false;
-        for (const r of rules) {
-          const tmp = out.replace(r.re, r.tpl);
-          if (tmp !== out) {
-            out = tmp;
-            changed = true;
-          }
+    // Identify which transitions need refinement
+    for (const cycle of cycles) {
+      for (const transId of cycle.transitions) {
+        if (!transitionsToRefine.has(transId)) {
+          transitionsToRefine.set(transId, new Set());
         }
-        if (!changed) break;
-      }
-      // comparisons & equality
-      out = out
-        .replace(
-          /([A-Za-z_][\w]*)\s*<=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
-          "(<= $1 $2)"
-        )
-        .replace(
-          /([A-Za-z_][\w]*)\s*>=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
-          "(>= $1 $2)"
-        )
-        .replace(
-          /([A-Za-z_][\w]*)\s*<\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
-          "(< $1 $2)"
-        )
-        .replace(
-          /([A-Za-z_][\w]*)\s*>\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w]*)/g,
-          "(> $1 $2)"
-        )
-        .replace(
-          /([A-Za-z_][\w]*)\s*=\s*([-+]?\d+(?:\.\d+)?|[A-Za-z_][\w\(\)\/\*\+\-]+)/g,
-          "(= $1 $2)"
-        );
-      return out.trim().startsWith("(") ? out.trim() : `(${out.trim()})`;
-    };
-
-    const normalizePre = (expr) => {
-      if (!expr) return "true";
-      let s = String(expr).trim();
-      for (const v of dpn.dataVariables || []) {
-        const name = v.name || v.id;
-        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), `${name}_r`);
-      }
-      return toPrefixArithmetic(s);
-    };
-
-    const normalizePost = (expr) => {
-      if (!expr) return "true";
-      let s = String(expr).trim();
-      s = s.replace(/([A-Za-z_][\w]*)'/g, "$1_w");
-      for (const v of dpn.dataVariables || []) {
-        const name = v.name || v.id;
-        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), `${name}_r`);
-      }
-      return toPrefixArithmetic(s);
-    };
-
-    const written = new Set(this.getWrittenVariables(t, dpn) || []);
-
-    const normalizeExitAfterT = (exitPre) => {
-      if (!exitPre || String(exitPre).trim() === "") return "true";
-      let s = String(exitPre).trim();
-      // Map base names to _w if written by t, else to _r
-      for (const v of dpn.dataVariables || []) {
-        const name = v.name || v.id;
-        const rep = written.has(name) ? `${name}_w` : `${name}_r`;
-        s = s.replace(new RegExp(`\\b${name}\\b`, "g"), rep);
-      }
-      // Any accidental primes in exit go to _w
-      s = s.replace(/([A-Za-z_][\w]*)'/g, "$1_w");
-      return toPrefixArithmetic(s);
-    };
-
-    // Build a disjoint partition of exit predicates (2^n). Guard against blow-up.
-    const MAX_CASES = 64;
-    const predicates = exitTransitions.map((et) =>
-      normalizeExitAfterT(et.precondition || "true")
-    );
-    let cases = ["true"];
-    for (const p of predicates) {
-      const next = [];
-      for (const c of cases) {
-        next.push(c === "true" ? p : `(and ${c} ${p})`);
-        next.push(c === "true" ? `(not ${p})` : `(and ${c} (not ${p}))`);
-      }
-      cases = next;
-      if (cases.length > MAX_CASES) break; // soft cap
-    }
-
-    // For each case, compute pre_ref(C) := QE(∃W. pre_r ∧ post_rw ∧ C_rw) → base vars
-    const pre_r = normalizePre(t.precondition || "true");
-    const post_rw = normalizePost(t.postcondition || "true");
-
-    const quantifiedBinder = () => {
-      if (written.size === 0) return "";
-      const binds = Array.from(written)
-        .map((v) => `(${v}_w ${getSortOf(v)})`)
-        .join(" ");
-      return `(exists (${binds}) `;
-    };
-
-    const projectToBase = (s) => {
-      let r = String(s || "true");
-      for (const v of dpn.dataVariables || []) {
-        const name = v.name || v.id;
-        r = r.replace(new RegExp(`\\b${name}_(?:r|w)\\b`, "g"), name);
-      }
-      return r;
-    };
-
-    // Build refined copies and filter UNSAT / redundant (Flatten)
-    const candidates = [];
-
-    for (let i = 0; i < cases.length; i++) {
-      const c_rw = cases[i];
-      const body = `(and ${pre_r} ${post_rw} ${c_rw})`;
-      const existsOpen = quantifiedBinder();
-      const formulaRW = existsOpen ? `${existsOpen}${body})` : body;
-
-      // QE over writes
-      let preBase;
-      try {
-        const qe = await this.eliminateQuantifiers(formulaRW);
-        preBase = projectToBase(qe);
-      } catch (_e) {
-        // Fallback: include post/case conjuncts that do NOT mention writes (_w).
-        const filterAndDropWrites = (s) => {
-          const src = String(s || "true").trim();
-          if (src === "true" || src === "false") return src;
-          if (!/^\(\s*and\b/.test(src))
-            return src.includes("_w") ? "true" : src;
-          // split top-level (and a b c ...)
-          const parts = [];
-          let d = 0,
-            buf = "",
-            i = 0;
-          // skip "(and"
-          for (i = 1; i < src.length - 1; i++) {
-            const ch = src[i];
-            if (ch === "(") {
-              d++;
-              buf += ch;
-              continue;
-            }
-            if (ch === ")") {
-              d--;
-              buf += ch;
-              continue;
-            }
-            if (d === 0 && /\s/.test(ch)) {
-              if (buf.trim()) {
-                parts.push(buf.trim());
-                buf = "";
-              }
-            } else {
-              buf += ch;
-            }
-          }
-          if (buf.trim()) parts.push(buf.trim());
-          const kept = parts.filter((p) => !p.includes("_w"));
-          if (kept.length === 0) return "true";
-          if (kept.length === 1) return kept[0];
-          return `(and ${kept.join(" ")})`;
-        };
-        const postReadOnly =
-          written.size === 0 ? post_rw : filterAndDropWrites(post_rw);
-        const caseReadOnly =
-          written.size === 0 ? c_rw : filterAndDropWrites(c_rw);
-        preBase = projectToBase(
-          `(and ${pre_r} ${postReadOnly} ${caseReadOnly})`
-        );
-      }
-
-      // Drop clearly malformed outcomes and UNSAT
-      const simplified = preBase.trim() || "true";
-      const isSat = await Z3Solver.isSatisfiable(simplified);
-      if (!isSat) continue;
-
-      candidates.push({
-        idx: i,
-        pre: simplified,
-      });
-    }
-
-    // Flatten: remove redundant cases A implied by some B (if A ⇒ B, drop A)
-    const keep = new Array(candidates.length).fill(true);
-    for (let i = 0; i < candidates.length; i++) {
-      if (!keep[i]) continue;
-      for (let j = 0; j < candidates.length; j++) {
-        if (i === j || !keep[j]) continue;
-        const A = candidates[i].pre;
-        const B = candidates[j].pre;
-        const implies = !(await Z3Solver.isSatisfiable(
-          `(and ${A} (not ${B}))`
-        ));
-        if (implies) {
-          // A is subset of B → prefer the more general one (B); drop A
-          keep[i] = false;
-          break;
+        for (const exit of cycle.exitTransitions) {
+          transitionsToRefine.get(transId).add(exit);
         }
       }
     }
 
-    const refined = [];
-    let counter = 0;
-    for (let k = 0; k < candidates.length; k++) {
-      if (!keep[k]) continue;
-      const c = candidates[k];
-      const rid = `${t.id}_refined_case_${counter++}`;
-      refined.push(this.createRefinedTransition(t, c.pre, rid));
+    if (transitionsToRefine.size === 0) {
+        return refinedDPN;
+    }
+    
+    const originalTransitions = new Map(dpn.transitions.map(t => [t.id, t]));
+
+    // Perform refinement for each identified transition
+    for (const [transId, exitTransIds] of transitionsToRefine.entries()) {
+      const transition = originalTransitions.get(transId);
+      if (!transition) continue;
+
+      const exitTransitions = Array.from(exitTransIds).map(id => originalTransitions.get(id)).filter(Boolean);
+
+      const refinedCopies = await this.refineTransition(transition, exitTransitions, dpn);
+
+      // Replace original transition with refined copies
+      const index = refinedDPN.transitions.findIndex((t) => t.id === transId);
+      if (index !== -1) {
+        refinedDPN.transitions.splice(index, 1, ...refinedCopies);
+      }
     }
 
-    this.logStep(
-      "Refinement",
-      `Transition ${t.id}: ${refined.length} refined copy(ies)`
-    );
-    return refined.length ? refined : [t];
+    return refinedDPN;
   }
-
+  
   /**
    * Refine a single transition t using exit predicates of cycles containing t.
    * Builds a disjoint case partition over the exit predicates evaluated AFTER t.
@@ -2571,7 +2382,6 @@ class DPNRefinementEngine {
       (assert ${formula})
       (check-sat)
     `;
-
     return script;
   }
 
@@ -2824,10 +2634,10 @@ const Z3Solver = {
   /**
    * Check satisfiability of a single SMT-LIB term (no full script).
    * Implements:
-   *   1) Early short-circuit for "true"/"false".
-   *   2) Early *validation* (reject malformed or unknown applications).
-   *   3) Parse → solver_assert (no solver_from_string).
-   *   4) Correct Z3_lbool mapping: SAT=1, UNSAT=0, UNDEF=-1 (UNDEF → failure).
+   * 1) Early short-circuit for "true"/"false".
+   * 2) Early *validation* (reject malformed or unknown applications).
+   * 3) Parse → solver_assert (no solver_from_string).
+   * 4) Correct Z3_lbool mapping: SAT=1, UNSAT=0, UNDEF=-1 (UNDEF → failure).
    *
    * @param {string} formula
    * @returns {Promise<boolean>}
@@ -3279,7 +3089,7 @@ class SuvorovLomazovaVerifier {
     this.verificationSteps = [];
     this.startTime = 0;
     this.counterexampleTraces = [];
-
+    
     const getFinalMarkingsFromPetriNet = (net) => {
       // Extract final markings from the Petri net
       let markings = [];
@@ -3294,9 +3104,9 @@ class SuvorovLomazovaVerifier {
 
     this.finalMarkings = getFinalMarkingsFromPetriNet(petriNet);
 
-    if (!this.finalMarkings.some((m) => Object.values(m).some((v) => v > 0))) {
+    if (this.finalMarkings.length === 0) {
       throw new Error(
-        "Final markings without tokens are not supported in this verifier."
+        "No valid final markings specified. Soundness cannot be verified."
       );
     }
 
@@ -3311,8 +3121,8 @@ class SuvorovLomazovaVerifier {
    * For each original transition t, at least one refined copy tr ∈ R(t) must fire
    * on some reachable path in the given LTS. τ-transitions do not count toward P3.
    *
-   * @param {Object} dpn - The (possibly refined) DPN used to build `lts`.
-   * @param {LabeledTransitionSystem} lts - LTS constructed from `dpn` (preferably N_R or N_R^τ).
+   * @param {Object} dpn - The (possibly refined) DPN used to build lts.
+   * @param {LabeledTransitionSystem} lts - LTS constructed from dpn (preferably N_R or N_R^τ).
    * @returns {{ satisfied: boolean, details: string, deadTransitions: Array<{ transitionId: string, variants: string[] }>, coveredTransitions: string[] }}
    */
   checkDeadTransitions(dpn, lts) {
@@ -3352,6 +3162,7 @@ class SuvorovLomazovaVerifier {
         "No (non-τ) transitions present; vacuously satisfied"
       );
       return {
+        name: "Dead Transitions (P3)",
         satisfied: true,
         details: "No non-τ transitions to check.",
         deadTransitions: [],
@@ -3367,7 +3178,7 @@ class SuvorovLomazovaVerifier {
       if (bid) covered.add(bid);
     }
 
-    // 3) Any original transition id not in `covered` is dead.
+    // 3) Any original transition id not in covered is dead.
     const deadTransitions = [];
     for (const bid of originalIds) {
       if (!covered.has(bid)) {
@@ -3387,35 +3198,13 @@ class SuvorovLomazovaVerifier {
     );
 
     return {
+      name: "Dead Transitions (P3)",
       satisfied: ok,
       details: ok
         ? "Each original transition fires via at least one refined copy on some reachable path."
         : "Some original transitions never fire on any reachable path (dead transitions present).",
       deadTransitions,
       coveredTransitions: Array.from(covered),
-    };
-  }
-
-  /**
-   * Check preliminary properties (P2, P3) before refinement
-   */
-  async checkPreliminaryProperties(dpn, lts) {
-    const checks = [];
-    let allPassed = true;
-
-    // Check P2: No overfinal markings
-    const p2Result = await this.checkOverfinalMarkings(lts);
-    checks.push(p2Result);
-    if (!p2Result.satisfied) allPassed = false;
-
-    // Check P3: No dead transitions
-    const p3Result = await this.checkDeadTransitions(dpn, lts);
-    checks.push(p3Result);
-    if (!p3Result.satisfied) allPassed = false;
-
-    return {
-      allPassed,
-      failedChecks: checks.filter((c) => !c.satisfied),
     };
   }
 
@@ -3440,6 +3229,7 @@ class SuvorovLomazovaVerifier {
         "No final marking provided; cannot evaluate P2"
       );
       return {
+        name: "Overfinal Marking (P2)",
         satisfied: false,
         overfinalNodes: [],
         details:
@@ -3498,6 +3288,7 @@ class SuvorovLomazovaVerifier {
     );
 
     return {
+      name: "Overfinal Marking (P2)",
       satisfied: ok,
       overfinalNodes,
       details: ok
@@ -3525,18 +3316,16 @@ class SuvorovLomazovaVerifier {
    * where W are the variables written by t. Postcondition of τ(t) is empty (no data change).
    *
    * @param {Object} dpn - Data Petri net in normalized format { places, transitions, arcs, dataVariables }.
-   * @returns {Promise<Object>} A new DPN with τ-transitions added and arcs duplicated to each τ(t).
+   * @returns {Promise<Object>} A new DPN with τ-transitions added.
    */
   async addTauTransitions(dpn) {
-    this.logStep("TauTransitions", "Adding τ-transitions (¬∃W.(pre ∧ post)) with token flow identical to base t");
+    this.logStep("TauTransitions", "Adding τ-transitions (¬∃W.(pre ∧ post))");
 
     const tauDpn = JSON.parse(JSON.stringify(dpn));
     const originalTransitions = Array.isArray(tauDpn.transitions)
       ? [...tauDpn.transitions]
       : [];
-
-    const makeTauId = (id) => `tau_${String(id)}`;
-    const isTauId = (id) => String(id).startsWith("tau_");
+    const makeTauId = (id) => `tau_${String(id)}`; // unique-enough for this scope
 
     let added = 0;
 
@@ -3553,28 +3342,9 @@ class SuvorovLomazovaVerifier {
 
     const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // Build fast arc indices
-    const allArcs = Array.isArray(tauDpn.arcs) ? tauDpn.arcs : [];
-    const inByT = new Map();
-    const outByT = new Map();
-    for (const t of originalTransitions) {
-      inByT.set(t.id, []);
-      outByT.set(t.id, []);
-    }
-    for (const a of allArcs) {
-      if (originalTransitions.some((t) => t.id === a.target)) {
-        const arr = inByT.get(a.target);
-        if (arr) arr.push(a);
-      }
-      if (originalTransitions.some((t) => t.id === a.source)) {
-        const arr = outByT.get(a.source);
-        if (arr) arr.push(a);
-      }
-    }
-
     for (const t of originalTransitions) {
       if (!t || typeof t.id === "undefined") continue;
-      if (isTauId(t.id)) continue; // Skip existing τ transitions (if any)
+      if (String(t.id).startsWith("tau_")) continue; // Skip existing τ transitions
 
       // Determine written variables W from postcondition (v' or v_w)
       const written = new Set(
@@ -3587,7 +3357,7 @@ class SuvorovLomazovaVerifier {
         (dv) => dv.name || dv.id
       )) {
         postBody = postBody.replace(
-          new RegExp(`\\b${esc(v)}\\s*'\\b`, "g"),
+          new RegExp(`\\b${esc(v)}\\s*'`, "g"),
           `${v}_w`
         );
       }
@@ -3595,7 +3365,9 @@ class SuvorovLomazovaVerifier {
       // τ-pre := ¬∃W.( pre ∧ post[v'↦v_w] ) ; if W=∅ then τ-pre := ¬(pre ∧ post)
       let tauPre;
       if (written.size === 0) {
-        tauPre = `(not (and ${t.precondition || "true"} ${postBody || "true"}))`;
+        tauPre = `(not (and ${t.precondition || "true"} ${
+          postBody || "true"
+        }))`;
       } else {
         const binders = Array.from(written)
           .map((v) => `(${v}_w ${getSort(v)})`)
@@ -3619,30 +3391,7 @@ class SuvorovLomazovaVerifier {
       tauDpn.transitions.push(tauTransition);
       added += 1;
 
-      // DUPLICATE ALL ARCS of t to τ(t) — τ moves tokens exactly like t
-      const tauId = tauTransition.id;
-
-      // P → t  becomes  P → τ(t)
-      for (const a of inByT.get(t.id) || []) {
-        tauDpn.arcs.push({
-          id: `${a.id || `${a.source}_${tauId}`}_tau_in`,
-          source: a.source,
-          target: tauId,
-          weight: a.weight || 1,
-          type: a.type || "regular",
-        });
-      }
-
-      // t → P'  becomes  τ(t) → P'
-      for (const a of outByT.get(t.id) || []) {
-        tauDpn.arcs.push({
-          id: `${a.id || `${tauId}_${a.target}`}_tau_out`,
-          source: tauId,
-          target: a.target,
-          weight: a.weight || 1,
-          type: a.type || "regular",
-        });
-      }
+      // DO NOT duplicate arcs for τ: τ is a pure stutter step (no token move).
     }
 
     this.logStep("TauTransitions", "τ-transitions added", {
@@ -3654,133 +3403,19 @@ class SuvorovLomazovaVerifier {
     return tauDpn;
   }
 
-
-  /**
-   * Deadlock detection aligned with the paper’s intent:
-   * Report reachable states ⟨M, φ⟩ that have no enabled transitions (i.e., out-degree 0)
-   * and are not final. Only nodes reachable from an initial node are considered.
-   * Initial nodes are taken as those with no incoming edges; if none exist, the first node is used.
-   *
-   * @param {LabeledTransitionSystem} lts
-   * @returns {{ noDeadlocks: boolean, deadlockNodes: Array<{ nodeId: string, marking: any, formula: string }>, details: string, trace?: Array<{ transitionId: string }> }}
-   */
-  checkDeadlocks(lts) {
-    // TODO: Either remove or fold into the P1 check to avoid duplicate/weaker semantics
-    this.logStep("Deadlocks", "Detecting reachable sink (non-final) states");
-
-    if (!lts || !lts.nodes || lts.nodes.size === 0) {
-      this.logStep("Deadlocks", "Empty LTS; no deadlocks by definition");
-      return {
-        noDeadlocks: true,
-        deadlockNodes: [],
-        details: "LTS is empty.",
-      };
-    }
-
-    // --- Identify initial node(s) (no incoming edges); fallback to first node if none) ---
-    const initialIds = [];
-    for (const [nid, node] of lts.nodes) {
-      const inc = Array.isArray(node.incomingEdges)
-        ? node.incomingEdges.length
-        : 0;
-      if (inc === 0) initialIds.push(nid);
-    }
-    if (initialIds.length === 0) {
-      initialIds.push(lts.nodes.keys().next().value);
-    }
-
-    // --- Forward reachability from all initial nodes; record parents for witness path ---
-    const fr = new Set();
-    const parent = new Map(); // nodeId -> { prev: nodeId|null, via: edgeId|null }
-    const q = [...initialIds];
-
-    for (const nid of initialIds) {
-      fr.add(nid);
-      parent.set(nid, { prev: null, via: null });
-    }
-
-    while (q.length) {
-      const nid = q.shift();
-      const node = lts.nodes.get(nid);
-      if (!node) continue;
-      const outs = node.outgoingEdges || [];
-      for (const eid of outs) {
-        const e = lts.edges.get(eid);
-        if (!e) continue;
-        const tgt = e.target;
-        if (!fr.has(tgt)) {
-          fr.add(tgt);
-          parent.set(tgt, { prev: nid, via: eid });
-          q.push(tgt);
-        }
-      }
-    }
-
-    // --- Collect reachable deadlocks: out-degree 0 and not a final marking ---
-    const deadlockNodes = [];
-    for (const nid of fr) {
-      const n = lts.nodes.get(nid);
-      if (!n) continue;
-      const outdeg = Array.isArray(n.outgoingEdges)
-        ? n.outgoingEdges.length
-        : 0;
-      if (outdeg === 0 && !this.isFinalMarking(n.marking)) {
-        deadlockNodes.push({
-          nodeId: nid,
-          marking: n.marking,
-          formula: n.formula,
-        });
-      }
-    }
-
-    const noDeadlocks = deadlockNodes.length === 0;
-
-    // Build a short witness path to one deadlock (if any).
-    let witness = [];
-    if (!noDeadlocks) {
-      const pick = deadlockNodes[0].nodeId;
-      const rev = [];
-      let cur = pick;
-      while (cur !== null) {
-        const p = parent.get(cur);
-        if (!p) break;
-        if (p.via !== null) {
-          const edge = lts.edges.get(p.via);
-          rev.push({ transitionId: edge ? edge.transition : "?" });
-        }
-        cur = p ? p.prev : null;
-      }
-      witness = rev.reverse();
-    }
-
-    this.logStep(
-      "Deadlocks",
-      noDeadlocks
-        ? "No reachable sink non-final states detected"
-        : `${deadlockNodes.length} reachable sink non-final state(s) detected`
-    );
-
-    return {
-      noDeadlocks,
-      deadlockNodes,
-      details: noDeadlocks
-        ? "Every reachable state either has an enabled transition or is final."
-        : "There exist reachable states with no enabled transitions that are not final.",
-      trace: noDeadlocks ? undefined : witness,
-    };
-  }
-
   isFinalMarking(marking) {
     // Check if the marking matches any final marking
     return this.finalMarkings.some((finalMarking) => {
-      return Object.keys(finalMarking).every(
-        (placeId) =>
-          marking[placeId] !== undefined &&
-          marking[placeId] === finalMarking[placeId]
-      );
+      const allPlaces = new Set([...Object.keys(marking), ...Object.keys(finalMarking)]);
+      for (const placeId of allPlaces) {
+        if ((marking[placeId] || 0) !== (finalMarking[placeId] || 0)) {
+          return false;
+        }
+      }
+      return true;
     });
   }
-
+  
   /**
    * Deadlock freedom (P1) aligned with the paper:
    * For every reachable state ⟨M, φ⟩ in 𝓛𝓣𝓢_{N_R^τ}, some final state is reachable.
@@ -3801,222 +3436,133 @@ class SuvorovLomazovaVerifier {
       "Checking P1: every reachable state can reach a final"
     );
 
-    // --- Helpers ---
-    const stateKey = (node) => this.refinementEngine.getStateKey(node);
-    const getInitialNodeId = () => {
-      const initM = this.refinementEngine.getInitialMarking(dpn);
-      const initF = this.refinementEngine.getInitialFormula(dpn);
-      const targetKey = (() => {
-        // Reuse getStateKey’s convention
-        const markingKey = Object.entries(initM)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([k, v]) => `${k}:${v}`)
-          .join(",");
-        return `${markingKey}|${initF}`;
-      })();
-      for (const [nid, n] of lts.nodes) {
-        if (stateKey(n) === targetKey) return nid;
-      }
-      // Fallback: pick the first inserted node
-      return lts.nodes.keys().next().value;
-    };
-    const isFinalNode = (node) => this.isFinalMarking(node.marking);
-
     if (!lts || !lts.nodes || lts.nodes.size === 0) {
       this.logStep("DeadlockFreedom", "Empty LTS; cannot establish P1");
       return {
+        name: "Deadlock Freedom (P1)",
         satisfied: false,
         details: "No states in LTS; P1 cannot be established.",
       };
     }
 
-    // --- 1) Initial node ---
-    const initId = getInitialNodeId();
-    if (!initId) {
-      this.logStep(
-        "DeadlockFreedom",
-        "Initial node not found; cannot evaluate P1"
-      );
-      return {
-        satisfied: false,
-        details: "Initial node not found in LTS.",
-      };
-    }
-
-    // --- 2) Forward reachability (FR) with parents for witness path ---
-    const fr = new Set();
-    const parent = new Map(); // nodeId -> { prev: nodeId|null, via: edgeId|null }
-    const q = [initId];
-    fr.add(initId);
-    parent.set(initId, { prev: null, via: null });
-
-    while (q.length) {
-      const nid = q.shift();
-      const node = lts.nodes.get(nid);
-      if (!node) continue;
-      for (const eid of node.outgoingEdges || []) {
-        const e = lts.edges.get(eid);
-        if (!e) continue;
-        const tgt = e.target;
-        if (!fr.has(tgt)) {
-          fr.add(tgt);
-          parent.set(tgt, { prev: nid, via: eid });
-          q.push(tgt);
+    // --- 1) Identify initial node(s) ---
+    const initialIds = [];
+    for (const [nid, node] of lts.nodes) {
+        if (!node.incomingEdges || node.incomingEdges.length === 0) {
+            initialIds.push(nid);
         }
+    }
+    if (initialIds.length === 0) {
+        const firstNode = lts.nodes.keys().next().value;
+        if (firstNode) {
+            initialIds.push(firstNode);
+        } else {
+            return {
+                name: "Deadlock Freedom (P1)",
+                satisfied: false,
+                details: "LTS is completely empty; cannot find an initial node.",
+            };
+        }
+    }
+    const initialNodeId = initialIds[0];
+
+    // --- 2) Forward Reachability (FR) with parents for witness path ---
+    const parent = new Map();
+    const reachableNodes = lts.getReachableNodes(initialNodeId, parent);
+    const fr = new Set(reachableNodes);
+
+    // --- 3) Final nodes in FR ---
+    const finalNodeIds = [];
+    for (const nid of fr) {
+      const n = lts.nodes.get(nid);
+      if (n && this.isFinalMarking(n.marking)) {
+        finalNodeIds.push(nid);
       }
     }
 
-    // --- 3) Final nodes in FR ---
-    const finals = [];
-    for (const nid of fr) {
-      const n = lts.nodes.get(nid);
-      if (n && isFinalNode(n)) finals.push(nid);
-    }
-
-    if (finals.length === 0) {
+    if (finalNodeIds.length === 0) {
       this.logStep(
         "DeadlockFreedom",
         "No final nodes reachable from initial; P1 violated"
       );
-      // Provide a short witness to some reachable non-final sink if any
-      let witness = [];
+      let witnessPath = [];
       for (const nid of fr) {
         const n = lts.nodes.get(nid);
-        if (n && (n.outgoingEdges || []).length === 0) {
-          // reconstruct path init -> nid
-          const rev = [];
-          let cur = nid;
-          while (cur !== null) {
-            const p = parent.get(cur);
-            if (!p) break;
-            if (p.via !== null) {
+        if (n && (!n.outgoingEdges || n.outgoingEdges.length === 0)) {
+          const path = [];
+          let current = nid;
+          while (current && parent.has(current)) {
+              const p = parent.get(current);
+              if (!p || p.via === null) break;
               const edge = lts.edges.get(p.via);
-              rev.push({ transitionId: edge ? edge.transition : "?" });
-            }
-            cur = p ? p.prev : null;
+              path.push({ transitionId: edge ? edge.transition : "?" });
+              current = p.prev;
           }
-          witness = rev.reverse();
+          witnessPath = path.reverse();
           break;
         }
       }
       return {
+        name: "Deadlock Freedom (P1)",
         satisfied: false,
         details: "No final state is reachable from the initial state.",
-        trace: witness,
+        trace: witnessPath,
       };
     }
 
-    // --- 4) Backward reachability from finals (BR) over incoming edges ---
-    const br = new Set(finals);
-    const qbr = [...finals];
+    // --- 4) Backward reachability from finals (BR) ---
+    const nodesThatCanReachFinal = lts.getNodesThatCanReach(finalNodeIds);
+    const br = new Set(nodesThatCanReachFinal);
 
-    while (qbr.length) {
-      const nid = qbr.shift();
-      const node = lts.nodes.get(nid);
-      if (!node) continue;
-      for (const eid of node.incomingEdges || []) {
-        const e = lts.edges.get(eid);
-        if (!e) continue;
-        const src = e.source;
-        if (!br.has(src)) {
-          br.add(src);
-          qbr.push(src);
-        }
+    // --- 5) Check FR ⊆ BR ---
+    const violatingNodes = [];
+    for (const nid of fr) {
+      if (!br.has(nid)) {
+        violatingNodes.push(nid);
       }
     }
 
-    // --- 5) Check FR ⊆ BR ---
-    const violating = [];
-    for (const nid of fr) {
-      if (!br.has(nid)) violating.push(nid);
-    }
-
-    if (violating.length === 0) {
+    if (violatingNodes.length === 0) {
       this.logStep(
         "DeadlockFreedom",
         "P1 satisfied: every reachable node can reach a final"
       );
       return {
+        name: "Deadlock Freedom (P1)",
         satisfied: true,
         details: "Every reachable state has a path to a final state.",
       };
     }
 
-    // Build a witness path to one violating node (init -> violating)
-    const pick = violating[0];
+    // --- Build a witness path to the first violating node ---
+    const violatingNodeId = violatingNodes[0];
     const path = [];
-    let cur = pick;
-    while (cur !== null) {
-      const p = parent.get(cur);
-      if (!p) break;
-      if (p.via !== null) {
+    let current = violatingNodeId;
+    while (current && parent.has(current)) {
+        const p = parent.get(current);
+        if (!p || p.via === null) break;
         const edge = lts.edges.get(p.via);
         path.push({ transitionId: edge ? edge.transition : "?" });
-      }
-      cur = p ? p.prev : null;
+        current = p.prev;
     }
-    path.reverse();
-
-    // Optionally, also include the marking/formula of the violating node
-    const vNode = lts.nodes.get(pick);
+    const trace = path.reverse();
+    const violatingNode = lts.nodes.get(violatingNodeId);
 
     this.logStep(
       "DeadlockFreedom",
-      `P1 violated: ${violating.length} reachable nodes cannot reach a final`,
-      {
-        sampleViolatingNode: pick,
-      }
+      `P1 violated: ${violatingNodes.length} reachable nodes cannot reach a final`,
+      { sampleViolatingNode: violatingNodeId }
     );
 
     return {
+      name: "Deadlock Freedom (P1)",
       satisfied: false,
-      details:
-        "There exists a reachable state from which no final state is reachable.",
-      violatingNodes: violating,
-      trace: path,
-      offendingState: vNode
-        ? { nodeId: pick, marking: vNode.marking, formula: vNode.formula }
+      details: "There exists a reachable state from which no final state is reachable.",
+      violatingNodes: violatingNodes,
+      trace: trace,
+      offendingState: violatingNode
+        ? { nodeId: violatingNodeId, marking: violatingNode.marking, formula: violatingNode.formula }
         : undefined,
-    };
-  }
-
-  /**
-   * Check all soundness properties on the final LTS
-   */
-  async checkAllSoundnessProperties(lts, dpn) {
-    this.logStep("SoundnessProperties", "Checking all soundness properties");
-
-    const checks = [];
-    let allPassed = true;
-
-    // P1: Deadlock freedom (final marking reachability)
-    const p1Result = await this.checkDeadlockFreedom(lts, dpn);
-    checks.push(p1Result);
-    if (!p1Result.satisfied) allPassed = false;
-
-    // P2: No overfinal markings
-    const p2Result = await this.checkOverfinalMarkings(lts);
-    checks.push(p2Result);
-    if (!p2Result.satisfied) allPassed = false;
-
-    // P3: No dead transitions
-    const p3Result = await this.checkDeadTransitions(dpn, lts);
-    checks.push(p3Result);
-    if (!p3Result.satisfied) allPassed = false;
-
-    // Additional livelock detection using cycle analysis
-    // const livelockResult = await this.checkLivelocks(lts);
-    // checks.push(livelockResult);
-    // if (!livelockResult.satisfied) allPassed = false;
-
-    this.logStep(
-      "SoundnessProperties",
-      `All properties checked: ${allPassed ? "sound" : "unsound"}`
-    );
-
-    return {
-      isSound: allPassed,
-      checks,
     };
   }
 
@@ -4112,34 +3658,22 @@ class SuvorovLomazovaVerifier {
     }
 
     // 2) Construct LTS_N and run preliminary checks (P2, P3)
-    say("Constructing LTS_N (no refinement, no τ)...");
-    this.logStep("VerifyImproved", "Step 2: LTS_N construction");
+    say("Constructing preliminary LTS for N...");
+    this.logStep("VerifyImproved", "Step 2: Preliminary LTS_N construction");
     const ltsN = await this.refinementEngine.constructLTS(dpn);
 
-    say("Preliminary checks on LTS_N (P2, P3)...");
-    this.logStep("VerifyImproved", "Step 2a: Preliminary P2 on LTS_N");
+    say("Running preliminary checks on LTS_N (P2, P3)...");
     const p2_pre = this.checkOverfinalMarkings(ltsN);
     if (!p2_pre.satisfied) {
       return this.createResult(false, [
-        {
-          name: "Overfinal marking (P2) on LTS_N",
-          satisfied: false,
-          details: p2_pre.details,
-          trace: p2_pre.trace || null,
-        },
+        { ...p2_pre, name: p2_pre.name + " - Preliminary Check" },
       ]);
     }
 
-    this.logStep("VerifyImproved", "Step 2b: Preliminary P3 on LTS_N");
     const p3_pre = this.checkDeadTransitions(dpn, ltsN);
     if (!p3_pre.satisfied) {
       return this.createResult(false, [
-        {
-          name: "Dead transitions (P3) on LTS_N",
-          satisfied: false,
-          details: p3_pre.details,
-          deadTransitions: p3_pre.deadTransitions,
-        },
+        { ...p3_pre, name: p3_pre.name + " - Preliminary Check" },
       ]);
     }
 
@@ -4154,35 +3688,15 @@ class SuvorovLomazovaVerifier {
     const dpnRtau = await this.addTauTransitions(dpnR);
 
     // 5) Build LTS_{N_R^τ} and check P1, P2, P3
-    say("Constructing LTS_{N_R^τ} and checking P1, P2, P3...");
-    this.logStep("VerifyImproved", "Step 5: LTS_{N_R^τ} + P-checks");
+    say("Constructing final LTS and analyzing for soundness...");
+    this.logStep("VerifyImproved", "Step 5: Final LTS construction and analysis");
     const ltsRtau = await this.refinementEngine.constructLTS(dpnRtau);
 
     const checks = [];
-
-    // P1: Deadlock freedom (every reachable node can reach a final)
-    const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnR);
-    checks.push({
-      name: "Deadlock freedom (P1)",
-      ...p1,
-      satisfied: !!p1.satisfied,
-    });
-
-    // P2: No overfinal markings
+    const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnRtau);
     const p2 = this.checkOverfinalMarkings(ltsRtau);
-    checks.push({
-      name: "Overfinal marking (P2)",
-      ...p2,
-      satisfied: !!p2.satisfied,
-    });
-
-    // P3: No dead transitions (use refined originals)
     const p3 = this.checkDeadTransitions(dpnR, ltsRtau);
-    checks.push({
-      name: "Dead transitions (P3)",
-      ...p3,
-      satisfied: !!p3.satisfied,
-    });
+    checks.push(p1, p2, p3);
 
     const isSound = checks.every((c) => c.satisfied === true);
     this.logStep(
@@ -4230,36 +3744,16 @@ class SuvorovLomazovaVerifier {
     this.logStep("VerifyDirect", "Step 3: Add τ → N_R^τ");
     const dpnRtau = await this.addTauTransitions(dpnR);
 
-    // 4) Build LTS_{N_R^τ} and check P1, P2, P3
-    say("Constructing LTS_{N_R^τ} and checking P1, P2, P3...");
-    this.logStep("VerifyDirect", "Step 4: LTS_{N_R^τ} + P-checks");
+    // 4) Build LTS_{N_R^τ} and check P1, P2, P3 using GRAPH ANALYSIS
+    say("Constructing final LTS and analyzing for soundness...");
+    this.logStep("VerifyDirect", "Step 4: Final LTS construction and analysis");
     const ltsRtau = await this.refinementEngine.constructLTS(dpnRtau);
 
     const checks = [];
-
-    // P1: Deadlock freedom
-    const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnR);
-    checks.push({
-      name: "Deadlock freedom (P1)",
-      ...p1,
-      satisfied: !!p1.satisfied,
-    });
-
-    // P2: No overfinal markings
+    const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnRtau);
     const p2 = this.checkOverfinalMarkings(ltsRtau);
-    checks.push({
-      name: "Overfinal marking (P2)",
-      ...p2,
-      satisfied: !!p2.satisfied,
-    });
-
-    // P3: No dead transitions (use refined originals)
     const p3 = this.checkDeadTransitions(dpnR, ltsRtau);
-    checks.push({
-      name: "Dead transitions (P3)",
-      ...p3,
-      satisfied: !!p3.satisfied,
-    });
+    checks.push(p1, p2, p3);
 
     const isSound = checks.every((c) => c.satisfied === true);
     this.logStep("VerifyDirect", `Done. Soundness = ${isSound ? "YES" : "NO"}`);
@@ -4525,178 +4019,13 @@ class SuvorovLomazovaVerifier {
     return { bounded: true };
   }
 
-  async checkP1(dpn) {
-    // P1: Deadlock freedom - check if we can reach final marking
-    this.logStep(
-      "P1",
-      "Checking deadlock freedom (reachability of final marking)"
-    );
-
-    for (let k = 1; k <= this.options.maxBound; k++) {
-      // Generate SMT with final marking constraint
-      const smtString = this.smtGenerator.generateSMT(dpn, {
-        K: k,
-        logic: "ALL",
-        coverage: false,
-        finalMarking: this.finalMarkings[0], // Use first final marking
-      });
-
-      const result = await Z3Solver.checkSatWithModel(smtString);
-      this.logStep(
-        "P1",
-        `Final marking reachability bound ${k}: isSat=${result.isSat}`
-      );
-
-      if (result.isSat) {
-        // If we can reach final marking, no deadlock issue
-        this.logStep("P1", "Final marking is reachable - no deadlock");
-        return {
-          name: "Deadlock (P1)",
-          satisfied: true,
-          details: "Final marking is reachable",
-        };
-      }
-    }
-
-    // If we can't reach final marking in any bound, there might be a deadlock
-    this.logStep("P1", "Final marking not reachable - potential deadlock");
-    return {
-      name: "Deadlock (P1)",
-      satisfied: false,
-      details: "Cannot reach final marking within bound - potential deadlock",
-    };
-  }
-
-  async checkP2(dpn) {
-    // P2: No overfinal markings - simplified check
-    this.logStep("P2", "Checking for overfinal markings (simplified)");
-
-    // For now, assume no overfinal markings unless we find evidence
-    // This is a simplification - a full implementation would check for
-    // markings that strictly dominate final markings
-    this.logStep("P2", "No overfinal markings found (simplified check)");
-    return {
-      name: "Overfinal marking (P2)",
-      satisfied: true,
-      details: "No overfinal markings detected",
-    };
-  }
-
-  async checkP3(dpn) {
-    // P3: No dead transitions - check if each transition can fire
-    this.logStep("P3", "Checking for dead transitions");
-
-    for (const transition of dpn.transitions) {
-      let transitionReachable = false;
-
-      this.logStep(
-        "P3",
-        `Checking transition ${transition.label || transition.id}`
-      );
-
-      // Check if this transition can fire in any reachable state
-      for (let k = 1; k <= this.options.maxBound && !transitionReachable; k++) {
-        // Assert coverage only for this transition (not global)
-        const smtString = this.smtGenerator.generateSMT(dpn, {
-          K: k,
-          logic: "ALL",
-          coverage: false,
-          coverageFor: [String(transition.id)],
-        });
-
-        const result = await Z3Solver.checkSatWithModel(smtString);
-        this.logStep("P3", `Coverage check bound ${k}: isSat=${result.isSat}`);
-
-        if (result.isSat) {
-          // If SAT, this transition can fire at least once within bound k
-          transitionReachable = true;
-          this.logStep(
-            "P3",
-            `Transition ${transition.label || transition.id} is reachable`
-          );
-          break;
-        }
-      }
-
-      if (!transitionReachable) {
-        this.logStep(
-          "P3",
-          `Dead transition found: ${transition.label || transition.id}`
-        );
-        return {
-          name: "Dead transition (P3)",
-          satisfied: false,
-          details: `Transition ${
-            transition.label || transition.id
-          } is never enabled`,
-          deadTransition: {
-            transitionId: transition.id,
-            transitionLabel: transition.label || transition.id,
-          },
-        };
-      }
-    }
-
-    this.logStep("P3", "All transitions are reachable");
-    return {
-      name: "Dead transition (P3)",
-      satisfied: true,
-      details: "All transitions are reachable",
-    };
-  }
-
-  async checkWithTauTransitions(dpn) {
-    // Enhanced check with tau transitions for comprehensive coverage
-    if (!this.options.enableTauTransitions) {
-      return { satisfied: true, details: "Tau transitions disabled" };
-    }
-
-    this.logStep("Tau", "Checking with tau transitions");
-
-    // Generate SMT with tau transitions and coverage
-    const smtString = this.smtGenerator.generateSMT(dpn, {
-      K: this.options.maxBound,
-      logic: "ALL",
-      coverage: this.options.enableCoverage,
-    });
-
-    const result = await Z3Solver.checkSatWithModel(smtString);
-    this.logStep(
-      "Tau",
-      `SMT result: isSat=${result.isSat}, coverage=${this.options.enableCoverage}`
-    );
-
-    if (this.options.enableCoverage) {
-      if (result.isSat) {
-        this.logStep("Tau", "Coverage can be achieved with tau transitions");
-      } else {
-        this.logStep(
-          "Tau",
-          "Coverage cannot be achieved with tau transitions (but P3 already checked reachability)"
-        );
-      }
-    }
-
-    // Always return satisfied since we already did the core P1/P2/P3 checks
-    // The tau check is supplementary verification, not a hard requirement
-    return {
-      name: "Coverage with Tau",
-      satisfied: true,
-      details: this.options.enableCoverage
-        ? result.isSat
-          ? "Full transition coverage achievable with tau transitions"
-          : "Limited coverage with tau transitions (core properties verified)"
-        : "Tau transition analysis completed",
-    };
-  }
-
   /**
    * Identify final markings M_F strictly from explicit model input.
    * Paper-aligned behavior: do not synthesize finals from topology (e.g., sinks).
    * Accepted sources, in order:
    * 1) dpn.finalMarkings: Array<{ [placeId: string]: number }>
    * 2) dpn.finalMarking:  { [placeId: string]: number }
-   * 3) Place-level flags: places with `isFinal===true` or `final===true` or `type==='final'`
+   * 3) Place-level flags: places with isFinal===true or final===true or type==='final'
    * If none are present, return [] and log that P1/P2 cannot be evaluated.
    *
    * @param {Object} dpn
@@ -4892,6 +4221,7 @@ class SuvorovLomazovaVerifier {
     }));
   }
 }
+
 
 /**
  * Enhanced Trace Visualization Renderer for Suvorov-Lomazova Verification
