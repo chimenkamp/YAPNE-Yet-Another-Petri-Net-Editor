@@ -11,7 +11,7 @@
         "path": "examples/p2_violation_overfinal_marking.json"
     },
     {
-        "name": "DPN: (P3) Dead Transition",
+        "name": "DPN: (P1) Dead Transition",
         "description": "Test Soundness of a Data Petri Net with guards and data variables",
         "path": "examples/p3_violation_dead_transition.json"
     },
