@@ -1,4 +1,623 @@
 /**
+ * Z3 Solver interface using the same pattern as the original working code
+ */
+let _z3 = null;
+let _context = null;
+let _solver = null;
+
+// Initialize Z3 using the same pattern as the original code
+async function initializeZ3() {
+  if (_z3) return;
+
+  try {
+    const { init, Z3_lbool } = await import("z3-solver");
+    const { Context, Z3 } = await init({
+      z3Path: "/assets/z3/z3-built.js",
+      wasmURL: "/assets/z3/z3-built.wasm",
+      workerPath: "/assets/z3/z3-built.js",
+    });
+
+    _z3 = Z3;
+    const config = _z3.mk_config();
+
+    _z3.set_param_value(config, "trace", "true");
+
+    _context = _z3.mk_context(config);
+    _solver = _z3.mk_solver(_context);
+
+    console.log("Z3 initialized successfully for SMT verification");
+  } catch (error) {
+    console.error("Failed to initialize Z3:", error);
+    throw error;
+  }
+}
+
+/**
+ * Z3 Solver facade adapted from the original working code
+ */
+const Z3Solver = {
+  _decls: new Map(),
+  _globalDataVariables: new Map(),
+
+  setGlobalDataVariables(dataVariables) {
+    this._globalDataVariables = dataVariables || new Map();
+    this._decls.clear();
+  },
+  /**
+   * Validate a single SMT-LIB term (very small, conservative checker).
+   * Rejects: nullary apps like "(x)", empty "()", wrong arities for common ops,
+   * "true"/"false" used as heads with arguments, unknown function applications.
+   *
+   * @param {string} body
+   * @returns {{ ok: boolean, reason?: string }}
+   */
+  _validateSmtTerm(body) {
+    const src = String(body || "").trim();
+    if (!src) return { ok: false, reason: "empty formula" };
+
+    // Quick parenthesis balance check.
+    let bal = 0;
+    for (const ch of src) {
+      if (ch === "(") bal++;
+      else if (ch === ")") bal--;
+      if (bal < 0) return { ok: false, reason: "unbalanced ')'" };
+    }
+    if (bal !== 0) return { ok: false, reason: "unbalanced parentheses" };
+
+    // S-expression tokenizer and parser to nested arrays.
+    const toks = [];
+    {
+      let i = 0;
+      while (i < src.length) {
+        const c = src[i];
+        if (c === "(" || c === ")") {
+          toks.push(c);
+          i++;
+        } else if (/\s/.test(c)) {
+          i++;
+        } else {
+          let j = i;
+          while (j < src.length && !/[\s()]/.test(src[j])) j++;
+          toks.push(src.slice(i, j));
+          i = j;
+        }
+      }
+    }
+
+    let pos = 0;
+    const parse = () => {
+      if (pos >= toks.length) return null;
+      const t = toks[pos++];
+      if (t === "(") {
+        const list = [];
+        while (pos < toks.length && toks[pos] !== ")") {
+          const node = parse();
+          if (node === null) return null;
+          list.push(node);
+        }
+        if (pos >= toks.length || toks[pos] !== ")") return null;
+        pos++; // consume ')'
+        return list;
+      }
+      if (t === ")") return null;
+      return t; // atom
+    };
+
+    const ast = parse();
+    if (ast === null || pos !== toks.length) {
+      return { ok: false, reason: "parse error" };
+    }
+
+    // Operator arity table (conservative).
+    const MIN_ARITY = {
+      not: 1,
+      and: 1, // SMT allows 0, we require >=1 to catch "(and)" mistakes
+      or: 1,
+      "=": 2,
+      distinct: 2,
+      "<": 2,
+      "<=": 2,
+      ">": 2,
+      ">=": 2,
+      "+": 1,
+      "-": 1,
+      "*": 2,
+      "/": 2,
+      ite: 3,
+      "=>": 2,
+    };
+    const MAX_ARITY = {
+      not: 1,
+      ite: 3,
+      "=>": 2,
+    };
+
+    const isAtom = (x) => typeof x === "string";
+    const isNumber = (a) => /^[-+]?\d+(?:\.\d+)?$/.test(a);
+    const isIdent = (a) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(a);
+
+    const validateNode = (node) => {
+      if (isAtom(node)) return true;
+
+      if (!Array.isArray(node) || node.length === 0) return false;
+
+      // Head must be an atom
+      const head = node[0];
+      if (!isAtom(head)) return false;
+
+      // (true ...) or (false ...) are illegal (true/false are 0-arity constants)
+      if ((head === "true" || head === "false") && node.length > 1)
+        return false;
+
+      const args = node.slice(1);
+
+      // Known logical/arithmetic operators
+      if (Object.prototype.hasOwnProperty.call(MIN_ARITY, head)) {
+        const min = MIN_ARITY[head];
+        const max = MAX_ARITY[head] ?? Infinity;
+        if (args.length < min || args.length > max) return false;
+        return args.every(validateNode);
+      }
+
+      // Comparators that might appear normalized from other pipelines
+      if (["distinct", "="].includes(head)) {
+        if (args.length < 2) return false;
+        return args.every(validateNode);
+      }
+
+      // Any other head means function application. We do not declare functions in this pipeline,
+      // so treat all non-operator applications as invalid (prevents "(x)" and "(f a)").
+      if (isIdent(head) || isNumber(head)) {
+        // Reject both nullary "(x)" and n-ary "(f a ...)" since we have no such decls.
+        return false;
+      }
+
+      return false;
+    };
+
+    const ok = validateNode(ast);
+    return ok
+      ? { ok: true }
+      : { ok: false, reason: "invalid operator/arity/application" };
+  },
+
+  async initialize() {
+    if (!_z3) {
+      await initializeZ3();
+    }
+  },
+
+  /**
+   * Check satisfiability of a single SMT-LIB term (no full script).
+   * Implements:
+   * 1) Early short-circuit for "true"/"false".
+   * 2) Early *validation* (reject malformed or unknown applications).
+   * 3) Parse → solver_assert (no solver_from_string).
+   * 4) Correct Z3_lbool mapping: SAT=1, UNSAT=0, UNDEF=-1 (UNDEF → failure).
+   *
+   * @param {string} formula
+   * @returns {Promise<boolean>}
+   */
+  async isSatisfiable(formula) {
+    await this.initialize();
+
+    const body = String(formula || "").trim();
+    if (!body || body === "true") return true;
+    if (body === "false" || /^\(\s*false\s*\)$/.test(body)) return false;
+
+    // Early structural/arity validation. On failure, treat as UNSAT (fail fast).
+    const validation = this._validateSmtTerm(body);
+    if (!validation.ok) {
+      console.warn(
+        "[isSatisfiable] Rejected malformed SMT:",
+        validation.reason,
+        "— returning UNSAT."
+      );
+      return false;
+    }
+
+    // Collect free symbols and declare them with sensible sorts (reusing your logic)
+    const KEYWORDS = new Set([
+      "assert",
+      "check-sat",
+      "set-logic",
+      "declare-const",
+      "declare-fun",
+      "define-fun",
+      "and",
+      "or",
+      "not",
+      "xor",
+      "=>",
+      "ite",
+      "let",
+      "forall",
+      "exists",
+      "distinct",
+      "true",
+      "false",
+      "Int",
+      "Real",
+      "Bool",
+      "div",
+      "mod",
+      "rem",
+      "as",
+      "select",
+      "store",
+    ]);
+
+    const getBase = (tok) => tok.replace(/_(?:r|w|prime)$/, "");
+    const getSmtSortFromMeta = (meta) => {
+      const t = String(meta?.type || "").toLowerCase();
+      if (t === "int" || t === "integer") return "Int";
+      if (t === "bool" || t === "boolean") return "Bool";
+      return "Real";
+    };
+
+    const collectBound = (src) => {
+      const bound = new Set();
+      const qre =
+        /\(\s*(?:exists|forall)\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*/g;
+      let m;
+      while ((m = qre.exec(src)) !== null) {
+        const blob = m[1];
+        for (const mm of blob.matchAll(
+          /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+        )) {
+          bound.add(mm[1]);
+        }
+      }
+      return bound;
+    };
+
+    const inferBool = (name, src) => {
+      const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const ps = [
+        new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
+        new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
+        new RegExp(`\\(not\\s+${n}\\)`),
+        new RegExp(`\\(and\\s+${n}\\b`),
+        new RegExp(`\\(or\\s+${n}\\b`),
+      ];
+      return ps.some((re) => re.test(src));
+    };
+
+    const tokens = body.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+    const bound = collectBound(body);
+    const seen = new Set();
+    const decls = [];
+
+    for (const tok of tokens) {
+      if (KEYWORDS.has(tok)) continue;
+      if (bound.has(tok)) continue;
+      if (seen.has(tok)) continue;
+      seen.add(tok);
+
+      const base = getBase(tok);
+      let sort = null;
+      const meta = this._globalDataVariables?.get(base);
+      if (meta) {
+        sort = getSmtSortFromMeta(meta);
+      } else if (inferBool(tok, body)) {
+        sort = "Bool";
+      } else {
+        sort = "Real";
+      }
+      decls.push(`(declare-const ${tok} ${sort})`);
+    }
+
+    const script =
+      `(set-logic ALL)\n` +
+      (decls.length ? decls.join("\n") + "\n" : "") +
+      `(assert ${body})`;
+
+    try {
+      // Parse the script; collect asserted ASTs explicitly.
+      const astVec = _z3.parse_smtlib2_string(_context, script, [], [], [], []);
+      const n = _z3.ast_vector_size(_context, astVec);
+
+      if (n <= 0) {
+        console.warn(
+          "[isSatisfiable] Parser produced 0 assertions — returning UNSAT."
+        );
+        return false;
+      }
+
+      // Create a fresh solver, assert ASTs, then check.
+      const solver = _z3.mk_solver(_context);
+      for (let i = 0; i < n; i++) {
+        _z3.solver_assert(
+          _context,
+          solver,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
+      }
+
+      const res = await _z3.solver_check(_context, solver);
+      // Map: SAT=1, UNSAT=0, UNDEF=-1 (treat UNDEF as failure -> UNSAT here).
+      if (res === 1) return true;
+      if (res === 0) return false;
+      console.warn("[isSatisfiable] Z3 returned UNDEF; treating as UNSAT.");
+      return false;
+    } catch (e) {
+      console.error(
+        "[isSatisfiable] Z3 parse/assert failed; returning UNSAT.",
+        e
+      );
+      return false;
+    }
+  },
+
+  /**
+   * SAT check with model, using parse → assert (no solver_from_string).
+   * UNDEF is treated as failure. If parsing yields no assertions, returns UNSAT.
+   *
+   * @param {string} scriptOrFormula  A single term (preferred) or a full script.
+   * @returns {Promise<{ isSat: boolean, model: Map<string,string>, rawModel: string, error?: string }>}
+   */
+  async checkSatWithModel(scriptOrFormula) {
+    await this.initialize();
+
+    const s = String(scriptOrFormula || "").trim();
+    const looksLikeScript =
+      /\(\s*assert\b/.test(s) ||
+      /\(\s*check-sat\b/.test(s) ||
+      /\(\s*set-logic\b/.test(s) ||
+      /\(\s*declare-const\b/.test(s) ||
+      /\(\s*declare-fun\b/.test(s);
+
+    // We prefer single-term inputs. If it's a term, validate and wrap with decls.
+    if (!looksLikeScript) {
+      // Short-circuit true/false
+      if (!s || s === "true") {
+        return { isSat: true, model: new Map(), rawModel: "" };
+      }
+      if (s === "false" || /^\(\s*false\s*\)$/.test(s)) {
+        return { isSat: false, model: new Map(), rawModel: "" };
+      }
+
+      const validation = this._validateSmtTerm(s);
+      if (!validation.ok) {
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: `Rejected malformed SMT: ${validation.reason}`,
+        };
+      }
+
+      // Reuse the same free-symbol declaration inference as in isSatisfiable
+      const KEYWORDS = new Set([
+        "assert",
+        "check-sat",
+        "set-logic",
+        "declare-const",
+        "declare-fun",
+        "define-fun",
+        "and",
+        "or",
+        "not",
+        "xor",
+        "=>",
+        "ite",
+        "let",
+        "forall",
+        "exists",
+        "distinct",
+        "true",
+        "false",
+        "Int",
+        "Real",
+        "Bool",
+        "div",
+        "mod",
+        "rem",
+        "as",
+        "select",
+        "store",
+      ]);
+
+      const getBase = (tok) => tok.replace(/_(?:r|w|prime)$/, "");
+      const getSmtSortFromMeta = (meta) => {
+        const t = String(meta?.type || "").toLowerCase();
+        if (t === "int" || t === "integer") return "Int";
+        if (t === "bool" || t === "boolean") return "Bool";
+        return "Real";
+      };
+      const collectBound = (src) => {
+        const bound = new Set();
+        const qre =
+          /\(\s*(?:exists|forall)\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*/g;
+        let m;
+        while ((m = qre.exec(src)) !== null) {
+          const blob = m[1];
+          for (const mm of blob.matchAll(
+            /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+          )) {
+            bound.add(mm[1]);
+          }
+        }
+        return bound;
+      };
+      const inferBool = (name, src) => {
+        const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const ps = [
+          new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
+          new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
+          new RegExp(`\\(not\\s+${n}\\)`),
+          new RegExp(`\\(and\\s+${n}\\b`),
+          new RegExp(`\\(or\\s+${n}\\b`),
+        ];
+        return ps.some((re) => re.test(src));
+      };
+
+      const tokens = s.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+      const bound = collectBound(s);
+      const seen = new Set();
+      const decls = [];
+      for (const tok of tokens) {
+        if (KEYWORDS.has(tok)) continue;
+        if (bound.has(tok)) continue;
+        if (seen.has(tok)) continue;
+        seen.add(tok);
+
+        const base = getBase(tok);
+        let sort = null;
+        const meta = this._globalDataVariables?.get(base);
+        if (meta) {
+          sort = getSmtSortFromMeta(meta);
+        } else if (inferBool(tok, s)) {
+          sort = "Bool";
+        } else {
+          sort = "Real";
+        }
+        decls.push(`(declare-const ${tok} ${sort})`);
+      }
+
+      const script =
+        `(set-logic ALL)\n` +
+        (decls.length ? decls.join("\n") + "\n" : "") +
+        `(assert ${s})`;
+
+      try {
+        const solver = _z3.mk_solver(_context);
+        const astVec = _z3.parse_smtlib2_string(
+          _context,
+          script,
+          [],
+          [],
+          [],
+          []
+        );
+        const n = _z3.ast_vector_size(_context, astVec);
+        if (n <= 0) {
+          return {
+            isSat: false,
+            model: new Map(),
+            rawModel: "",
+            error: "Parser produced 0 assertions",
+          };
+        }
+
+        for (let i = 0; i < n; i++) {
+          _z3.solver_assert(
+            _context,
+            solver,
+            _z3.ast_vector_get(_context, astVec, i)
+          );
+        }
+
+        const res = await _z3.solver_check(_context, solver);
+        if (res === 1) {
+          const mdl = _z3.solver_get_model(_context, solver);
+          const rawModel = _z3.model_to_string(_context, mdl);
+
+          // Parse simple (define-fun x () Sort value) lines into a Map
+          const modelMap = new Map();
+          for (const line of rawModel.split(/\r?\n/)) {
+            const m = line.match(
+              /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
+            );
+            if (m) modelMap.set(m[1], m[2].trim());
+          }
+          return { isSat: true, model: modelMap, rawModel };
+        }
+
+        if (res === 0) {
+          return { isSat: false, model: new Map(), rawModel: "" };
+        }
+
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: "Z3 returned UNDEF",
+        };
+      } catch (e) {
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: String(e?.message || e),
+        };
+      }
+    }
+
+    // If it's a full script: we still avoid solver_from_string.
+    try {
+      const solver = _z3.mk_solver(_context);
+      const astVec = _z3.parse_smtlib2_string(_context, s, [], [], [], []);
+      const n = _z3.ast_vector_size(_context, astVec);
+      if (n <= 0) {
+        return {
+          isSat: false,
+          model: new Map(),
+          rawModel: "",
+          error: "Script parsed but had 0 assertions",
+        };
+      }
+
+      for (let i = 0; i < n; i++) {
+        _z3.solver_assert(
+          _context,
+          solver,
+          _z3.ast_vector_get(_context, astVec, i)
+        );
+      }
+
+      const res = await _z3.solver_check(_context, solver);
+      if (res === 1) {
+        const mdl = _z3.solver_get_model(_context, solver);
+        const rawModel = _z3.model_to_string(_context, mdl);
+        const modelMap = new Map();
+        for (const line of rawModel.split(/\r?\n/)) {
+          const m = line.match(
+            /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
+          );
+          if (m) modelMap.set(m[1], m[2].trim());
+        }
+        return { isSat: true, model: modelMap, rawModel };
+      }
+
+      if (res === 0) {
+        return { isSat: false, model: new Map(), rawModel: "" };
+      }
+
+      return {
+        isSat: false,
+        model: new Map(),
+        rawModel: "",
+        error: "Z3 returned UNDEF",
+      };
+    } catch (e) {
+      return {
+        isSat: false,
+        model: new Map(),
+        rawModel: "",
+        error: String(e?.message || e),
+      };
+    }
+  },
+  parseModel(modelString) {
+    const model = new Map();
+    const lines = modelString.split("\n");
+
+    for (const line of lines) {
+      const match = line.match(
+        /\(define-fun\s+([^\s\)]+)\s+\(\)\s+\w+\s+([^\)]+)\)/
+      );
+      if (match) {
+        const [, varName, value] = match;
+        model.set(varName, value.trim());
+      }
+    }
+
+    return model;
+  },
+};
+
+/**
  * Suvorov–Lomazova Data Petri Net Soundness Verifier
  * Refactored to use SMT-based verification with SmtFromDpnGenerator integration
  */
@@ -2442,624 +3061,6 @@ class DPNRefinementEngine {
   }
 }
 
-/**
- * Z3 Solver interface using the same pattern as the original working code
- */
-let _z3 = null;
-let _context = null;
-let _solver = null;
-
-// Initialize Z3 using the same pattern as the original code
-async function initializeZ3() {
-  if (_z3) return;
-
-  try {
-    const { init, Z3_lbool } = await import("z3-solver");
-    const { Context, Z3 } = await init({
-      z3Path: "/assets/z3/z3-built.js",
-      wasmURL: "/assets/z3/z3-built.wasm",
-      workerPath: "/assets/z3/z3-built.js",
-    });
-
-    _z3 = Z3;
-    const config = _z3.mk_config();
-
-    _z3.set_param_value(config, "trace", "true");
-
-    _context = _z3.mk_context(config);
-    _solver = _z3.mk_solver(_context);
-
-    console.log("Z3 initialized successfully for SMT verification");
-  } catch (error) {
-    console.error("Failed to initialize Z3:", error);
-    throw error;
-  }
-}
-
-/**
- * Z3 Solver facade adapted from the original working code
- */
-const Z3Solver = {
-  _decls: new Map(),
-  _globalDataVariables: new Map(),
-
-  setGlobalDataVariables(dataVariables) {
-    this._globalDataVariables = dataVariables || new Map();
-    this._decls.clear();
-  },
-  /**
-   * Validate a single SMT-LIB term (very small, conservative checker).
-   * Rejects: nullary apps like "(x)", empty "()", wrong arities for common ops,
-   * "true"/"false" used as heads with arguments, unknown function applications.
-   *
-   * @param {string} body
-   * @returns {{ ok: boolean, reason?: string }}
-   */
-  _validateSmtTerm(body) {
-    const src = String(body || "").trim();
-    if (!src) return { ok: false, reason: "empty formula" };
-
-    // Quick parenthesis balance check.
-    let bal = 0;
-    for (const ch of src) {
-      if (ch === "(") bal++;
-      else if (ch === ")") bal--;
-      if (bal < 0) return { ok: false, reason: "unbalanced ')'" };
-    }
-    if (bal !== 0) return { ok: false, reason: "unbalanced parentheses" };
-
-    // S-expression tokenizer and parser to nested arrays.
-    const toks = [];
-    {
-      let i = 0;
-      while (i < src.length) {
-        const c = src[i];
-        if (c === "(" || c === ")") {
-          toks.push(c);
-          i++;
-        } else if (/\s/.test(c)) {
-          i++;
-        } else {
-          let j = i;
-          while (j < src.length && !/[\s()]/.test(src[j])) j++;
-          toks.push(src.slice(i, j));
-          i = j;
-        }
-      }
-    }
-
-    let pos = 0;
-    const parse = () => {
-      if (pos >= toks.length) return null;
-      const t = toks[pos++];
-      if (t === "(") {
-        const list = [];
-        while (pos < toks.length && toks[pos] !== ")") {
-          const node = parse();
-          if (node === null) return null;
-          list.push(node);
-        }
-        if (pos >= toks.length || toks[pos] !== ")") return null;
-        pos++; // consume ')'
-        return list;
-      }
-      if (t === ")") return null;
-      return t; // atom
-    };
-
-    const ast = parse();
-    if (ast === null || pos !== toks.length) {
-      return { ok: false, reason: "parse error" };
-    }
-
-    // Operator arity table (conservative).
-    const MIN_ARITY = {
-      not: 1,
-      and: 1, // SMT allows 0, we require >=1 to catch "(and)" mistakes
-      or: 1,
-      "=": 2,
-      distinct: 2,
-      "<": 2,
-      "<=": 2,
-      ">": 2,
-      ">=": 2,
-      "+": 1,
-      "-": 1,
-      "*": 2,
-      "/": 2,
-      ite: 3,
-      "=>": 2,
-    };
-    const MAX_ARITY = {
-      not: 1,
-      ite: 3,
-      "=>": 2,
-    };
-
-    const isAtom = (x) => typeof x === "string";
-    const isNumber = (a) => /^[-+]?\d+(?:\.\d+)?$/.test(a);
-    const isIdent = (a) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(a);
-
-    const validateNode = (node) => {
-      if (isAtom(node)) return true;
-
-      if (!Array.isArray(node) || node.length === 0) return false;
-
-      // Head must be an atom
-      const head = node[0];
-      if (!isAtom(head)) return false;
-
-      // (true ...) or (false ...) are illegal (true/false are 0-arity constants)
-      if ((head === "true" || head === "false") && node.length > 1)
-        return false;
-
-      const args = node.slice(1);
-
-      // Known logical/arithmetic operators
-      if (Object.prototype.hasOwnProperty.call(MIN_ARITY, head)) {
-        const min = MIN_ARITY[head];
-        const max = MAX_ARITY[head] ?? Infinity;
-        if (args.length < min || args.length > max) return false;
-        return args.every(validateNode);
-      }
-
-      // Comparators that might appear normalized from other pipelines
-      if (["distinct", "="].includes(head)) {
-        if (args.length < 2) return false;
-        return args.every(validateNode);
-      }
-
-      // Any other head means function application. We do not declare functions in this pipeline,
-      // so treat all non-operator applications as invalid (prevents "(x)" and "(f a)").
-      if (isIdent(head) || isNumber(head)) {
-        // Reject both nullary "(x)" and n-ary "(f a ...)" since we have no such decls.
-        return false;
-      }
-
-      return false;
-    };
-
-    const ok = validateNode(ast);
-    return ok
-      ? { ok: true }
-      : { ok: false, reason: "invalid operator/arity/application" };
-  },
-
-  async initialize() {
-    if (!_z3) {
-      await initializeZ3();
-    }
-  },
-
-  /**
-   * Check satisfiability of a single SMT-LIB term (no full script).
-   * Implements:
-   * 1) Early short-circuit for "true"/"false".
-   * 2) Early *validation* (reject malformed or unknown applications).
-   * 3) Parse → solver_assert (no solver_from_string).
-   * 4) Correct Z3_lbool mapping: SAT=1, UNSAT=0, UNDEF=-1 (UNDEF → failure).
-   *
-   * @param {string} formula
-   * @returns {Promise<boolean>}
-   */
-  async isSatisfiable(formula) {
-    await this.initialize();
-
-    const body = String(formula || "").trim();
-    if (!body || body === "true") return true;
-    if (body === "false" || /^\(\s*false\s*\)$/.test(body)) return false;
-
-    // Early structural/arity validation. On failure, treat as UNSAT (fail fast).
-    const validation = this._validateSmtTerm(body);
-    if (!validation.ok) {
-      console.warn(
-        "[isSatisfiable] Rejected malformed SMT:",
-        validation.reason,
-        "— returning UNSAT."
-      );
-      return false;
-    }
-
-    // Collect free symbols and declare them with sensible sorts (reusing your logic)
-    const KEYWORDS = new Set([
-      "assert",
-      "check-sat",
-      "set-logic",
-      "declare-const",
-      "declare-fun",
-      "define-fun",
-      "and",
-      "or",
-      "not",
-      "xor",
-      "=>",
-      "ite",
-      "let",
-      "forall",
-      "exists",
-      "distinct",
-      "true",
-      "false",
-      "Int",
-      "Real",
-      "Bool",
-      "div",
-      "mod",
-      "rem",
-      "as",
-      "select",
-      "store",
-    ]);
-
-    const getBase = (tok) => tok.replace(/_(?:r|w|prime)$/, "");
-    const getSmtSortFromMeta = (meta) => {
-      const t = String(meta?.type || "").toLowerCase();
-      if (t === "int" || t === "integer") return "Int";
-      if (t === "bool" || t === "boolean") return "Bool";
-      return "Real";
-    };
-
-    const collectBound = (src) => {
-      const bound = new Set();
-      const qre =
-        /\(\s*(?:exists|forall)\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*/g;
-      let m;
-      while ((m = qre.exec(src)) !== null) {
-        const blob = m[1];
-        for (const mm of blob.matchAll(
-          /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
-        )) {
-          bound.add(mm[1]);
-        }
-      }
-      return bound;
-    };
-
-    const inferBool = (name, src) => {
-      const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const ps = [
-        new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
-        new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
-        new RegExp(`\\(not\\s+${n}\\)`),
-        new RegExp(`\\(and\\s+${n}\\b`),
-        new RegExp(`\\(or\\s+${n}\\b`),
-      ];
-      return ps.some((re) => re.test(src));
-    };
-
-    const tokens = body.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
-    const bound = collectBound(body);
-    const seen = new Set();
-    const decls = [];
-
-    for (const tok of tokens) {
-      if (KEYWORDS.has(tok)) continue;
-      if (bound.has(tok)) continue;
-      if (seen.has(tok)) continue;
-      seen.add(tok);
-
-      const base = getBase(tok);
-      let sort = null;
-      const meta = this._globalDataVariables?.get(base);
-      if (meta) {
-        sort = getSmtSortFromMeta(meta);
-      } else if (inferBool(tok, body)) {
-        sort = "Bool";
-      } else {
-        sort = "Real";
-      }
-      decls.push(`(declare-const ${tok} ${sort})`);
-    }
-
-    const script =
-      `(set-logic ALL)\n` +
-      (decls.length ? decls.join("\n") + "\n" : "") +
-      `(assert ${body})`;
-
-    try {
-      // Parse the script; collect asserted ASTs explicitly.
-      const astVec = _z3.parse_smtlib2_string(_context, script, [], [], [], []);
-      const n = _z3.ast_vector_size(_context, astVec);
-
-      if (n <= 0) {
-        console.warn(
-          "[isSatisfiable] Parser produced 0 assertions — returning UNSAT."
-        );
-        return false;
-      }
-
-      // Create a fresh solver, assert ASTs, then check.
-      const solver = _z3.mk_solver(_context);
-      for (let i = 0; i < n; i++) {
-        _z3.solver_assert(
-          _context,
-          solver,
-          _z3.ast_vector_get(_context, astVec, i)
-        );
-      }
-
-      const res = await _z3.solver_check(_context, solver);
-      // Map: SAT=1, UNSAT=0, UNDEF=-1 (treat UNDEF as failure -> UNSAT here).
-      if (res === 1) return true;
-      if (res === 0) return false;
-      console.warn("[isSatisfiable] Z3 returned UNDEF; treating as UNSAT.");
-      return false;
-    } catch (e) {
-      console.error(
-        "[isSatisfiable] Z3 parse/assert failed; returning UNSAT.",
-        e
-      );
-      return false;
-    }
-  },
-
-  /**
-   * SAT check with model, using parse → assert (no solver_from_string).
-   * UNDEF is treated as failure. If parsing yields no assertions, returns UNSAT.
-   *
-   * @param {string} scriptOrFormula  A single term (preferred) or a full script.
-   * @returns {Promise<{ isSat: boolean, model: Map<string,string>, rawModel: string, error?: string }>}
-   */
-  async checkSatWithModel(scriptOrFormula) {
-    await this.initialize();
-
-    const s = String(scriptOrFormula || "").trim();
-    const looksLikeScript =
-      /\(\s*assert\b/.test(s) ||
-      /\(\s*check-sat\b/.test(s) ||
-      /\(\s*set-logic\b/.test(s) ||
-      /\(\s*declare-const\b/.test(s) ||
-      /\(\s*declare-fun\b/.test(s);
-
-    // We prefer single-term inputs. If it's a term, validate and wrap with decls.
-    if (!looksLikeScript) {
-      // Short-circuit true/false
-      if (!s || s === "true") {
-        return { isSat: true, model: new Map(), rawModel: "" };
-      }
-      if (s === "false" || /^\(\s*false\s*\)$/.test(s)) {
-        return { isSat: false, model: new Map(), rawModel: "" };
-      }
-
-      const validation = this._validateSmtTerm(s);
-      if (!validation.ok) {
-        return {
-          isSat: false,
-          model: new Map(),
-          rawModel: "",
-          error: `Rejected malformed SMT: ${validation.reason}`,
-        };
-      }
-
-      // Reuse the same free-symbol declaration inference as in isSatisfiable
-      const KEYWORDS = new Set([
-        "assert",
-        "check-sat",
-        "set-logic",
-        "declare-const",
-        "declare-fun",
-        "define-fun",
-        "and",
-        "or",
-        "not",
-        "xor",
-        "=>",
-        "ite",
-        "let",
-        "forall",
-        "exists",
-        "distinct",
-        "true",
-        "false",
-        "Int",
-        "Real",
-        "Bool",
-        "div",
-        "mod",
-        "rem",
-        "as",
-        "select",
-        "store",
-      ]);
-
-      const getBase = (tok) => tok.replace(/_(?:r|w|prime)$/, "");
-      const getSmtSortFromMeta = (meta) => {
-        const t = String(meta?.type || "").toLowerCase();
-        if (t === "int" || t === "integer") return "Int";
-        if (t === "bool" || t === "boolean") return "Bool";
-        return "Real";
-      };
-      const collectBound = (src) => {
-        const bound = new Set();
-        const qre =
-          /\(\s*(?:exists|forall)\s*\(\s*((?:\(\s*[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\)\s*)+)\)\s*/g;
-        let m;
-        while ((m = qre.exec(src)) !== null) {
-          const blob = m[1];
-          for (const mm of blob.matchAll(
-            /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
-          )) {
-            bound.add(mm[1]);
-          }
-        }
-        return bound;
-      };
-      const inferBool = (name, src) => {
-        const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const ps = [
-          new RegExp(`\\(=\\s+${n}\\s+(?:true|false)\\)`),
-          new RegExp(`\\(=\\s+(?:true|false)\\s+${n}\\)`),
-          new RegExp(`\\(not\\s+${n}\\)`),
-          new RegExp(`\\(and\\s+${n}\\b`),
-          new RegExp(`\\(or\\s+${n}\\b`),
-        ];
-        return ps.some((re) => re.test(src));
-      };
-
-      const tokens = s.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
-      const bound = collectBound(s);
-      const seen = new Set();
-      const decls = [];
-      for (const tok of tokens) {
-        if (KEYWORDS.has(tok)) continue;
-        if (bound.has(tok)) continue;
-        if (seen.has(tok)) continue;
-        seen.add(tok);
-
-        const base = getBase(tok);
-        let sort = null;
-        const meta = this._globalDataVariables?.get(base);
-        if (meta) {
-          sort = getSmtSortFromMeta(meta);
-        } else if (inferBool(tok, s)) {
-          sort = "Bool";
-        } else {
-          sort = "Real";
-        }
-        decls.push(`(declare-const ${tok} ${sort})`);
-      }
-
-      const script =
-        `(set-logic ALL)\n` +
-        (decls.length ? decls.join("\n") + "\n" : "") +
-        `(assert ${s})`;
-
-      try {
-        const solver = _z3.mk_solver(_context);
-        const astVec = _z3.parse_smtlib2_string(
-          _context,
-          script,
-          [],
-          [],
-          [],
-          []
-        );
-        const n = _z3.ast_vector_size(_context, astVec);
-        if (n <= 0) {
-          return {
-            isSat: false,
-            model: new Map(),
-            rawModel: "",
-            error: "Parser produced 0 assertions",
-          };
-        }
-
-        for (let i = 0; i < n; i++) {
-          _z3.solver_assert(
-            _context,
-            solver,
-            _z3.ast_vector_get(_context, astVec, i)
-          );
-        }
-
-        const res = await _z3.solver_check(_context, solver);
-        if (res === 1) {
-          const mdl = _z3.solver_get_model(_context, solver);
-          const rawModel = _z3.model_to_string(_context, mdl);
-
-          // Parse simple (define-fun x () Sort value) lines into a Map
-          const modelMap = new Map();
-          for (const line of rawModel.split(/\r?\n/)) {
-            const m = line.match(
-              /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
-            );
-            if (m) modelMap.set(m[1], m[2].trim());
-          }
-          return { isSat: true, model: modelMap, rawModel };
-        }
-
-        if (res === 0) {
-          return { isSat: false, model: new Map(), rawModel: "" };
-        }
-
-        return {
-          isSat: false,
-          model: new Map(),
-          rawModel: "",
-          error: "Z3 returned UNDEF",
-        };
-      } catch (e) {
-        return {
-          isSat: false,
-          model: new Map(),
-          rawModel: "",
-          error: String(e?.message || e),
-        };
-      }
-    }
-
-    // If it's a full script: we still avoid solver_from_string.
-    try {
-      const solver = _z3.mk_solver(_context);
-      const astVec = _z3.parse_smtlib2_string(_context, s, [], [], [], []);
-      const n = _z3.ast_vector_size(_context, astVec);
-      if (n <= 0) {
-        return {
-          isSat: false,
-          model: new Map(),
-          rawModel: "",
-          error: "Script parsed but had 0 assertions",
-        };
-      }
-
-      for (let i = 0; i < n; i++) {
-        _z3.solver_assert(
-          _context,
-          solver,
-          _z3.ast_vector_get(_context, astVec, i)
-        );
-      }
-
-      const res = await _z3.solver_check(_context, solver);
-      if (res === 1) {
-        const mdl = _z3.solver_get_model(_context, solver);
-        const rawModel = _z3.model_to_string(_context, mdl);
-        const modelMap = new Map();
-        for (const line of rawModel.split(/\r?\n/)) {
-          const m = line.match(
-            /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
-          );
-          if (m) modelMap.set(m[1], m[2].trim());
-        }
-        return { isSat: true, model: modelMap, rawModel };
-      }
-
-      if (res === 0) {
-        return { isSat: false, model: new Map(), rawModel: "" };
-      }
-
-      return {
-        isSat: false,
-        model: new Map(),
-        rawModel: "",
-        error: "Z3 returned UNDEF",
-      };
-    } catch (e) {
-      return {
-        isSat: false,
-        model: new Map(),
-        rawModel: "",
-        error: String(e?.message || e),
-      };
-    }
-  },
-  parseModel(modelString) {
-    const model = new Map();
-    const lines = modelString.split("\n");
-
-    for (const line of lines) {
-      const match = line.match(
-        /\(define-fun\s+([^\s\)]+)\s+\(\)\s+\w+\s+([^\)]+)\)/
-      );
-      if (match) {
-        const [, varName, value] = match;
-        model.set(varName, value.trim());
-      }
-    }
-
-    return model;
-  },
-};
 
 /**
  * Suvorov–Lomazova Data Petri Net Soundness Verifier
@@ -4233,7 +4234,7 @@ class SuvorovLomazovaVerifier {
 class SuvorovLomazovaTraceVisualizationRenderer {
   constructor(app) {
     this.app = app;
-    this.mainRenderer = app.editor.renderer;
+    this.canvas = app.canvas;
 
     // Visualization state
     this.highlightedElements = new Set();
@@ -4244,56 +4245,383 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.violationInfo = null;
     this.isActive = false;
 
+    // HTML overlay management
+    this.overlayContainer = null;
+    this.htmlOverlays = new Map(); // overlayId -> HTML element
+    this.overlayPositions = new Map(); // overlayId -> {worldX, worldY, offsetX, offsetY}
+
     // Animation
     this.animationTime = 0;
     this.animationFrame = null;
-    this.pulseIntensity = 0;
+    this.updateInterval = null;
 
-    // Store original render and extend
-    this.originalRender = this.mainRenderer.render.bind(this.mainRenderer);
-    this.extendRenderer();
+    this.setupHTMLOverlaySystem();
+    this.setupEventListeners();
   }
 
   /**
-   * Draw base first, then overlays. Do NOT surround base with save/restore.
+   * Setup the HTML overlay system
    */
-  extendRenderer() {
-    this.mainRenderer.render = (...args) => {
-      // 1) Base frame
-      this.originalRender(...args);
+  setupHTMLOverlaySystem() {
+    // Create overlay container
+    this.overlayContainer = document.createElement('div');
+    this.overlayContainer.id = 'sl-overlay-container';
+    this.overlayContainer.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 100;
+      overflow: hidden;
+    `;
 
-      // 2) Overlays (if any), fully sandboxed
-      if (this.isActive) {
-        this.renderVisualization();
-      }
+    // Position container relative to canvas
+    const canvasContainer = this.canvas.parentElement;
+    if (canvasContainer) {
+      canvasContainer.style.position = 'relative';
+      canvasContainer.appendChild(this.overlayContainer);
+    }
+
+    // Add styles for overlays
+    this.injectOverlayStyles();
+  }
+
+  /**
+   * Setup event listeners for canvas updates
+   */
+  setupEventListeners() {
+    // Listen for canvas events that might change positioning
+    this.canvas.addEventListener('wheel', () => this.scheduleUpdate());
+    this.canvas.addEventListener('mousedown', () => this.scheduleUpdate());
+    this.canvas.addEventListener('mousemove', () => this.scheduleUpdate());
+    
+    // Listen for window resize
+    window.addEventListener('resize', () => this.scheduleUpdate());
+    
+    // Store references for cleanup
+    this.boundEvents = {
+      wheel: () => this.scheduleUpdate(),
+      mousedown: () => this.scheduleUpdate(),
+      mousemove: () => this.scheduleUpdate(),
+      resize: () => this.scheduleUpdate()
     };
   }
 
   /**
-   * Main overlay render entry: animation + world highlights + screen overlays.
-   * All drawing ops are sandboxed and never leak state to the base renderer.
+   * Schedule an update (debounced)
    */
-  renderVisualization() {
-    this.updateAnimation();
-
-    // World-space highlights (respect pan/zoom), self-sandboxed
-    this.renderHighlights();
-
-    // Screen-space overlays (tooltips/lines), force identity transform
-    const ctx = this.mainRenderer.ctx;
-    ctx.save();
-    try {
-      // Reset transform so screen coords are stable regardless of base state
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      this.renderOverlays();
-    } finally {
-      ctx.restore();
+  scheduleUpdate() {
+    if (!this.isActive) return;
+    
+    // Use requestAnimationFrame for smooth updates
+    if (this.updateFrame) {
+      cancelAnimationFrame(this.updateFrame);
     }
+    
+    this.updateFrame = requestAnimationFrame(() => {
+      this.updateHTMLOverlays();
+    });
+  }
+
+  /**
+   * Inject CSS styles for HTML overlays
+   */
+  injectOverlayStyles() {
+    if (document.getElementById("sl-overlay-styles")) return;
+
+    const style = document.createElement("style");
+    style.id = "sl-overlay-styles";
+    style.textContent = `
+      .sl-html-overlay {
+        position: absolute;
+        background: rgba(46, 52, 64, 0.95);
+        border: 2px solid;
+        border-radius: 8px;
+        padding: 12px;
+        color: #ECEFF4;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 13px;
+        line-height: 1.4;
+        max-width: 250px;
+        min-width: 150px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(10px);
+        transform-origin: top left;
+        transition: all 0.3s ease;
+        pointer-events: auto;
+        cursor: move;
+        z-index: 101;
+      }
+
+      .sl-html-overlay:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+      }
+
+      .sl-html-overlay.dragging {
+        transition: none;
+        transform: scale(1.1);
+        z-index: 102;
+      }
+
+      .sl-html-overlay.deadTransition {
+        border-color: #BF616A;
+        background: linear-gradient(135deg, rgba(191, 97, 106, 0.9), rgba(46, 52, 64, 0.95));
+      }
+
+      .sl-html-overlay.overfinal {
+        border-color: #D08770;
+        background: linear-gradient(135deg, rgba(208, 135, 112, 0.9), rgba(46, 52, 64, 0.95));
+      }
+
+      .sl-html-overlay.traceStep {
+        border-color: #88C0D0;
+        background: linear-gradient(135deg, rgba(136, 192, 208, 0.9), rgba(46, 52, 64, 0.95));
+      }
+
+      .sl-html-overlay.deadlockMarking {
+        border-color: #B48EAD;
+        background: linear-gradient(135deg, rgba(180, 142, 173, 0.9), rgba(46, 52, 64, 0.95));
+      }
+
+      .sl-overlay-header {
+        font-weight: bold;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sl-overlay-content {
+        font-size: 12px;
+      }
+
+      .sl-overlay-icon {
+        font-size: 16px;
+      }
+
+      .sl-overlay-close {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        background: none;
+        border: none;
+        color: #ECEFF4;
+        cursor: pointer;
+        font-size: 14px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.7;
+        transition: all 0.2s ease;
+      }
+
+      .sl-overlay-close:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .sl-data-values {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(236, 239, 244, 0.2);
+      }
+
+      .sl-data-value {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+      }
+
+      .sl-data-value .variable {
+        color: #8FBCBB;
+      }
+
+      .sl-data-value .value {
+        color: #A3BE8C;
+        font-weight: bold;
+      }
+
+      /* Highlight styles for elements */
+      .sl-element-highlight {
+        position: absolute;
+        border: 3px solid;
+        border-radius: 50%;
+        pointer-events: none;
+        animation: sl-pulse 2s infinite;
+        z-index: 98;
+      }
+
+      .sl-element-highlight.transition {
+        border-radius: 4px;
+      }
+
+      .sl-element-highlight.dead-transition {
+        border-color: #BF616A;
+      }
+
+      .sl-element-highlight.overfinal {
+        border-color: #D08770;
+      }
+
+      .sl-element-highlight.trace-step {
+        border-color: #88C0D0;
+      }
+
+      .sl-element-highlight.deadlock {
+        border-color: #B48EAD;
+      }
+
+      @keyframes sl-pulse {
+        0%, 100% { 
+          opacity: 0.5;
+          transform: scale(1);
+        }
+        50% { 
+          opacity: 0.8;
+          transform: scale(1.1);
+        }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /**
+   * Update positions and visibility of HTML overlays
+   */
+  updateHTMLOverlays() {
+    if (!this.isActive) return;
+    
+    this.updateAnimation();
+    this.updateOverlayPositions();
+    this.updateElementHighlights();
   }
 
   updateAnimation() {
     this.animationTime += 0.05;
-    this.pulseIntensity = (Math.sin(this.animationTime) + 1) * 0.5;
+  }
+
+  /**
+   * Update positions of all HTML overlays based on world coordinates
+   */
+  updateOverlayPositions() {
+    for (const [overlayId, overlay] of this.htmlOverlays) {
+      const position = this.overlayPositions.get(overlayId);
+      if (!position) continue;
+
+      // Convert world coordinates to screen coordinates
+      const screenPos = this.worldToScreen(position.worldX, position.worldY);
+      
+      // Apply user offset (for dragged overlays)
+      const finalX = screenPos.x + position.offsetX;
+      const finalY = screenPos.y + position.offsetY;
+
+      // Update overlay position
+      overlay.style.left = `${finalX}px`;
+      overlay.style.top = `${finalY}px`;
+
+      // Hide overlay if it's outside the visible area
+      const canvasRect = this.canvas.getBoundingClientRect();
+      const isVisible = finalX > -overlay.offsetWidth && 
+                       finalY > -overlay.offsetHeight &&
+                       finalX < canvasRect.width + overlay.offsetWidth &&
+                       finalY < canvasRect.height + overlay.offsetHeight;
+      
+      overlay.style.display = isVisible ? 'block' : 'none';
+    }
+  }
+
+  /**
+   * Update element highlights (ring around places/transitions)
+   */
+  updateElementHighlights() {
+    // Remove existing highlights
+    const existingHighlights = this.overlayContainer.querySelectorAll('.sl-element-highlight');
+    existingHighlights.forEach(highlight => highlight.remove());
+
+    // Add new highlights
+    for (const elementId of this.highlightedElements) {
+      this.createElementHighlight(elementId);
+    }
+  }
+
+  /**
+   * Create a highlight ring around an element
+   */
+  createElementHighlight(elementId) {
+    const element = this.getElementById(elementId);
+    if (!element) return;
+
+    const highlight = document.createElement('div');
+    highlight.className = 'sl-element-highlight';
+    
+    // Determine element type and styling
+    const isTransition = this.app.api.petriNet.transitions.has(elementId);
+    if (isTransition) {
+      highlight.classList.add('transition');
+    }
+
+    // Add specific styling based on violation type
+    if (this.isDeadTransition(elementId)) {
+      highlight.classList.add('dead-transition');
+    } else if (this.isOverfinalPlace(elementId)) {
+      highlight.classList.add('overfinal');
+    } else if (this.isTraceElement(elementId)) {
+      highlight.classList.add('trace-step');
+    } else {
+      highlight.classList.add('deadlock');
+    }
+
+    // Position and size the highlight
+    const worldPos = { x: element.position.x, y: element.position.y };
+    const screenPos = this.worldToScreen(worldPos.x, worldPos.y);
+    
+    // Calculate size in world coordinates, then transform to screen coordinates
+    let worldSize, borderRadius;
+    if (isTransition) {
+      worldSize = Math.max(element.width, element.height) + 12;
+      borderRadius = '4px';
+    } else {
+      worldSize = element.radius * 2 + 12;
+      borderRadius = '50%';
+    }
+    
+    // Transform size to screen coordinates
+    const zoomFactor = this.getZoomFactor();
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = rect.width / this.canvas.width;
+    const screenSize = worldSize * zoomFactor * scaleX;
+
+    highlight.style.cssText += `
+      left: ${screenPos.x - screenSize/2}px;
+      top: ${screenPos.y - screenSize/2}px;
+      width: ${screenSize}px;
+      height: ${screenSize}px;
+      border-radius: ${borderRadius};
+    `;
+
+    this.overlayContainer.appendChild(highlight);
+  }
+
+  /**
+   * Get zoom factor from renderer
+   */
+  getZoomFactor() {
+    return this.app.editor?.renderer?.zoomFactor || 1.0;
+  }
+
+  /**
+   * Get pan offset from renderer
+   */
+  getPanOffset() {
+    return this.app.editor?.renderer?.panOffset || { x: 0, y: 0 };
   }
 
   /**
@@ -4336,19 +4664,17 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     }
 
     this.startAnimation();
-    // Trigger an immediate frame
-    this.mainRenderer.render();
   }
 
   startAnimation() {
     if (this.animationFrame) return;
+    
     const animate = () => {
       if (!this.isActive) {
         this.animationFrame = null;
         return;
       }
-      // Drive a fresh base+overlay frame; no recursion since this is next tick
-      this.mainRenderer.render();
+      this.updateHTMLOverlays();
       this.animationFrame = requestAnimationFrame(animate);
     };
     this.animationFrame = requestAnimationFrame(animate);
@@ -4359,6 +4685,10 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       cancelAnimationFrame(this.animationFrame);
       this.animationFrame = null;
     }
+    if (this.updateFrame) {
+      cancelAnimationFrame(this.updateFrame);
+      this.updateFrame = null;
+    }
   }
 
   visualizeDeadlockViolation(check) {
@@ -4368,7 +4698,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     if (check.offendingState?.marking) {
       Object.entries(check.offendingState.marking).forEach(([placeId, tokens]) => {
         if (tokens > 0) {
-          this.dataOverlays.set(`deadlock_${placeId}`, {
+          this.highlightedElements.add(placeId);
+          this.createHTMLOverlay(`deadlock_${placeId}`, {
             type: "deadlockMarking",
             elementId: placeId,
             elementType: "place",
@@ -4387,7 +4718,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         Object.entries(node.marking).forEach(([placeId, tokens]) => {
           if (tokens > 0) {
             this.highlightedElements.add(placeId);
-            this.dataOverlays.set(`overfinal_${placeId}_${index}`, {
+            this.createHTMLOverlay(`overfinal_${placeId}_${index}`, {
               type: "overfinal",
               elementId: placeId,
               elementType: "place",
@@ -4409,7 +4740,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       if (!id) return;
       this.highlightedElements.add(id);
       this.highlightConnectedElements(id);
-      this.dataOverlays.set(`dead_transition_${id}`, {
+      this.createHTMLOverlay(`dead_transition_${id}`, {
         type: "deadTransition",
         elementId: id,
         elementType: "transition",
@@ -4435,7 +4766,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       if (!transitionId) return;
       this.highlightedElements.add(transitionId);
       this.highlightConnectedElements(transitionId);
-      this.dataOverlays.set(`trace_step_${stepIndex}`, {
+      this.createHTMLOverlay(`trace_step_${stepIndex}`, {
         type: "traceStep",
         elementId: transitionId,
         elementType: "transition",
@@ -4447,6 +4778,216 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     });
   }
 
+  /**
+   * Create an HTML overlay for a specific data overlay
+   */
+  createHTMLOverlay(overlayId, overlayData) {
+    const element = this.getElementById(overlayData.elementId);
+    if (!element) return;
+
+    // Store overlay data
+    this.dataOverlays.set(overlayId, overlayData);
+
+    // Create HTML element
+    const overlay = document.createElement('div');
+    overlay.className = `sl-html-overlay ${overlayData.type}`;
+    overlay.id = `overlay-${overlayId}`;
+
+    // Set content
+    overlay.innerHTML = this.formatOverlayHTML(overlayData);
+
+    // Position overlay
+    const worldPos = { x: element.position.x, y: element.position.y };
+    const screenPos = this.worldToScreen(worldPos.x, worldPos.y);
+    const defaultOffset = this.calculateDefaultOffset(overlayData.elementType);
+
+    // Store position data
+    this.overlayPositions.set(overlayId, {
+      worldX: worldPos.x,
+      worldY: worldPos.y,
+      offsetX: defaultOffset.x,
+      offsetY: defaultOffset.y
+    });
+
+    // Set initial position
+    overlay.style.left = `${screenPos.x + defaultOffset.x}px`;
+    overlay.style.top = `${screenPos.y + defaultOffset.y}px`;
+
+    // Add drag functionality
+    this.makeDraggable(overlay, overlayId);
+
+    // Add close button functionality
+    const closeBtn = overlay.querySelector('.sl-overlay-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.removeHTMLOverlay(overlayId);
+      });
+    }
+
+    // Add to container and map
+    this.overlayContainer.appendChild(overlay);
+    this.htmlOverlays.set(overlayId, overlay);
+  }
+
+  /**
+   * Calculate default offset for overlay positioning
+   */
+  calculateDefaultOffset(elementType) {
+    if (elementType === 'transition') {
+      return { x: 30, y: -60 };
+    } else {
+      return { x: 30, y: -30 };
+    }
+  }
+
+  /**
+   * Make an overlay draggable
+   */
+  makeDraggable(overlay, overlayId) {
+    let isDragging = false;
+    let startX, startY, startOffsetX, startOffsetY;
+
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('sl-overlay-close')) return;
+      
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      
+      const position = this.overlayPositions.get(overlayId);
+      startOffsetX = position.offsetX;
+      startOffsetY = position.offsetY;
+      
+      overlay.classList.add('dragging');
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+      e.preventDefault();
+    });
+
+    const onMouseMove = (e) => {
+      if (!isDragging) return;
+      
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      
+      const position = this.overlayPositions.get(overlayId);
+      position.offsetX = startOffsetX + deltaX;
+      position.offsetY = startOffsetY + deltaY;
+      
+      this.updateOverlayPositions();
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+      overlay.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }
+
+  /**
+   * Remove an HTML overlay
+   */
+  removeHTMLOverlay(overlayId) {
+    const overlay = this.htmlOverlays.get(overlayId);
+    if (overlay) {
+      overlay.remove();
+      this.htmlOverlays.delete(overlayId);
+    }
+    this.overlayPositions.delete(overlayId);
+    this.dataOverlays.delete(overlayId);
+  }
+
+  /**
+   * Format overlay content as HTML
+   */
+  formatOverlayHTML(overlayData) {
+    const content = this.formatOverlayContent(overlayData);
+    const lines = content.split('\n');
+    const header = lines[0];
+    const body = lines.slice(1).join('\n');
+
+    let html = `
+      <button class="sl-overlay-close">×</button>
+      <div class="sl-overlay-header">
+        <span class="sl-overlay-icon">${this.getOverlayIcon(overlayData.type)}</span>
+        <span>${header}</span>
+      </div>
+    `;
+
+    if (body.trim()) {
+      html += `<div class="sl-overlay-content">${this.formatContentAsHTML(body)}</div>`;
+    }
+
+    // Add data values if present
+    if (overlayData.vars && Object.keys(overlayData.vars).length > 0) {
+      html += '<div class="sl-data-values">';
+      html += '<strong>Data State:</strong>';
+      for (const [variable, value] of Object.entries(overlayData.vars)) {
+        html += `
+          <div class="sl-data-value">
+            <span class="variable">${variable}</span>
+            <span class="value">${value}</span>
+          </div>
+        `;
+      }
+      html += '</div>';
+    }
+
+    return html;
+  }
+
+  /**
+   * Get icon for overlay type
+   */
+  getOverlayIcon(type) {
+    switch (type) {
+      case "deadTransition":
+      case "deadlockMarking":
+        return "⚠️";
+      case "overfinal":
+        return "🔥";
+      case "traceStep":
+        return "🔄";
+      default:
+        return "❌";
+    }
+  }
+
+  /**
+   * Format content as HTML
+   */
+  formatContentAsHTML(content) {
+    return content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .map(line => `<div>${line}</div>`)
+      .join('');
+  }
+
+  /**
+   * Format overlay content
+   */
+  formatOverlayContent(overlay) {
+    switch (overlay.type) {
+      case "deadTransition":
+        return `DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.elementId}\nNever enabled in any reachable state`;
+      case "overfinal":
+        return `OVERFINAL MARKING\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nExceeds final marking`;
+      case "traceStep": {
+        const lines = [`Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`];
+        return lines.join('\n');
+      }
+      case "deadlockMarking":
+        return `DEADLOCK STATE\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nCannot reach final marking`;
+      default:
+        return `Violation detected\n${overlay.elementId}`;
+    }
+  }
+
+  // Helper methods
   findTransitionId(stepTransitionId) {
     if (!this.app.api?.petriNet) return null;
     if (this.app.api.petriNet.transitions.has(stepTransitionId)) return stepTransitionId;
@@ -4471,136 +5012,34 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     }
   }
 
-  /**
-   * Clear state. If keepInactive=true, keep isActive as-is (used at visualize start).
-   */
-  clearHighlights(keepInactive = false) {
-    this.highlightedElements.clear();
-    this.highlightedArcs.clear();
-    this.dataOverlays.clear();
-    this.problematicPlaces.clear();
-    this.responsibleVariables.clear();
-    this.violationInfo = null;
-
-    if (!keepInactive) this.isActive = false;
-    this.stopAnimation();
-
-    // Force a clean repaint of base (no overlays)
-    if (this.mainRenderer) {
-      this.mainRenderer.render();
+  getElementById(elementId) {
+    if (this.app.api?.petriNet?.places?.has(elementId)) {
+      return this.app.api.petriNet.places.get(elementId);
     }
+    if (this.app.api?.petriNet?.transitions?.has(elementId)) {
+      return this.app.api.petriNet.transitions.get(elementId);
+    }
+    return null;
   }
 
-  /**
-   * World-space highlights: fully sandboxed and transform-aware.
-   */
-  renderHighlights() {
-    if (!this.app.api?.petriNet) return;
-
-    const ctx = this.mainRenderer.ctx;
-    ctx.save();
-    try {
-      // Apply world transform (pan + zoom)
-      ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
-      ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
-
-      // Arcs behind nodes
-      for (const arcId of this.highlightedArcs) {
-        const arc = this.app.api.petriNet.arcs.get(arcId);
-        if (!arc) continue;
-        const source =
-          this.app.api.petriNet.places.get(arc.source) ||
-          this.app.api.petriNet.transitions.get(arc.source);
-        const target =
-          this.app.api.petriNet.places.get(arc.target) ||
-          this.app.api.petriNet.transitions.get(arc.target);
-        if (!source || !target) continue;
-
-        const { start, end } = this.mainRenderer.calculateArcEndpoints(source, target);
-
-        ctx.save();
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = this.getHighlightColor("arc");
-        ctx.strokeStyle = this.getHighlightColor("arc");
-        ctx.lineWidth = 4 / Math.max(0.0001, this.mainRenderer.zoomFactor);
-        ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.2;
-
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Nodes
-      for (const elementId of this.highlightedElements) {
-        const place = this.app.api.petriNet.places.get(elementId);
-        const transition = this.app.api.petriNet.transitions.get(elementId);
-
-        if (place) {
-          this.renderHighlightedPlace(ctx, place, elementId);
-        } else if (transition) {
-          this.renderHighlightedTransition(ctx, transition, elementId);
-        }
-      }
-    } finally {
-      ctx.restore();
-    }
-  }
-
-  renderHighlightedPlace(ctx, place, elementId) {
-    const color = this.getHighlightColor("place", elementId);
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 4 / Math.max(0.0001, this.mainRenderer.zoomFactor);
-    ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.3;
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = color;
-
-    ctx.beginPath();
-    ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
-    ctx.stroke();
-
-    if (this.isOverfinalPlace(elementId)) {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.2 * this.pulseIntensity;
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  renderHighlightedTransition(ctx, transition, elementId) {
-    const color = this.getHighlightColor("transition", elementId);
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 4 / Math.max(0.0001, this.mainRenderer.zoomFactor);
-    ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.3;
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = color;
-
-    const padding = 8;
-    ctx.beginPath();
-    ctx.rect(
-      transition.position.x - transition.width / 2 - padding,
-      transition.position.y - transition.height / 2 - padding,
-      transition.width + padding * 2,
-      transition.height + padding * 2
-    );
-    ctx.stroke();
-
-    if (this.isDeadTransition(elementId)) {
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.2 * this.pulseIntensity;
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  getHighlightColor(_elementType, elementId) {
-    if (this.isDeadTransition(elementId)) return "#BF616A"; // Red
-    if (this.isOverfinalPlace(elementId)) return "#D08770"; // Orange
-    if (this.isTraceElement(elementId)) return "#88C0D0"; // Blue
-    return "#EBCB8B"; // Yellow default
+  worldToScreen(worldX, worldY) {
+    const zoomFactor = this.getZoomFactor();
+    const panOffset = this.getPanOffset();
+    
+    // Convert world coordinates to canvas coordinates
+    const canvasX = worldX * zoomFactor + panOffset.x;
+    const canvasY = worldY * zoomFactor + panOffset.y;
+    
+    // Convert canvas coordinates to screen coordinates
+    // Account for canvas scaling (devicePixelRatio)
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = rect.width / this.canvas.width;
+    const scaleY = rect.height / this.canvas.height;
+    
+    return {
+      x: canvasX * scaleX,
+      y: canvasY * scaleY,
+    };
   }
 
   isDeadTransition(elementId) {
@@ -4625,160 +5064,23 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   }
 
   /**
-   * Screen-space overlays. We assume identity transform here.
+   * Clear state and remove all overlays
    */
-  renderOverlays() {
-    if (!this.app.api?.petriNet) return;
-    const ctx = this.mainRenderer.ctx;
+  clearHighlights(keepInactive = false) {
+    this.highlightedElements.clear();
+    this.highlightedArcs.clear();
+    this.dataOverlays.clear();
+    this.problematicPlaces.clear();
+    this.responsibleVariables.clear();
+    this.violationInfo = null;
 
-    for (const [, overlay] of this.dataOverlays) {
-      const worldPos = this.getElementWorldPosition(overlay);
-      if (!worldPos) continue;
-
-      const screenPos = this.worldToScreen(worldPos);
-      const offset = { x: 30, y: -30 };
-      const position = { x: screenPos.x + offset.x, y: screenPos.y + offset.y };
-
-      const content = this.formatOverlayContent(overlay);
-      const lines = content.split("\n");
-
-      const padding = 12;
-      const lineHeight = 18;
-      const fontSize = 13;
-      const borderRadius = 8;
-
-      ctx.save();
-      // Reset shadow
-      ctx.shadowColor = "transparent";
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-      ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-
-      const maxWidth = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 60);
-      const boxWidth = maxWidth + padding * 2;
-      const boxHeight = lines.length * lineHeight + padding * 2;
-
-      const canvasW = ctx.canvas.clientWidth || ctx.canvas.width;
-      const canvasH = ctx.canvas.clientHeight || ctx.canvas.height;
-      if (position.x + boxWidth > canvasW - 20) position.x = screenPos.x - boxWidth - offset.x;
-      if (position.y < 20) position.y = screenPos.y + 50;
-
-      // Shadowed background
-      ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
-      ctx.shadowBlur = 10;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 4;
-
-      ctx.fillStyle = this.getOverlayBackgroundColor(overlay.type);
-      this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
-      ctx.fill();
-
-      // Border
-      ctx.shadowColor = "transparent";
-      ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
-      ctx.lineWidth = 2;
-      this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
-      ctx.stroke();
-
-      // Text
-      ctx.fillStyle = "#ECEFF4";
-      ctx.textBaseline = "top";
-      lines.forEach((line, idx) => {
-        ctx.font = idx === 0
-          ? `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
-          : `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-        ctx.fillText(line, position.x + padding, position.y + padding + idx * lineHeight);
-      });
-
-      // Connector
-      ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
-      ctx.lineWidth = 1;
-      ctx.globalAlpha = 0.5;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(position.x + boxWidth / 2, position.y + boxHeight);
-      ctx.lineTo(screenPos.x, screenPos.y);
-      ctx.stroke();
-
-      ctx.restore();
+    // Clear all HTML overlays
+    for (const [overlayId] of this.htmlOverlays) {
+      this.removeHTMLOverlay(overlayId);
     }
-  }
 
-  getElementWorldPosition(overlay) {
-    if (!overlay.elementId) return null;
-    const place = this.app.api.petriNet.places.get(overlay.elementId);
-    const transition = this.app.api.petriNet.transitions.get(overlay.elementId);
-    if (place) return { x: place.position.x, y: place.position.y };
-    if (transition) return { x: transition.position.x, y: transition.position.y };
-    return null;
-  }
-
-  worldToScreen(worldPos) {
-    return {
-      x: worldPos.x * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.x,
-      y: worldPos.y * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.y,
-    };
-  }
-
-  roundRect(ctx, x, y, width, height, radius) {
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-  }
-
-  formatOverlayContent(overlay) {
-    switch (overlay.type) {
-      case "deadTransition":
-        return `⚠️ DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.elementId}\nNever enabled in any reachable state`;
-      case "overfinal":
-        return `⚠️ OVERFINAL MARKING\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nExceeds final marking`;
-      case "traceStep": {
-        const lines = [`Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`];
-        if (overlay.vars && Object.keys(overlay.vars).length) {
-          lines.push("Data state:");
-          Object.entries(overlay.vars).forEach(([k, v]) => lines.push(`  ${k} = ${v}`));
-        }
-        return lines.join("\n");
-      }
-      case "deadlockMarking":
-        return `🔒 DEADLOCK STATE\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nCannot reach final marking`;
-      default:
-        return `Violation detected\n${overlay.elementId}`;
-    }
-  }
-
-  getOverlayBackgroundColor(type) {
-    switch (type) {
-      case "deadTransition":
-      case "overfinal":
-      case "deadlockMarking":
-      case "traceStep":
-      default:
-        return "rgba(46, 52, 64, 0.95)";
-    }
-  }
-
-  getOverlayBorderColor(type) {
-    switch (type) {
-      case "deadTransition":
-      case "deadlockMarking":
-        return "#BF616A";
-      case "overfinal":
-        return "#D08770";
-      case "traceStep":
-        return "#88C0D0";
-      default:
-        return "#5E81AC";
-    }
+    if (!keepInactive) this.isActive = false;
+    this.stopAnimation();
   }
 
   /**
@@ -4786,17 +5088,31 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    */
   destroy() {
     this.clearHighlights(false);
-    // Restore original render method
-    if (this.mainRenderer && this.originalRender) {
-      this.mainRenderer.render = this.originalRender;
+    
+    // Remove event listeners
+    if (this.boundEvents) {
+      this.canvas.removeEventListener('wheel', this.boundEvents.wheel);
+      this.canvas.removeEventListener('mousedown', this.boundEvents.mousedown);
+      this.canvas.removeEventListener('mousemove', this.boundEvents.mousemove);
+      window.removeEventListener('resize', this.boundEvents.resize);
+    }
+    
+    // Remove overlay container
+    if (this.overlayContainer && this.overlayContainer.parentNode) {
+      this.overlayContainer.parentNode.removeChild(this.overlayContainer);
+    }
+
+    // Remove styles
+    const styles = document.getElementById("sl-overlay-styles");
+    if (styles && styles.parentNode) {
+      styles.parentNode.removeChild(styles);
     }
   }
 }
 
-
 /**
  * Enhanced Verification UI for Suvorov-Lomazova Verification
- * Fixed version that preserves visualization when modal is closed
+ * Updated to work with the new HTML overlay system
  */
 class SuvorovLomazovaVerificationUI {
   constructor(app) {
@@ -5162,7 +5478,7 @@ class SuvorovLomazovaVerificationUI {
         border-radius: 3px;
       }
 
-      /* Floating control panel for when modal is closed */
+      /* Enhanced floating control panel for HTML overlay system */
       .sl-floating-controls {
         position: fixed;
         top: 20px;
@@ -5175,6 +5491,7 @@ class SuvorovLomazovaVerificationUI {
         z-index: 999;
         backdrop-filter: blur(10px);
         box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+        min-width: 200px;
       }
 
       .sl-floating-controls.show {
@@ -5185,6 +5502,9 @@ class SuvorovLomazovaVerificationUI {
         margin: 0 0 10px 0;
         color: #ECEFF4;
         font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
 
       .sl-floating-controls .sl-control-group {
@@ -5196,6 +5516,24 @@ class SuvorovLomazovaVerificationUI {
         padding: 8px 16px;
         font-size: 12px;
         width: 100%;
+      }
+
+      .sl-overlay-counter {
+        font-size: 12px;
+        color: #81A1C1;
+        margin-bottom: 10px;
+        text-align: center;
+        padding: 4px 8px;
+        background: rgba(129, 161, 193, 0.1);
+        border-radius: 4px;
+      }
+
+      .sl-overlay-info {
+        font-size: 11px;
+        color: #8FBCBB;
+        margin-top: 8px;
+        text-align: center;
+        font-style: italic;
       }
     `;
     document.head.appendChild(style);
@@ -5269,19 +5607,34 @@ class SuvorovLomazovaVerificationUI {
 
     document.body.appendChild(modal);
 
-    // Create floating controls (shown when modal is closed but visualization is active)
+    // Create enhanced floating controls
     const floatingControls = document.createElement("div");
     floatingControls.id = "sl-floating-controls";
     floatingControls.className = "sl-floating-controls";
     floatingControls.innerHTML = `
-      <h4>🔬 Verification Overlay</h4>
+      <h4>
+        <span>🔬</span>
+        <span>Verification Overlays</span>
+      </h4>
+      <div class="sl-overlay-counter" id="sl-overlay-counter">
+        0 overlays active
+      </div>
       <div class="sl-control-group">
         <button class="sl-btn sl-btn-secondary" id="sl-float-show-results">
-          Show Results
+          📊 Show Results
         </button>
         <button class="sl-btn sl-btn-secondary" id="sl-float-clear-highlights">
-          Clear Visualization
+          🧹 Clear Visualization
         </button>
+        <button class="sl-btn sl-btn-secondary" id="sl-float-hide-overlays">
+          👁️ Hide Overlays
+        </button>
+        <button class="sl-btn sl-btn-secondary" id="sl-float-show-overlays" style="display: none;">
+          👁️ Show Overlays
+        </button>
+      </div>
+      <div class="sl-overlay-info">
+        Drag overlays to reposition them
       </div>
     `;
     document.body.appendChild(floatingControls);
@@ -5295,7 +5648,7 @@ class SuvorovLomazovaVerificationUI {
       if (e.target === modal) this.closeModal();
     });
 
-    // Floating controls event listeners
+    // Enhanced floating controls event listeners
     document.getElementById("sl-float-show-results")?.addEventListener("click", () => {
       this.showModal();
     });
@@ -5303,6 +5656,14 @@ class SuvorovLomazovaVerificationUI {
     document.getElementById("sl-float-clear-highlights")?.addEventListener("click", () => {
       this.clearVisualization();
       this.hideFloatingControls();
+    });
+
+    document.getElementById("sl-float-hide-overlays")?.addEventListener("click", () => {
+      this.hideOverlays();
+    });
+
+    document.getElementById("sl-float-show-overlays")?.addEventListener("click", () => {
+      this.showOverlays();
     });
   }
 
@@ -5334,6 +5695,7 @@ class SuvorovLomazovaVerificationUI {
     // Show floating controls if visualization is active
     if (this.isVisualizationActive) {
       this.showFloatingControls();
+      this.updateOverlayCounter();
     }
   }
 
@@ -5354,6 +5716,45 @@ class SuvorovLomazovaVerificationUI {
     const controls = document.getElementById("sl-floating-controls");
     if (controls) {
       controls.classList.remove("show");
+    }
+  }
+
+  /**
+   * Update overlay counter in floating controls
+   */
+  updateOverlayCounter() {
+    const counter = document.getElementById("sl-overlay-counter");
+    if (counter && this.traceVisualizer) {
+      const overlayCount = this.traceVisualizer.htmlOverlays.size;
+      counter.textContent = `${overlayCount} overlay${overlayCount !== 1 ? 's' : ''} active`;
+    }
+  }
+
+  /**
+   * Hide all overlays temporarily
+   */
+  hideOverlays() {
+    if (this.traceVisualizer && this.traceVisualizer.overlayContainer) {
+      this.traceVisualizer.overlayContainer.style.display = 'none';
+      
+      const hideBtn = document.getElementById("sl-float-hide-overlays");
+      const showBtn = document.getElementById("sl-float-show-overlays");
+      if (hideBtn) hideBtn.style.display = 'none';
+      if (showBtn) showBtn.style.display = 'block';
+    }
+  }
+
+  /**
+   * Show all overlays
+   */
+  showOverlays() {
+    if (this.traceVisualizer && this.traceVisualizer.overlayContainer) {
+      this.traceVisualizer.overlayContainer.style.display = 'block';
+      
+      const hideBtn = document.getElementById("sl-float-hide-overlays");
+      const showBtn = document.getElementById("sl-float-show-overlays");
+      if (hideBtn) hideBtn.style.display = 'block';
+      if (showBtn) showBtn.style.display = 'none';
     }
   }
 
@@ -5407,9 +5808,6 @@ class SuvorovLomazovaVerificationUI {
     }
   }
 
-  /**
-   * Create progress HTML
-   */
   createProgressHTML(message) {
     return `
       <div class="sl-progress">
@@ -5420,9 +5818,6 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Create results HTML
-   */
   createResultsHTML(results) {
     const algorithmUsed = results.checks?.some((c) =>
       c.name.includes("Algorithm 6")
@@ -5439,9 +5834,6 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Create status section
-   */
   createStatusSection(results) {
     const statusClass = results.isSound ? "sound" : "unsound";
     const statusIcon = results.isSound ? "✅" : "❌";
@@ -5461,22 +5853,16 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Create algorithm info section
-   */
   createAlgorithmInfoSection(algorithmUsed) {
     return `
       <div class="sl-algorithm-info">
         <strong>Algorithm Used:</strong> ${algorithmUsed}<br>
         <strong>Properties Checked:</strong> P1 (Deadlock Freedom), P2 (No Overfinal Markings), P3 (No Dead Transitions)<br>
-        <strong>Tip:</strong> Close this dialog to see counterexample visualizations on the Petri net
+        <strong>Visualization:</strong> Interactive HTML overlays show counterexamples directly on the Petri net (drag to reposition)
       </div>
     `;
   }
 
-  /**
-   * Create properties section
-   */
   createPropertiesSection(checks) {
     if (!checks.length) {
       return "<p>No property checks available.</p>";
@@ -5493,9 +5879,6 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Create a property card
-   */
   createPropertyCard(check, index) {
     const statusClass = check.satisfied ? "pass" : "fail";
     const statusText = check.satisfied ? "Pass" : "Fail";
@@ -5539,20 +5922,17 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Get display name for property
-   */
   getPropertyDisplayName(checkName) {
     const nameMap = {
       "Deadlock freedom": "P1: Deadlock Freedom",
-      "Deadlock freedom (P1)": "P1: Deadlock Freedom",
+      "Deadlock freedom (P1)": "P1: Deadlock Freedom", 
       "Deadlock Freedom (P1)": "P1: Deadlock Freedom",
       DeadlockFreedom: "P1: Deadlock Freedom",
       "Overfinal marking (P2)": "P2: No Overfinal Markings",
       "Overfinal Marking (P2)": "P2: No Overfinal Markings",
       OverfinalMarkings: "P2: No Overfinal Markings",
       "Dead transitions (P3)": "P3: No Dead Transitions",
-      "Dead Transitions (P3)": "P3: No Dead Transitions",
+      "Dead Transitions (P3)": "P3: No Dead Transitions", 
       DeadTransitions: "P3: No Dead Transitions",
       "Boundedness (Alg. 3)": "Boundedness Check",
       Boundedness: "Boundedness Check",
@@ -5560,9 +5940,6 @@ class SuvorovLomazovaVerificationUI {
     return nameMap[checkName] || checkName;
   }
 
-  /**
-   * Get property-specific details
-   */
   getPropertySpecificDetails(check) {
     let details = "";
 
@@ -5581,9 +5958,6 @@ class SuvorovLomazovaVerificationUI {
     return details;
   }
 
-  /**
-   * Get counterexample description
-   */
   getCounterexampleDescription(check) {
     if (check.trace && check.trace.length > 0) {
       return `Trace with ${check.trace.length} steps showing property violation`;
@@ -5603,9 +5977,6 @@ class SuvorovLomazovaVerificationUI {
     return "Property violation detected";
   }
 
-  /**
-   * Create control panel
-   */
   createControlPanel() {
     return `
       <div class="sl-control-panel">
@@ -5629,9 +6000,6 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Create timing section
-   */
   createTimingSection(results) {
     const steps = results.verificationSteps || [];
     const stepsHTML = steps
@@ -5662,9 +6030,6 @@ class SuvorovLomazovaVerificationUI {
     `;
   }
 
-  /**
-   * Create error HTML
-   */
   createErrorHTML(error) {
     return `
       <div class="sl-verification-status unsound">
@@ -5723,7 +6088,7 @@ class SuvorovLomazovaVerificationUI {
 
     document.getElementById("sl-close-to-view")?.addEventListener("click", () => {
       this.closeModal();
-      this.showNotification("Close this dialog to see the Petri net with visualization overlays");
+      this.showNotification("HTML overlays show counterexamples directly on the Petri net. Drag them to reposition!");
     });
   }
 
@@ -5776,8 +6141,11 @@ class SuvorovLomazovaVerificationUI {
 
       // Show notification with instructions
       this.showNotification(
-        `Visualizing ${this.getPropertyDisplayName(check.name)}. Close this dialog to see the overlays on the Petri net.`
+        `Visualizing ${this.getPropertyDisplayName(check.name)}. HTML overlays show counterexamples - drag them to reposition!`
       );
+
+      // Update overlay counter
+      setTimeout(() => this.updateOverlayCounter(), 100);
     }
   }
 
@@ -5911,21 +6279,48 @@ class SuvorovLomazovaVerificationUI {
     }
   }
 }
+
 // Export classes for use in the main application
-window.SuvorovLomazovaTraceVisualizationRenderer =
-  SuvorovLomazovaTraceVisualizationRenderer;
+window.SuvorovLomazovaTraceVisualizationRenderer = SuvorovLomazovaTraceVisualizationRenderer;
 window.SuvorovLomazovaVerificationUI = SuvorovLomazovaVerificationUI;
 
+// Enhanced initialization script for HTML overlay system
 document.addEventListener('DOMContentLoaded', () => {
   // Wait for the main app to be ready
   const initTimer = setInterval(() => {
     if (window.petriApp && window.petriApp.editor && window.petriApp.editor.renderer) {
-      // Initialize the verification UI
+      // Initialize the verification UI with HTML overlay system
       if (!window.suvorovLomazovaUI) {
-        console.log("Initializing Suvorov-Lomazova Verification UI");
+        console.log("Initializing Suvorov-Lomazova Verification UI with HTML Overlay System");
         window.suvorovLomazovaUI = new SuvorovLomazovaVerificationUI(window.petriApp);
+        
       }
       clearInterval(initTimer);
     }
   }, 100);
+
+  // Enhanced canvas resize handling for overlay system
+  let resizeTimeout;
+  function handleCanvasResize() {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      if (window.suvorovLomazovaUI && 
+          window.suvorovLomazovaUI.traceVisualizer && 
+          window.suvorovLomazovaUI.isVisualizationActive) {
+        // Update overlay positions after canvas resize
+        window.suvorovLomazovaUI.traceVisualizer.updateHTMLOverlays();
+      }
+    }, 100);
+  }
+
+  // Listen for window resize events that might affect canvas
+  window.addEventListener('resize', handleCanvasResize);
+  
+  // Listen for fullscreen toggle events
+  document.addEventListener('keydown', (e) => {
+    if ((e.key === 'F' && (e.ctrlKey || e.metaKey)) || e.key === 'F11') {
+      setTimeout(handleCanvasResize, 300); // Delay to allow fullscreen transition
+    }
+  });
 });
+
