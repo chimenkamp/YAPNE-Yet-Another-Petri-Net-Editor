@@ -4465,18 +4465,22 @@ class SuvorovLomazovaTraceVisualizationRenderer {
 
       .sl-element-highlight.dead-transition {
         border-color: #BF616A;
+        box-shadow: 0px 0px 26px 11px rgba(191,97,106,0.58), 0px 0px 16px 11px rgba(191,97,106,0.12);
       }
 
       .sl-element-highlight.overfinal {
         border-color: #D08770;
+        box-shadow: 0px 0px 26px 11px rgba(191,97,106,0.58), 0px 0px 16px 11px rgba(208,135,112,0.12);
       }
 
       .sl-element-highlight.trace-step {
         border-color: #88C0D0;
+        box-shadow: 0px 0px 26px 11px rgba(191,97,106,0.58), 0px 0px 16px 11px rgba(136,192,208,0.12);
       }
 
       .sl-element-highlight.deadlock {
         border-color: #B48EAD;
+        box-shadow: 0px 0px 26px 11px rgba(191,97,106,0.58), 0px 0px 16px 11px rgba(180,142,173,0.12);
       }
 
       @keyframes sl-pulse {
