@@ -54,10 +54,11 @@ class PetriNetApp {
 
     this.api = new PetriNetAPI();
     this.editor = this.api.attachEditor(this.canvas);
+    
+    
 
     this.api.setZoomSensitivity(0.5);
 
-    // IMPORTANT: Set the app reference in the editor for C key functionality
     this.editor.app = this;
 
 
@@ -70,11 +71,14 @@ class PetriNetApp {
     this.initEventHandlers();
 
     // Add initial place to the editor
-    this.addInitialPlace();
+    // this.addInitialPlace();
 
     this.editor.render();
     this.updateTokensDisplay();
     this.updateZoomDisplay();
+
+    // Clone the clean renderer state for reset purposes
+    this.clean_renderer = this.editor.renderer.clone();
 
   }
 
@@ -1331,13 +1335,7 @@ initEventHandlers() {
             this.api = PetriNetAPI.importFromJSON(json);
             this.editor = this.api.attachEditor(this.canvas);
 
-            // Ensure renderer starts with completely clean state
-            if (this.editor.renderer) {
-              this.editor.renderer.panOffset = { x: 0, y: 0 };
-              this.editor.renderer.zoomFactor = 1.0;
-              // Force renderer to reinitialize its internal canvas state
-              this.editor.renderer.theme = { ...this.editor.renderer.theme };
-            }
+            this.editor.renderer = this.clean_renderer
 
             // Clear any residual interaction states
             this.editor.selectedElement = null;
@@ -1375,9 +1373,9 @@ initEventHandlers() {
             // Fit canvas after ensuring everything is rendered cleanly
             this.fitCanvasTimeout = setTimeout(() => {
               this.fitNetworkToCanvas();
-            }, 100);
+            }, 0);
 
-          }, 100);
+          }, 0);
         });
 
       } catch (error) {

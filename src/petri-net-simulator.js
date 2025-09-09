@@ -424,6 +424,14 @@ class PetriNetRenderer {
     };
   }
 
+  clone() {
+    const cloned = new PetriNetRenderer(this.canvas, this.petriNet);
+    cloned.panOffset = { ...this.panOffset };
+    cloned.zoomFactor = this.zoomFactor;
+    cloned.theme = { ...this.theme };
+    return cloned;
+  }
+
   render() {
     this.clear();
     

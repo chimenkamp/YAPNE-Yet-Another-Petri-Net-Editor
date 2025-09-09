@@ -4225,12 +4225,17 @@ class SuvorovLomazovaVerifier {
 
 /**
  * Enhanced Trace Visualization Renderer for Suvorov-Lomazova Verification
- * Fixed version with proper coordinate handling and improved visuals
+ * Single-canvas version: draw overlays AFTER the base renderer, fully sandboxed.
+ * - Does NOT wrap the base render in a global save/restore
+ * - World-space highlights respect pan/zoom
+ * - Screen-space tooltips reset transform to identity
  */
 class SuvorovLomazovaTraceVisualizationRenderer {
   constructor(app) {
     this.app = app;
     this.mainRenderer = app.editor.renderer;
+
+    // Visualization state
     this.highlightedElements = new Set();
     this.highlightedArcs = new Set();
     this.dataOverlays = new Map();
@@ -4239,23 +4244,25 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     this.violationInfo = null;
     this.isActive = false;
 
-    // Animation properties
+    // Animation
     this.animationTime = 0;
     this.animationFrame = null;
     this.pulseIntensity = 0;
 
-    // Store original render method and extend it properly
+    // Store original render and extend
     this.originalRender = this.mainRenderer.render.bind(this.mainRenderer);
     this.extendRenderer();
   }
 
+  /**
+   * Draw base first, then overlays. Do NOT surround base with save/restore.
+   */
   extendRenderer() {
-    // Override the main renderer's render method
-    this.mainRenderer.render = () => {
-      // Call original render first
-      this.originalRender();
+    this.mainRenderer.render = (...args) => {
+      // 1) Base frame
+      this.originalRender(...args);
 
-      // Then add our overlays if active
+      // 2) Overlays (if any), fully sandboxed
       if (this.isActive) {
         this.renderVisualization();
       }
@@ -4263,42 +4270,45 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   }
 
   /**
-   * Main render method for all visualization elements
+   * Main overlay render entry: animation + world highlights + screen overlays.
+   * All drawing ops are sandboxed and never leak state to the base renderer.
    */
   renderVisualization() {
-    // Update animation
     this.updateAnimation();
 
-    // Render in correct order
+    // World-space highlights (respect pan/zoom), self-sandboxed
     this.renderHighlights();
-    this.renderOverlays();
+
+    // Screen-space overlays (tooltips/lines), force identity transform
+    const ctx = this.mainRenderer.ctx;
+    ctx.save();
+    try {
+      // Reset transform so screen coords are stable regardless of base state
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this.renderOverlays();
+    } finally {
+      ctx.restore();
+    }
   }
 
-  /**
-   * Update animation state
-   */
   updateAnimation() {
     this.animationTime += 0.05;
     this.pulseIntensity = (Math.sin(this.animationTime) + 1) * 0.5;
   }
 
   /**
-   * Visualize a verification check result
+   * Public: visualize a check result
    */
   visualizeCheck(check) {
-    this.clearHighlights();
+    this.clearHighlights(true);
     this.isActive = true;
     this.violationInfo = check;
 
-    console.log("Visualizing check:", check);
-
-    // Store problematic elements for special highlighting
     if (check.problematicPlaces) {
       for (const place of check.problematicPlaces) {
         this.problematicPlaces.set(place.placeId, place);
       }
     }
-
     if (check.responsibleVariables) {
       for (const variable of check.responsibleVariables) {
         this.responsibleVariables.set(variable.variable, variable);
@@ -4325,30 +4335,25 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       }
     }
 
-    // Start animation loop
     this.startAnimation();
+    // Trigger an immediate frame
     this.mainRenderer.render();
   }
 
-  /**
-   * Start animation loop
-   */
   startAnimation() {
     if (this.animationFrame) return;
-
     const animate = () => {
-      if (this.isActive) {
-        this.mainRenderer.render();
-        this.animationFrame = requestAnimationFrame(animate);
+      if (!this.isActive) {
+        this.animationFrame = null;
+        return;
       }
+      // Drive a fresh base+overlay frame; no recursion since this is next tick
+      this.mainRenderer.render();
+      this.animationFrame = requestAnimationFrame(animate);
     };
-
-    animate();
+    this.animationFrame = requestAnimationFrame(animate);
   }
 
-  /**
-   * Stop animation loop
-   */
   stopAnimation() {
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
@@ -4356,310 +4361,219 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     }
   }
 
-  /**
-   * Visualize deadlock freedom violation (P1)
-   */
   visualizeDeadlockViolation(check) {
-    // Highlight the violating states/path
     if (check.trace && check.trace.length > 0) {
       this.visualizeTracePath(check.trace, "deadlock");
     }
-
-    // If there's an offending state, highlight it specially
-    if (check.offendingState) {
-      const nodeData = check.offendingState;
-      // Find places that correspond to the marking
-      if (nodeData.marking) {
-        Object.entries(nodeData.marking).forEach(([placeId, tokens]) => {
-          if (tokens > 0) {
-            this.dataOverlays.set(`deadlock_${placeId}`, {
-              type: "deadlockMarking",
-              elementId: placeId,
-              elementType: "place",
-              tokens,
-              data: nodeData,
-            });
-          }
-        });
-      }
-    }
-  }
-
-  /**
-   * Visualize overfinal marking violation (P2)
-   */
-  visualizeOverfinalViolation(check) {
-    if (check.overfinalNodes && check.overfinalNodes.length > 0) {
-      check.overfinalNodes.forEach((node, index) => {
-        if (node.marking) {
-          Object.entries(node.marking).forEach(([placeId, tokens]) => {
-            if (tokens > 0) {
-              this.highlightedElements.add(placeId);
-              this.dataOverlays.set(`overfinal_${placeId}_${index}`, {
-                type: "overfinal",
-                elementId: placeId,
-                elementType: "place",
-                tokens,
-                nodeData: node,
-                formula: node.formula,
-              });
-            }
+    if (check.offendingState?.marking) {
+      Object.entries(check.offendingState.marking).forEach(([placeId, tokens]) => {
+        if (tokens > 0) {
+          this.dataOverlays.set(`deadlock_${placeId}`, {
+            type: "deadlockMarking",
+            elementId: placeId,
+            elementType: "place",
+            tokens,
+            data: check.offendingState,
           });
         }
       });
     }
-
-    if (check.trace) {
-      this.visualizeTracePath(check.trace, "overfinal");
-    }
   }
 
-  /**
-   * Visualize dead transition violation (P3)
-   */
-  visualizeDeadTransitionViolation(check) {
-    const deadTransitions =
-      check.deadTransitions ||
-      (check.deadTransition ? [check.deadTransition] : []);
-
-    deadTransitions.forEach((deadTransition, index) => {
-      const transitionId = deadTransition.transitionId;
-      if (transitionId) {
-        this.highlightedElements.add(transitionId);
-        this.highlightConnectedElements(transitionId);
-
-        this.dataOverlays.set(`dead_transition_${transitionId}`, {
-          type: "deadTransition",
-          elementId: transitionId,
-          elementType: "transition",
-          data: deadTransition,
-          variants: deadTransition.variants || [],
+  visualizeOverfinalViolation(check) {
+    if (check.overfinalNodes?.length) {
+      check.overfinalNodes.forEach((node, index) => {
+        if (!node.marking) return;
+        Object.entries(node.marking).forEach(([placeId, tokens]) => {
+          if (tokens > 0) {
+            this.highlightedElements.add(placeId);
+            this.dataOverlays.set(`overfinal_${placeId}_${index}`, {
+              type: "overfinal",
+              elementId: placeId,
+              elementType: "place",
+              tokens,
+              nodeData: node,
+              formula: node.formula,
+            });
+          }
         });
-      }
+      });
+    }
+    if (check.trace) this.visualizeTracePath(check.trace, "overfinal");
+  }
+
+  visualizeDeadTransitionViolation(check) {
+    const list = check.deadTransitions || (check.deadTransition ? [check.deadTransition] : []);
+    list.forEach((deadTransition) => {
+      const id = deadTransition.transitionId;
+      if (!id) return;
+      this.highlightedElements.add(id);
+      this.highlightConnectedElements(id);
+      this.dataOverlays.set(`dead_transition_${id}`, {
+        type: "deadTransition",
+        elementId: id,
+        elementType: "transition",
+        data: deadTransition,
+        variants: deadTransition.variants || [],
+      });
     });
-
-    if (check.trace) {
-      this.visualizeTracePath(check.trace, "deadTransition");
-    }
+    if (check.trace) this.visualizeTracePath(check.trace, "deadTransition");
   }
 
-  /**
-   * Visualize boundedness violation
-   */
   visualizeBoundednessViolation(check) {
-    if (check.trace && check.trace.length > 0) {
-      this.visualizeTracePath(check.trace, "boundedness");
-    }
+    if (check.trace?.length) this.visualizeTracePath(check.trace, "boundedness");
   }
 
-  /**
-   * Visualize generic violation
-   */
   visualizeGenericViolation(check) {
-    if (check.trace) {
-      this.visualizeTracePath(check.trace, "generic");
-    }
+    if (check.trace) this.visualizeTracePath(check.trace, "generic");
   }
 
-  /**
-   * Visualize a trace path on the Petri net
-   */
   visualizeTracePath(trace, violationType) {
-    if (!trace || trace.length === 0) return;
-
+    if (!trace?.length) return;
     trace.forEach((step, stepIndex) => {
       const transitionId = this.findTransitionId(step.transitionId);
-      if (transitionId) {
-        this.highlightedElements.add(transitionId);
-        this.highlightConnectedElements(transitionId);
-
-        this.dataOverlays.set(`trace_step_${stepIndex}`, {
-          type: "traceStep",
-          elementId: transitionId,
-          elementType: "transition",
-          stepIndex,
-          violationType,
-          data: step,
-          vars: step.vars || {},
-        });
-      }
+      if (!transitionId) return;
+      this.highlightedElements.add(transitionId);
+      this.highlightConnectedElements(transitionId);
+      this.dataOverlays.set(`trace_step_${stepIndex}`, {
+        type: "traceStep",
+        elementId: transitionId,
+        elementType: "transition",
+        stepIndex,
+        violationType,
+        data: step,
+        vars: step.vars || {},
+      });
     });
   }
 
-  /**
-   * Find transition ID in the Petri net
-   */
   findTransitionId(stepTransitionId) {
-    if (!this.app.api || !this.app.api.petriNet) return null;
-
-    // Direct ID match
-    if (this.app.api.petriNet.transitions.has(stepTransitionId)) {
-      return stepTransitionId;
-    }
-
-    // Try to match by label or partial ID
+    if (!this.app.api?.petriNet) return null;
+    if (this.app.api.petriNet.transitions.has(stepTransitionId)) return stepTransitionId;
     for (const [id, transition] of this.app.api.petriNet.transitions) {
       if (
         transition.label === stepTransitionId ||
         id.includes(stepTransitionId) ||
-        stepTransitionId.includes(id)
-      ) {
-        return id;
-      }
+        stepTransitionId?.includes?.(id)
+      ) return id;
     }
-
     return null;
   }
 
-  /**
-   * Highlight elements connected to a transition
-   */
   highlightConnectedElements(transitionId) {
-    if (!this.app.api || !this.app.api.petriNet) return;
-
+    if (!this.app.api?.petriNet) return;
     for (const arc of this.app.api.petriNet.arcs.values()) {
       if (arc.source === transitionId || arc.target === transitionId) {
         this.highlightedArcs.add(arc.id);
-        const connectedElementId =
-          arc.source === transitionId ? arc.target : arc.source;
-        this.highlightedElements.add(connectedElementId);
+        const connected = arc.source === transitionId ? arc.target : arc.source;
+        this.highlightedElements.add(connected);
       }
     }
   }
 
   /**
-   * Clear all highlights and overlays
+   * Clear state. If keepInactive=true, keep isActive as-is (used at visualize start).
    */
-  clearHighlights() {
+  clearHighlights(keepInactive = false) {
     this.highlightedElements.clear();
     this.highlightedArcs.clear();
     this.dataOverlays.clear();
     this.problematicPlaces.clear();
     this.responsibleVariables.clear();
     this.violationInfo = null;
-    this.isActive = false;
+
+    if (!keepInactive) this.isActive = false;
     this.stopAnimation();
-    this.mainRenderer.render();
+
+    // Force a clean repaint of base (no overlays)
+    if (this.mainRenderer) {
+      this.mainRenderer.render();
+    }
   }
 
   /**
-   * Render highlights on the canvas
+   * World-space highlights: fully sandboxed and transform-aware.
    */
   renderHighlights() {
-    if (!this.app.api || !this.app.api.petriNet) return;
+    if (!this.app.api?.petriNet) return;
 
     const ctx = this.mainRenderer.ctx;
     ctx.save();
+    try {
+      // Apply world transform (pan + zoom)
+      ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
+      ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
 
-    // Apply the same transformations as the main renderer
-    ctx.translate(this.mainRenderer.panOffset.x, this.mainRenderer.panOffset.y);
-    ctx.scale(this.mainRenderer.zoomFactor, this.mainRenderer.zoomFactor);
+      // Arcs behind nodes
+      for (const arcId of this.highlightedArcs) {
+        const arc = this.app.api.petriNet.arcs.get(arcId);
+        if (!arc) continue;
+        const source =
+          this.app.api.petriNet.places.get(arc.source) ||
+          this.app.api.petriNet.transitions.get(arc.source);
+        const target =
+          this.app.api.petriNet.places.get(arc.target) ||
+          this.app.api.petriNet.transitions.get(arc.target);
+        if (!source || !target) continue;
 
-    // Render highlighted arcs first (behind nodes)
-    this.renderHighlightedArcs(ctx);
+        const { start, end } = this.mainRenderer.calculateArcEndpoints(source, target);
 
-    // Then render highlighted nodes
-    this.renderHighlightedNodes(ctx);
+        ctx.save();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = this.getHighlightColor("arc");
+        ctx.strokeStyle = this.getHighlightColor("arc");
+        ctx.lineWidth = 4 / Math.max(0.0001, this.mainRenderer.zoomFactor);
+        ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.2;
 
-    ctx.restore();
-  }
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+        ctx.restore();
+      }
 
-  /**
-   * Render highlighted arcs
-   */
-  renderHighlightedArcs(ctx) {
-    for (const arcId of this.highlightedArcs) {
-      const arc = this.app.api.petriNet.arcs.get(arcId);
-      if (!arc) continue;
+      // Nodes
+      for (const elementId of this.highlightedElements) {
+        const place = this.app.api.petriNet.places.get(elementId);
+        const transition = this.app.api.petriNet.transitions.get(elementId);
 
-      const source =
-        this.app.api.petriNet.places.get(arc.source) ||
-        this.app.api.petriNet.transitions.get(arc.source);
-      const target =
-        this.app.api.petriNet.places.get(arc.target) ||
-        this.app.api.petriNet.transitions.get(arc.target);
-
-      if (!source || !target) continue;
-
-      const { start, end } = this.mainRenderer.calculateArcEndpoints(
-        source,
-        target
-      );
-
-      // Draw highlight glow
-      ctx.save();
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = this.getHighlightColor("arc");
-      ctx.strokeStyle = this.getHighlightColor("arc");
-      ctx.lineWidth = 4;
-      ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.2;
-
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(end.x, end.y);
-      ctx.stroke();
+        if (place) {
+          this.renderHighlightedPlace(ctx, place, elementId);
+        } else if (transition) {
+          this.renderHighlightedTransition(ctx, transition, elementId);
+        }
+      }
+    } finally {
       ctx.restore();
     }
   }
 
-  /**
-   * Render highlighted nodes
-   */
-  renderHighlightedNodes(ctx) {
-    for (const elementId of this.highlightedElements) {
-      const place = this.app.api.petriNet.places.get(elementId);
-      const transition = this.app.api.petriNet.transitions.get(elementId);
-
-      if (place) {
-        this.renderHighlightedPlace(ctx, place, elementId);
-      } else if (transition) {
-        this.renderHighlightedTransition(ctx, transition, elementId);
-      }
-    }
-  }
-
-  /**
-   * Render highlighted place
-   */
   renderHighlightedPlace(ctx, place, elementId) {
     const color = this.getHighlightColor("place", elementId);
-
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 4 / Math.max(0.0001, this.mainRenderer.zoomFactor);
     ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.3;
     ctx.shadowBlur = 15;
     ctx.shadowColor = color;
 
     ctx.beginPath();
-    ctx.arc(
-      place.position.x,
-      place.position.y,
-      place.radius + 8,
-      0,
-      Math.PI * 2
-    );
+    ctx.arc(place.position.x, place.position.y, place.radius + 8, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Add inner glow for overfinal markings
     if (this.isOverfinalPlace(elementId)) {
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.2 * this.pulseIntensity;
       ctx.fill();
     }
-
     ctx.restore();
   }
 
-  /**
-   * Render highlighted transition
-   */
   renderHighlightedTransition(ctx, transition, elementId) {
     const color = this.getHighlightColor("transition", elementId);
-
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 4 / Math.max(0.0001, this.mainRenderer.zoomFactor);
     ctx.globalAlpha = 0.6 + this.pulseIntensity * 0.3;
     ctx.shadowBlur = 15;
     ctx.shadowColor = color;
@@ -4674,226 +4588,139 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     );
     ctx.stroke();
 
-    // Add inner glow for dead transitions
     if (this.isDeadTransition(elementId)) {
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.2 * this.pulseIntensity;
       ctx.fill();
     }
-
     ctx.restore();
   }
 
-  /**
-   * Get highlight color based on violation type
-   */
-  getHighlightColor(elementType, elementId) {
+  getHighlightColor(_elementType, elementId) {
     if (this.isDeadTransition(elementId)) return "#BF616A"; // Red
     if (this.isOverfinalPlace(elementId)) return "#D08770"; // Orange
     if (this.isTraceElement(elementId)) return "#88C0D0"; // Blue
     return "#EBCB8B"; // Yellow default
   }
 
-  /**
-   * Check if element is a dead transition
-   */
   isDeadTransition(elementId) {
-    for (const [key, overlay] of this.dataOverlays) {
-      if (
-        overlay.type === "deadTransition" &&
-        overlay.elementId === elementId
-      ) {
-        return true;
-      }
+    for (const [, overlay] of this.dataOverlays) {
+      if (overlay.type === "deadTransition" && overlay.elementId === elementId) return true;
     }
     return false;
   }
 
-  /**
-   * Check if element is an overfinal place
-   */
   isOverfinalPlace(elementId) {
-    for (const [key, overlay] of this.dataOverlays) {
-      if (overlay.type === "overfinal" && overlay.elementId === elementId) {
-        return true;
-      }
+    for (const [, overlay] of this.dataOverlays) {
+      if (overlay.type === "overfinal" && overlay.elementId === elementId) return true;
     }
     return false;
   }
 
-  /**
-   * Check if element is part of a trace
-   */
   isTraceElement(elementId) {
-    for (const [key, overlay] of this.dataOverlays) {
-      if (overlay.type === "traceStep" && overlay.elementId === elementId) {
-        return true;
-      }
+    for (const [, overlay] of this.dataOverlays) {
+      if (overlay.type === "traceStep" && overlay.elementId === elementId) return true;
     }
     return false;
   }
 
   /**
-   * Render overlay tooltips - now in screen coordinates
+   * Screen-space overlays. We assume identity transform here.
    */
   renderOverlays() {
-    if (!this.app.api || !this.app.api.petriNet) return;
-
+    if (!this.app.api?.petriNet) return;
     const ctx = this.mainRenderer.ctx;
-    ctx.save();
 
-    // Render overlays in screen space (not world space)
-    for (const [id, overlay] of this.dataOverlays) {
-      this.renderOverlay(ctx, overlay);
+    for (const [, overlay] of this.dataOverlays) {
+      const worldPos = this.getElementWorldPosition(overlay);
+      if (!worldPos) continue;
+
+      const screenPos = this.worldToScreen(worldPos);
+      const offset = { x: 30, y: -30 };
+      const position = { x: screenPos.x + offset.x, y: screenPos.y + offset.y };
+
+      const content = this.formatOverlayContent(overlay);
+      const lines = content.split("\n");
+
+      const padding = 12;
+      const lineHeight = 18;
+      const fontSize = 13;
+      const borderRadius = 8;
+
+      ctx.save();
+      // Reset shadow
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+      const maxWidth = Math.max(...lines.map((ln) => ctx.measureText(ln).width), 60);
+      const boxWidth = maxWidth + padding * 2;
+      const boxHeight = lines.length * lineHeight + padding * 2;
+
+      const canvasW = ctx.canvas.clientWidth || ctx.canvas.width;
+      const canvasH = ctx.canvas.clientHeight || ctx.canvas.height;
+      if (position.x + boxWidth > canvasW - 20) position.x = screenPos.x - boxWidth - offset.x;
+      if (position.y < 20) position.y = screenPos.y + 50;
+
+      // Shadowed background
+      ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
+      ctx.shadowBlur = 10;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 4;
+
+      ctx.fillStyle = this.getOverlayBackgroundColor(overlay.type);
+      this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
+      ctx.fill();
+
+      // Border
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
+      ctx.lineWidth = 2;
+      this.roundRect(ctx, position.x, position.y, boxWidth, boxHeight, borderRadius);
+      ctx.stroke();
+
+      // Text
+      ctx.fillStyle = "#ECEFF4";
+      ctx.textBaseline = "top";
+      lines.forEach((line, idx) => {
+        ctx.font = idx === 0
+          ? `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+          : `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        ctx.fillText(line, position.x + padding, position.y + padding + idx * lineHeight);
+      });
+
+      // Connector
+      ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(position.x + boxWidth / 2, position.y + boxHeight);
+      ctx.lineTo(screenPos.x, screenPos.y);
+      ctx.stroke();
+
+      ctx.restore();
     }
-
-    ctx.restore();
   }
 
-  /**
-   * Render a single overlay
-   */
-  renderOverlay(ctx, overlay) {
-    // Get world position of the element
-    const worldPos = this.getElementWorldPosition(overlay);
-    if (!worldPos) return;
-
-    // Convert to screen coordinates
-    const screenPos = this.worldToScreen(worldPos);
-
-    // Calculate offset for the tooltip
-    const offset = { x: 30, y: -30 };
-    const position = {
-      x: screenPos.x + offset.x,
-      y: screenPos.y + offset.y,
-    };
-
-    // Prepare overlay content
-    const content = this.formatOverlayContent(overlay);
-    const lines = content.split("\n");
-
-    // Style settings
-    const padding = 12;
-    const lineHeight = 18;
-    const fontSize = 13;
-    const borderRadius = 8;
-
-    ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-
-    // Calculate dimensions
-    const maxWidth = Math.max(
-      ...lines.map((line) => ctx.measureText(line).width)
-    );
-    const boxWidth = maxWidth + padding * 2;
-    const boxHeight = lines.length * lineHeight + padding * 2;
-
-    // Ensure overlay stays on screen
-    if (position.x + boxWidth > this.mainRenderer.canvas.width - 20) {
-      position.x = screenPos.x - boxWidth - offset.x;
-    }
-    if (position.y < 20) {
-      position.y = screenPos.y + 50;
-    }
-
-    // Draw shadow
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.3)";
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 4;
-
-    // Draw background with rounded corners
-    ctx.fillStyle = this.getOverlayBackgroundColor(overlay.type);
-    this.roundRect(
-      ctx,
-      position.x,
-      position.y,
-      boxWidth,
-      boxHeight,
-      borderRadius
-    );
-    ctx.fill();
-    ctx.restore();
-
-    // Draw border
-    ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
-    ctx.lineWidth = 2;
-    this.roundRect(
-      ctx,
-      position.x,
-      position.y,
-      boxWidth,
-      boxHeight,
-      borderRadius
-    );
-    ctx.stroke();
-
-    // Draw text
-    ctx.fillStyle = "#ECEFF4";
-    ctx.textBaseline = "top";
-    lines.forEach((line, index) => {
-      const isHeader = index === 0;
-      if (isHeader) {
-        ctx.font = `bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      } else {
-        ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-      }
-      ctx.fillText(
-        line,
-        position.x + padding,
-        position.y + padding + index * lineHeight
-      );
-    });
-
-    // Draw connection line from overlay to element
-    ctx.save();
-    ctx.strokeStyle = this.getOverlayBorderColor(overlay.type);
-    ctx.lineWidth = 1;
-    ctx.globalAlpha = 0.5;
-    ctx.setLineDash([4, 4]);
-
-    ctx.beginPath();
-    ctx.moveTo(position.x + boxWidth / 2, position.y + boxHeight);
-    ctx.lineTo(screenPos.x, screenPos.y);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  /**
-   * Get world position of an element
-   */
   getElementWorldPosition(overlay) {
     if (!overlay.elementId) return null;
-
     const place = this.app.api.petriNet.places.get(overlay.elementId);
     const transition = this.app.api.petriNet.transitions.get(overlay.elementId);
-
-    if (place) {
-      return { x: place.position.x, y: place.position.y };
-    } else if (transition) {
-      return { x: transition.position.x, y: transition.position.y };
-    }
-
+    if (place) return { x: place.position.x, y: place.position.y };
+    if (transition) return { x: transition.position.x, y: transition.position.y };
     return null;
   }
 
-  /**
-   * Convert world coordinates to screen coordinates
-   */
   worldToScreen(worldPos) {
     return {
-      x:
-        worldPos.x * this.mainRenderer.zoomFactor +
-        this.mainRenderer.panOffset.x,
-      y:
-        worldPos.y * this.mainRenderer.zoomFactor +
-        this.mainRenderer.panOffset.y,
+      x: worldPos.x * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.x,
+      y: worldPos.y * this.mainRenderer.zoomFactor + this.mainRenderer.panOffset.y,
     };
   }
 
-  /**
-   * Draw a rounded rectangle
-   */
   roundRect(ctx, x, y, width, height, radius) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
@@ -4908,72 +4735,49 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     ctx.closePath();
   }
 
-  /**
-   * Format overlay content based on type
-   */
   formatOverlayContent(overlay) {
     switch (overlay.type) {
       case "deadTransition":
-        return `⚠️ DEAD TRANSITION\n${
-          overlay.data?.transitionLabel || overlay.elementId
-        }\nNever enabled in any reachable state`;
-
+        return `⚠️ DEAD TRANSITION\n${overlay.data?.transitionLabel || overlay.elementId}\nNever enabled in any reachable state`;
       case "overfinal":
         return `⚠️ OVERFINAL MARKING\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nExceeds final marking`;
-
-      case "traceStep":
-        const stepInfo = [
-          `Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`,
-        ];
-        if (overlay.vars && Object.keys(overlay.vars).length > 0) {
-          stepInfo.push("Data state:");
-          Object.entries(overlay.vars).forEach(([k, v]) => {
-            stepInfo.push(`  ${k} = ${v}`);
-          });
+      case "traceStep": {
+        const lines = [`Step ${overlay.stepIndex + 1}: Fire ${overlay.elementId}`];
+        if (overlay.vars && Object.keys(overlay.vars).length) {
+          lines.push("Data state:");
+          Object.entries(overlay.vars).forEach(([k, v]) => lines.push(`  ${k} = ${v}`));
         }
-        return stepInfo.join("\n");
-
+        return lines.join("\n");
+      }
       case "deadlockMarking":
         return `🔒 DEADLOCK STATE\nPlace: ${overlay.elementId}\nTokens: ${overlay.tokens}\nCannot reach final marking`;
-
       default:
         return `Violation detected\n${overlay.elementId}`;
     }
   }
 
-  /**
-   * Get overlay background color
-   */
   getOverlayBackgroundColor(type) {
     switch (type) {
       case "deadTransition":
-        return "rgba(46, 52, 64, 0.95)"; // Dark with red tint
       case "overfinal":
-        return "rgba(46, 52, 64, 0.95)"; // Dark with orange tint
       case "deadlockMarking":
-        return "rgba(46, 52, 64, 0.95)"; // Dark with red tint
       case "traceStep":
-        return "rgba(46, 52, 64, 0.95)"; // Dark with blue tint
       default:
-        return "rgba(46, 52, 64, 0.95)"; // Dark default
+        return "rgba(46, 52, 64, 0.95)";
     }
   }
 
-  /**
-   * Get overlay border color
-   */
   getOverlayBorderColor(type) {
     switch (type) {
       case "deadTransition":
-        return "#BF616A"; // Red
-      case "overfinal":
-        return "#D08770"; // Orange
       case "deadlockMarking":
-        return "#BF616A"; // Red
+        return "#BF616A";
+      case "overfinal":
+        return "#D08770";
       case "traceStep":
-        return "#88C0D0"; // Blue
+        return "#88C0D0";
       default:
-        return "#5E81AC"; // Blue default
+        return "#5E81AC";
     }
   }
 
@@ -4981,16 +4785,18 @@ class SuvorovLomazovaTraceVisualizationRenderer {
    * Cleanup when component is destroyed
    */
   destroy() {
-    this.clearHighlights();
-    this.stopAnimation();
+    this.clearHighlights(false);
     // Restore original render method
-    this.mainRenderer.render = this.originalRender;
+    if (this.mainRenderer && this.originalRender) {
+      this.mainRenderer.render = this.originalRender;
+    }
   }
 }
 
+
 /**
  * Enhanced Verification UI for Suvorov-Lomazova Verification
- * Provides sophisticated dialog and result display
+ * Fixed version that preserves visualization when modal is closed
  */
 class SuvorovLomazovaVerificationUI {
   constructor(app) {
@@ -4999,6 +4805,7 @@ class SuvorovLomazovaVerificationUI {
     this.traceVisualizer = null;
     this.currentResults = null;
     this.activeCheckIndex = -1;
+    this.isVisualizationActive = false;
 
     this.injectStyles();
     this.createVerificationSection();
@@ -5248,6 +5055,10 @@ class SuvorovLomazovaVerificationUI {
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
       }
 
+      .sl-visualize-btn.active {
+        background: linear-gradient(135deg, #A3BE8C, #8FBCBB);
+      }
+
       .sl-trace-info {
         color: #D8DEE9;
         font-size: 13px;
@@ -5350,6 +5161,42 @@ class SuvorovLomazovaVerificationUI {
         background: rgba(129, 161, 193, 0.1);
         border-radius: 3px;
       }
+
+      /* Floating control panel for when modal is closed */
+      .sl-floating-controls {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(46, 52, 64, 0.95);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #4C566A;
+        display: none;
+        z-index: 999;
+        backdrop-filter: blur(10px);
+        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+      }
+
+      .sl-floating-controls.show {
+        display: block;
+      }
+
+      .sl-floating-controls h4 {
+        margin: 0 0 10px 0;
+        color: #ECEFF4;
+        font-size: 14px;
+      }
+
+      .sl-floating-controls .sl-control-group {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .sl-floating-controls .sl-btn {
+        padding: 8px 16px;
+        font-size: 12px;
+        width: 100%;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -5422,6 +5269,23 @@ class SuvorovLomazovaVerificationUI {
 
     document.body.appendChild(modal);
 
+    // Create floating controls (shown when modal is closed but visualization is active)
+    const floatingControls = document.createElement("div");
+    floatingControls.id = "sl-floating-controls";
+    floatingControls.className = "sl-floating-controls";
+    floatingControls.innerHTML = `
+      <h4>🔬 Verification Overlay</h4>
+      <div class="sl-control-group">
+        <button class="sl-btn sl-btn-secondary" id="sl-float-show-results">
+          Show Results
+        </button>
+        <button class="sl-btn sl-btn-secondary" id="sl-float-clear-highlights">
+          Clear Visualization
+        </button>
+      </div>
+    `;
+    document.body.appendChild(floatingControls);
+
     // Event listeners
     document.getElementById("sl-close-modal").addEventListener("click", () => {
       this.closeModal();
@@ -5430,6 +5294,16 @@ class SuvorovLomazovaVerificationUI {
     modal.addEventListener("click", (e) => {
       if (e.target === modal) this.closeModal();
     });
+
+    // Floating controls event listeners
+    document.getElementById("sl-float-show-results")?.addEventListener("click", () => {
+      this.showModal();
+    });
+
+    document.getElementById("sl-float-clear-highlights")?.addEventListener("click", () => {
+      this.clearVisualization();
+      this.hideFloatingControls();
+    });
   }
 
   /**
@@ -5437,9 +5311,7 @@ class SuvorovLomazovaVerificationUI {
    */
   initializeTraceVisualizer() {
     if (this.app.editor && this.app.editor.renderer && !this.traceVisualizer) {
-      this.traceVisualizer = new SuvorovLomazovaTraceVisualizationRenderer(
-        this.app
-      );
+      this.traceVisualizer = new SuvorovLomazovaTraceVisualizationRenderer(this.app);
     }
   }
 
@@ -5449,14 +5321,40 @@ class SuvorovLomazovaVerificationUI {
   showModal() {
     const modal = document.getElementById("sl-verification-modal");
     modal.classList.add("show");
+    this.hideFloatingControls();
   }
 
   /**
-   * Close the verification modal
+   * Close the verification modal (but keep visualization active)
    */
   closeModal() {
     const modal = document.getElementById("sl-verification-modal");
     modal.classList.remove("show");
+    
+    // Show floating controls if visualization is active
+    if (this.isVisualizationActive) {
+      this.showFloatingControls();
+    }
+  }
+
+  /**
+   * Show floating controls
+   */
+  showFloatingControls() {
+    const controls = document.getElementById("sl-floating-controls");
+    if (controls) {
+      controls.classList.add("show");
+    }
+  }
+
+  /**
+   * Hide floating controls
+   */
+  hideFloatingControls() {
+    const controls = document.getElementById("sl-floating-controls");
+    if (controls) {
+      controls.classList.remove("show");
+    }
   }
 
   /**
@@ -5467,14 +5365,15 @@ class SuvorovLomazovaVerificationUI {
     const algorithmSelect = document.getElementById("sl-algorithm-select");
     const modalBody = document.getElementById("sl-modal-body");
 
+    // Clear any existing visualization
+    this.clearVisualization();
+
     // Disable button and show loading
     verifyButton.disabled = true;
     verifyButton.innerHTML = "⏳ Running Verification...";
 
     this.showModal();
-    modalBody.innerHTML = this.createProgressHTML(
-      "Initializing verification..."
-    );
+    modalBody.innerHTML = this.createProgressHTML("Initializing verification...");
 
     try {
       // Get selected algorithm
@@ -5569,7 +5468,8 @@ class SuvorovLomazovaVerificationUI {
     return `
       <div class="sl-algorithm-info">
         <strong>Algorithm Used:</strong> ${algorithmUsed}<br>
-        <strong>Properties Checked:</strong> P1 (Deadlock Freedom), P2 (No Overfinal Markings), P3 (No Dead Transitions)
+        <strong>Properties Checked:</strong> P1 (Deadlock Freedom), P2 (No Overfinal Markings), P3 (No Dead Transitions)<br>
+        <strong>Tip:</strong> Close this dialog to see counterexample visualizations on the Petri net
       </div>
     `;
   }
@@ -5646,10 +5546,13 @@ class SuvorovLomazovaVerificationUI {
     const nameMap = {
       "Deadlock freedom": "P1: Deadlock Freedom",
       "Deadlock freedom (P1)": "P1: Deadlock Freedom",
+      "Deadlock Freedom (P1)": "P1: Deadlock Freedom",
       DeadlockFreedom: "P1: Deadlock Freedom",
       "Overfinal marking (P2)": "P2: No Overfinal Markings",
+      "Overfinal Marking (P2)": "P2: No Overfinal Markings",
       OverfinalMarkings: "P2: No Overfinal Markings",
       "Dead transitions (P3)": "P3: No Dead Transitions",
+      "Dead Transitions (P3)": "P3: No Dead Transitions",
       DeadTransitions: "P3: No Dead Transitions",
       "Boundedness (Alg. 3)": "Boundedness Check",
       Boundedness: "Boundedness Check",
@@ -5717,6 +5620,9 @@ class SuvorovLomazovaVerificationUI {
         <div class="sl-control-group">
           <button class="sl-btn sl-btn-primary" id="sl-rerun-verification">
             Run Again
+          </button>
+          <button class="sl-btn sl-btn-secondary" id="sl-close-to-view">
+            Close to View Net
           </button>
         </div>
       </div>
@@ -5802,24 +5708,23 @@ class SuvorovLomazovaVerificationUI {
     });
 
     // Control panel buttons
-    document
-      .getElementById("sl-clear-highlights")
-      ?.addEventListener("click", () => {
-        this.clearVisualization();
-      });
+    document.getElementById("sl-clear-highlights")?.addEventListener("click", () => {
+      this.clearVisualization();
+    });
 
-    document
-      .getElementById("sl-export-results")
-      ?.addEventListener("click", () => {
-        this.exportResults();
-      });
+    document.getElementById("sl-export-results")?.addEventListener("click", () => {
+      this.exportResults();
+    });
 
-    document
-      .getElementById("sl-rerun-verification")
-      ?.addEventListener("click", () => {
-        this.closeModal();
-        this.startVerification();
-      });
+    document.getElementById("sl-rerun-verification")?.addEventListener("click", () => {
+      this.closeModal();
+      this.startVerification();
+    });
+
+    document.getElementById("sl-close-to-view")?.addEventListener("click", () => {
+      this.closeModal();
+      this.showNotification("Close this dialog to see the Petri net with visualization overlays");
+    });
   }
 
   /**
@@ -5858,12 +5763,20 @@ class SuvorovLomazovaVerificationUI {
     if (this.traceVisualizer) {
       const check = this.currentResults.checks[index];
       this.traceVisualizer.visualizeCheck(check);
+      
+      // Mark visualization as active
+      this.isVisualizationActive = true;
 
-      // Show a brief message
+      // Update button state
+      const btn = document.querySelector(`[data-check-index="${index}"]`);
+      if (btn) {
+        btn.classList.add("active");
+        btn.textContent = "Visualizing...";
+      }
+
+      // Show notification with instructions
       this.showNotification(
-        `Visualizing ${this.getPropertyDisplayName(
-          check.name
-        )} on the Petri net`
+        `Visualizing ${this.getPropertyDisplayName(check.name)}. Close this dialog to see the overlays on the Petri net.`
       );
     }
   }
@@ -5876,12 +5789,22 @@ class SuvorovLomazovaVerificationUI {
       this.traceVisualizer.clearHighlights();
     }
 
+    // Mark visualization as inactive
+    this.isVisualizationActive = false;
+
     // Remove active class from all cards
     document.querySelectorAll(".sl-property-card").forEach((card) => {
       card.classList.remove("active");
     });
 
+    // Reset visualize buttons
+    document.querySelectorAll(".sl-visualize-btn").forEach((btn) => {
+      btn.classList.remove("active");
+      btn.textContent = "Visualize";
+    });
+
     this.activeCheckIndex = -1;
+    this.hideFloatingControls();
     this.showNotification("Visualization cleared");
   }
 
@@ -5937,6 +5860,7 @@ class SuvorovLomazovaVerificationUI {
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
       transform: translateX(100%);
       transition: transform 0.3s ease;
+      max-width: 300px;
     `;
     notification.textContent = message;
 
@@ -5955,13 +5879,15 @@ class SuvorovLomazovaVerificationUI {
           document.body.removeChild(notification);
         }
       }, 300);
-    }, 3000);
+    }, 4000);
   }
 
   /**
    * Cleanup when component is destroyed
    */
   destroy() {
+    this.clearVisualization();
+    
     if (this.traceVisualizer) {
       this.traceVisualizer.destroy();
     }
@@ -5972,6 +5898,12 @@ class SuvorovLomazovaVerificationUI {
       modal.parentNode.removeChild(modal);
     }
 
+    // Remove floating controls
+    const controls = document.getElementById("sl-floating-controls");
+    if (controls && controls.parentNode) {
+      controls.parentNode.removeChild(controls);
+    }
+
     // Remove styles
     const styles = document.getElementById("sl-verification-styles");
     if (styles && styles.parentNode) {
@@ -5979,13 +5911,21 @@ class SuvorovLomazovaVerificationUI {
     }
   }
 }
-
 // Export classes for use in the main application
 window.SuvorovLomazovaTraceVisualizationRenderer =
   SuvorovLomazovaTraceVisualizationRenderer;
 window.SuvorovLomazovaVerificationUI = SuvorovLomazovaVerificationUI;
 
-export {
-  SuvorovLomazovaTraceVisualizationRenderer,
-  SuvorovLomazovaVerificationUI,
-};
+document.addEventListener('DOMContentLoaded', () => {
+  // Wait for the main app to be ready
+  const initTimer = setInterval(() => {
+    if (window.petriApp && window.petriApp.editor && window.petriApp.editor.renderer) {
+      // Initialize the verification UI
+      if (!window.suvorovLomazovaUI) {
+        console.log("Initializing Suvorov-Lomazova Verification UI");
+        window.suvorovLomazovaUI = new SuvorovLomazovaVerificationUI(window.petriApp);
+      }
+      clearInterval(initTimer);
+    }
+  }, 100);
+});
