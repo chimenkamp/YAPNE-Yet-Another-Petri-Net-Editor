@@ -1109,7 +1109,6 @@ class PetriNetEditor {
         return;
       }
 
-
       const worldPos = this.renderer.screenToWorld(x, y);
 
       if (this.mode === 'select') {
@@ -1226,7 +1225,9 @@ class PetriNetEditor {
           this.petriNet.removeTransition(this.selectedElement.id);
         } else if (this.selectedElement.type === 'arc') {
           this.petriNet.removeArc(this.selectedElement.id);
-        }
+        } 
+
+
         this.selectedElement = null;
         this.dragOffset = null;
         if (this.callbacks.onChange) {

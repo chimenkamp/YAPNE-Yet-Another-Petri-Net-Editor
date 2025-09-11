@@ -4225,7 +4225,7 @@ class SuvorovLomazovaVerifier {
 
 
 /**
- * Enhanced Trace Visualization Renderer for Suvorov-Lomazova Verification
+ * Trace Visualization Renderer for Suvorov-Lomazova Verification
  * Single-canvas version: draw overlays AFTER the base renderer, fully sandboxed.
  * - Does NOT wrap the base render in a global save/restore
  * - World-space highlights respect pan/zoom
@@ -4369,6 +4369,7 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       .sl-html-overlay.deadTransition {
         border-color: #BF616A;
         background: linear-gradient(135deg, rgba(191, 97, 106, 0.9), rgba(46, 52, 64, 0.95));
+        wdith: 10px;
       }
 
       .sl-html-overlay.overfinal {
@@ -4513,6 +4514,66 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   }
 
   /**
+   * Get the canvas position relative to its container
+   */
+  getCanvasOffset() {
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const containerRect = this.canvas.parentElement.getBoundingClientRect();
+    
+    return {
+      x: canvasRect.left - containerRect.left,
+      y: canvasRect.top - containerRect.top
+    };
+  }
+
+  /**
+   * Get zoom factor from renderer
+   */
+  getZoomFactor() {
+    return this.app.editor?.renderer?.zoomFactor || 1.0;
+  }
+
+  /**
+   * Get pan offset from renderer
+   */
+  getPanOffset() {
+    return this.app.editor?.renderer?.panOffset || { x: 0, y: 0 };
+  }
+
+  /**
+   * Convert world coordinates to screen coordinates
+   * This must exactly match the renderer's coordinate transformation
+   */
+  worldToScreen(worldX, worldY) {
+    const zoomFactor = this.getZoomFactor();
+    const panOffset = this.getPanOffset();
+    
+    // Apply the same transformation as the renderer:
+    // 1. Scale by zoom factor
+    // 2. Translate by pan offset
+    const canvasX = worldX * zoomFactor + panOffset.x;
+    const canvasY = worldY * zoomFactor + panOffset.y;
+    
+    // Convert from canvas coordinates to CSS coordinates
+    // Account for devicePixelRatio scaling
+    const canvasRect = this.canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / this.canvas.width;
+    const scaleY = canvasRect.height / this.canvas.height;
+    
+    // Convert to screen coordinates relative to the canvas
+    const screenX = canvasX * scaleX;
+    const screenY = canvasY * scaleY;
+    
+    // Add canvas offset within its container
+    const canvasOffset = this.getCanvasOffset();
+    
+    return {
+      x: screenX + canvasOffset.x,
+      y: screenY + canvasOffset.y
+    };
+  }
+
+  /**
    * Update positions of all HTML overlays based on world coordinates
    */
   updateOverlayPositions() {
@@ -4532,11 +4593,11 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       overlay.style.top = `${finalY}px`;
 
       // Hide overlay if it's outside the visible area
-      const canvasRect = this.canvas.getBoundingClientRect();
+      const containerRect = this.overlayContainer.getBoundingClientRect();
       const isVisible = finalX > -overlay.offsetWidth && 
                        finalY > -overlay.offsetHeight &&
-                       finalX < canvasRect.width + overlay.offsetWidth &&
-                       finalY < canvasRect.height + overlay.offsetHeight;
+                       finalX < containerRect.width + overlay.offsetWidth &&
+                       finalY < containerRect.height + overlay.offsetHeight;
       
       overlay.style.display = isVisible ? 'block' : 'none';
     }
@@ -4583,30 +4644,26 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       highlight.classList.add('deadlock');
     }
 
-    // Position and size the highlight
     const worldPos = { x: element.position.x, y: element.position.y };
     const screenPos = this.worldToScreen(worldPos.x, worldPos.y);
     
-    // Calculate size in world coordinates, then transform to screen coordinates
+    const highlightPadding = 15; // Extra space around element (in world units)
     let worldSize, borderRadius;
     if (isTransition) {
-      worldSize = Math.max(element.width, element.height) + 12;
+      worldSize = Math.max(element.width, element.height) + highlightPadding;
       borderRadius = '4px';
     } else {
-      worldSize = element.radius * 2 + 12;
+      worldSize = element.radius * 2 + highlightPadding;
       borderRadius = '50%';
     }
     
-    // Transform size to screen coordinates
-    const zoomFactor = this.getZoomFactor();
-    const rect = this.canvas.getBoundingClientRect();
-    const scaleX = rect.width / this.canvas.width;
-    const screenSize = worldSize * zoomFactor * scaleX;
+    // Apply zoom to the size
+    const screenSize = worldSize * this.getZoomFactor() * (this.canvas.getBoundingClientRect().width / this.canvas.width);
 
     highlight.style.cssText += `
-      left: ${screenPos.x - screenSize/2}px;
-      top: ${screenPos.y - screenSize/2}px;
-      width: ${screenSize}px;
+      left: ${screenPos.x - (isTransition? screenSize*0.3: screenSize*0.6)}px;
+      top: ${screenPos.y - (isTransition? screenSize*0.4: screenSize*0.6)}px;
+      width: ${isTransition ? (screenSize / 2) : screenSize}px;
       height: ${screenSize}px;
       border-radius: ${borderRadius};
     `;
@@ -4615,19 +4672,115 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   }
 
   /**
-   * Get zoom factor from renderer
+   * Create an HTML overlay for a specific data overlay
    */
-  getZoomFactor() {
-    return this.app.editor?.renderer?.zoomFactor || 1.0;
+  createHTMLOverlay(overlayId, overlayData) {
+    const element = this.getElementById(overlayData.elementId);
+    if (!element) return;
+
+    // Store overlay data
+    this.dataOverlays.set(overlayId, overlayData);
+
+    // Create HTML element
+    const overlay = document.createElement('div');
+    overlay.className = `sl-html-overlay ${overlayData.type}`;
+    overlay.id = `overlay-${overlayId}`;
+
+    // Set content
+    overlay.innerHTML = this.formatOverlayHTML(overlayData);
+
+    // Position overlay
+    const worldPos = { x: element.position.x, y: element.position.y };
+    const screenPos = this.worldToScreen(worldPos.x, worldPos.y);
+    const defaultOffset = this.calculateDefaultOffset(overlayData.elementType);
+
+    // Store position data
+    this.overlayPositions.set(overlayId, {
+      worldX: worldPos.x,
+      worldY: worldPos.y,
+      offsetX: defaultOffset.x,
+      offsetY: defaultOffset.y
+    });
+
+    // Set initial position
+    overlay.style.left = `${screenPos.x + defaultOffset.x}px`;
+    overlay.style.top = `${screenPos.y + defaultOffset.y}px`;
+
+    // Add drag functionality
+    this.makeDraggable(overlay, overlayId);
+
+    // Add close button functionality
+    const closeBtn = overlay.querySelector('.sl-overlay-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.removeHTMLOverlay(overlayId);
+      });
+    }
+
+    // Add to container and map
+    this.overlayContainer.appendChild(overlay);
+    this.htmlOverlays.set(overlayId, overlay);
   }
 
   /**
-   * Get pan offset from renderer
+   * Calculate default offset for overlay positioning
    */
-  getPanOffset() {
-    return this.app.editor?.renderer?.panOffset || { x: 0, y: 0 };
+  calculateDefaultOffset(elementType) {
+    if (elementType === 'transition') {
+      return { x: 30, y: -60 };
+    } else {
+      return { x: 30, y: -30 };
+    }
   }
 
+  /**
+   * Make an overlay draggable
+   */
+  makeDraggable(overlay, overlayId) {
+    let isDragging = false;
+    let startX, startY, startOffsetX, startOffsetY;
+
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('sl-overlay-close')) return;
+      
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      
+      const position = this.overlayPositions.get(overlayId);
+      startOffsetX = position.offsetX;
+      startOffsetY = position.offsetY;
+      
+      overlay.classList.add('dragging');
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+      e.preventDefault();
+    });
+
+    const onMouseMove = (e) => {
+      if (!isDragging) return;
+      
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      
+      const position = this.overlayPositions.get(overlayId);
+      position.offsetX = startOffsetX + deltaX;
+      position.offsetY = startOffsetY + deltaY;
+      
+      this.updateOverlayPositions();
+    };
+
+    const onMouseUp = () => {
+      isDragging = false;
+      overlay.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }
+
+  // [Rest of the methods remain the same - visualizeCheck, clearHighlights, etc.]
+  
   /**
    * Public: visualize a check result
    */
@@ -4783,114 +4936,6 @@ class SuvorovLomazovaTraceVisualizationRenderer {
   }
 
   /**
-   * Create an HTML overlay for a specific data overlay
-   */
-  createHTMLOverlay(overlayId, overlayData) {
-    const element = this.getElementById(overlayData.elementId);
-    if (!element) return;
-
-    // Store overlay data
-    this.dataOverlays.set(overlayId, overlayData);
-
-    // Create HTML element
-    const overlay = document.createElement('div');
-    overlay.className = `sl-html-overlay ${overlayData.type}`;
-    overlay.id = `overlay-${overlayId}`;
-
-    // Set content
-    overlay.innerHTML = this.formatOverlayHTML(overlayData);
-
-    // Position overlay
-    const worldPos = { x: element.position.x, y: element.position.y };
-    const screenPos = this.worldToScreen(worldPos.x, worldPos.y);
-    const defaultOffset = this.calculateDefaultOffset(overlayData.elementType);
-
-    // Store position data
-    this.overlayPositions.set(overlayId, {
-      worldX: worldPos.x,
-      worldY: worldPos.y,
-      offsetX: defaultOffset.x,
-      offsetY: defaultOffset.y
-    });
-
-    // Set initial position
-    overlay.style.left = `${screenPos.x + defaultOffset.x}px`;
-    overlay.style.top = `${screenPos.y + defaultOffset.y}px`;
-
-    // Add drag functionality
-    this.makeDraggable(overlay, overlayId);
-
-    // Add close button functionality
-    const closeBtn = overlay.querySelector('.sl-overlay-close');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.removeHTMLOverlay(overlayId);
-      });
-    }
-
-    // Add to container and map
-    this.overlayContainer.appendChild(overlay);
-    this.htmlOverlays.set(overlayId, overlay);
-  }
-
-  /**
-   * Calculate default offset for overlay positioning
-   */
-  calculateDefaultOffset(elementType) {
-    if (elementType === 'transition') {
-      return { x: 30, y: -60 };
-    } else {
-      return { x: 30, y: -30 };
-    }
-  }
-
-  /**
-   * Make an overlay draggable
-   */
-  makeDraggable(overlay, overlayId) {
-    let isDragging = false;
-    let startX, startY, startOffsetX, startOffsetY;
-
-    overlay.addEventListener('mousedown', (e) => {
-      if (e.target.classList.contains('sl-overlay-close')) return;
-      
-      isDragging = true;
-      startX = e.clientX;
-      startY = e.clientY;
-      
-      const position = this.overlayPositions.get(overlayId);
-      startOffsetX = position.offsetX;
-      startOffsetY = position.offsetY;
-      
-      overlay.classList.add('dragging');
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-      e.preventDefault();
-    });
-
-    const onMouseMove = (e) => {
-      if (!isDragging) return;
-      
-      const deltaX = e.clientX - startX;
-      const deltaY = e.clientY - startY;
-      
-      const position = this.overlayPositions.get(overlayId);
-      position.offsetX = startOffsetX + deltaX;
-      position.offsetY = startOffsetY + deltaY;
-      
-      this.updateOverlayPositions();
-    };
-
-    const onMouseUp = () => {
-      isDragging = false;
-      overlay.classList.remove('dragging');
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-  }
-
-  /**
    * Remove an HTML overlay
    */
   removeHTMLOverlay(overlayId) {
@@ -5026,26 +5071,6 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     return null;
   }
 
-  worldToScreen(worldX, worldY) {
-    const zoomFactor = this.getZoomFactor();
-    const panOffset = this.getPanOffset();
-    
-    // Convert world coordinates to canvas coordinates
-    const canvasX = worldX * zoomFactor + panOffset.x;
-    const canvasY = worldY * zoomFactor + panOffset.y;
-    
-    // Convert canvas coordinates to screen coordinates
-    // Account for canvas scaling (devicePixelRatio)
-    const rect = this.canvas.getBoundingClientRect();
-    const scaleX = rect.width / this.canvas.width;
-    const scaleY = rect.height / this.canvas.height;
-    
-    return {
-      x: canvasX * scaleX,
-      y: canvasY * scaleY,
-    };
-  }
-
   isDeadTransition(elementId) {
     for (const [, overlay] of this.dataOverlays) {
       if (overlay.type === "deadTransition" && overlay.elementId === elementId) return true;
@@ -5113,7 +5138,6 @@ class SuvorovLomazovaTraceVisualizationRenderer {
     }
   }
 }
-
 /**
  * Enhanced Verification UI for Suvorov-Lomazova Verification
  * Updated to work with the new HTML overlay system
