@@ -1,4 +1,4 @@
-import { e } from "mathjs";
+
 import { PetriNetAPI, Place, Transition, Arc } from '../petri-net-simulator.js';
 import { DataPetriNet, DataAwareTransition, DataVariable } from './dpn-model.js';
 

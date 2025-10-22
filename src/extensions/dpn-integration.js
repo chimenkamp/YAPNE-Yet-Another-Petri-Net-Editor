@@ -1,4 +1,4 @@
-import { im } from 'mathjs';
+
 import { PetriNetAPI, PetriNetEditor, Place, Arc } from '../petri-net-simulator.js';
 import { DataPetriNetAPI } from './dpn-api.js';
 import { DataAwareTransition } from './dpn-model.js';

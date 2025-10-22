@@ -17,7 +17,7 @@ export default defineConfig({
     'process.env': {},
   },
   optimizeDeps: {
-    include: ['z3-solver'],
+    include: ['z3-solver', 'mathjs'],
     esbuildOptions: {
       define: {
         global: 'globalThis'
