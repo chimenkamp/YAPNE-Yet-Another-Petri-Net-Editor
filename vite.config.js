@@ -5,6 +5,7 @@ import nodePolyfills from 'rollup-plugin-polyfill-node';
 import crossOriginIsolation from 'vite-plugin-cross-origin-isolation'
  
 export default defineConfig({
+  base: 'YAPNE-Yet-Another-Petri-Net-Editor',
   build: {
     target: 'esnext',
     commonjsOptions: {
@@ -12,7 +13,7 @@ export default defineConfig({
       include: [/z3-solver/, /node_modules/]
     }
   },
-  define: {
+  define: { 
     global: 'globalThis',
     'process.env': {},
   },
