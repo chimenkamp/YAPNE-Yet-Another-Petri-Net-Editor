@@ -1,4 +1,4 @@
-
+import { PetriNetRenderer } from '../petri-net-simulator.js';
 
 class DataPetriNetRenderer extends PetriNetRenderer {
   /**
@@ -203,3 +203,5 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     return true;
   }
 }
+
+export { DataPetriNetRenderer };

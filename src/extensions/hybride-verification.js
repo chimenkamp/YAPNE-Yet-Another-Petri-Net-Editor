@@ -1,3 +1,5 @@
+import { EnhancedDataAwareVerifier } from './dpn-suvorov-lomazova-ui.js';
+
 /**
  * Hybrid Data Petri Net Verification Extension
  * 
@@ -1299,3 +1301,5 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initialize early to prevent other verification systems
   setTimeout(initHybridVerification, 700);
 });
+
+export { HybridDataPetriNetVerification };

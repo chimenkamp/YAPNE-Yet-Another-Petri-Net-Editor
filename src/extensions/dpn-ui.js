@@ -1,3 +1,4 @@
+import { DataAwareTransition } from './dpn-model.js';
 class DataPetriNetUI {
   /**
    * Initialize the Data Petri Net UI extensions
@@ -989,3 +990,5 @@ showAddVariableDialog() {
     }
   }
 }
+
+export { DataPetriNetUI };

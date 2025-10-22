@@ -1,3 +1,5 @@
+import { PetriNet, Place, Transition, Arc } from './petri-net-simulator.js';
+
 /**
  * Petri Net Simulator
  * A class for simulating Petri nets and generating event logs.
@@ -781,3 +783,5 @@ class EventLogGenerator {
       };
     }
   }
+
+  export { EventLogGenerator };

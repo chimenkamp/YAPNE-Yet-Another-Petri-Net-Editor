@@ -3088,3 +3088,13 @@ if (typeof module !== 'undefined' && module.exports) {
     Arc
   };
 }
+
+export {
+  PetriNetAPI,
+  PetriNetEditor,
+  PetriNetRenderer,
+  PetriNet,
+  Place,
+  Transition,
+  Arc
+};

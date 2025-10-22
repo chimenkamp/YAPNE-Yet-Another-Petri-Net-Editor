@@ -1,3 +1,8 @@
+import { PetriNetAPI, Place, Transition, Arc } from '../petri-net-simulator.js';
+import { DataPetriNetAPI } from './dpn-api.js';
+import { DataAwareTransition, DataVariable } from './dpn-model.js';
+import { DataPetriNetRenderer } from './dpn-renderer.js';
+
 /**
  * PNML Importer Extension with Improved BPMN Layout Algorithm
  * Based on "A Simple Algorithm for Automatic Layout of BPMN Processes" (Kitzmann et al., 2009)
@@ -1762,3 +1767,6 @@ class PNMLImporter {
       }
     }, 100);
   });
+
+
+  export { PNMLImporter };

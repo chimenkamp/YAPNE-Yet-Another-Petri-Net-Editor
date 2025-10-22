@@ -1,3 +1,11 @@
+import { im } from 'mathjs';
+import { PetriNetAPI, PetriNetEditor, Place, Arc } from '../petri-net-simulator.js';
+import { DataPetriNetAPI } from './dpn-api.js';
+import { DataAwareTransition } from './dpn-model.js';
+import { DataPetriNetRenderer } from './dpn-renderer.js';
+import { DataPetriNetUI } from './dpn-ui.js';
+
+
 class DataPetriNetIntegration {
   /**
    * Initialize the Data Petri Net extensions
@@ -396,3 +404,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 100);
 });
+
+export { DataPetriNetIntegration };

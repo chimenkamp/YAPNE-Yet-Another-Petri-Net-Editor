@@ -1,3 +1,5 @@
+import { PetriNet, Place, Transition, Arc, PetriNetRenderer } from '../petri-net-simulator.js';
+
 /**
  * Random Petri Net Generator Extension
  * 
@@ -1805,3 +1807,5 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 100);
 });
+
+export { PetriNetGenerator };

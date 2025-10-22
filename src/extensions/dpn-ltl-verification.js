@@ -2292,3 +2292,5 @@ document.addEventListener('DOMContentLoaded', () => {
     
     setTimeout(initEnhancedLTLVerification, 1500);
 });
+
+export { LTLVerificationExtension };

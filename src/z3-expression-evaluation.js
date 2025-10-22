@@ -1,8 +1,62 @@
-import { init } from 'z3-solver';
 import { parse, evaluate } from 'mathjs';
 
-const { Context } = await init();
-const Z3 = Context('main');
+// Define global exports for z3-solver compatibility
+window.global = window;
+window.exports = {};
+window.module = { exports: {} };
+
+let z3Module = null;
+let Context = null;
+let Z3 = null;
+
+async function getZ3() {
+  if (!z3Module) {
+    // Load z3-built.js if not already loaded
+    if (!window.initZ3) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = '/z3-built.js';
+        script.onload = () => window.initZ3 ? resolve() : reject(new Error('initZ3 not found'));
+        script.onerror = () => reject(new Error('Failed to load z3-built.js'));
+        document.head.appendChild(script);
+      });
+    }
+    
+    // Make initZ3 available on global
+    if (!window.global) {
+      window.global = window;
+    }
+    window.global.initZ3 = window.initZ3;
+    
+    // Import and initialize z3-solver
+    z3Module = await import('z3-solver');
+    const { init } = z3Module;
+    
+    if (!init || typeof init !== 'function') {
+      throw new Error('z3-solver does not export init function');
+    }
+    
+    const result = await init();
+    
+    if (!result || !result.Context) {
+      throw new Error('Z3 initialization failed');
+    }
+    
+    Context = result.Context;
+    Z3 = Context('main');
+  }
+  return { Z3, Context };
+}
+
+// Initialize Z3 when the module loads
+let z3Ready = null;
+
+async function ensureZ3Ready() {
+  if (!z3Ready) {
+    z3Ready = getZ3();
+  }
+  return z3Ready;
+}
 
 /**
  * Robust expression solver using Math.js for parsing
@@ -12,6 +66,8 @@ const Z3 = Context('main');
  * @returns {Promise<{bounds: Object, newValues: Object} | null>} Result or null if unsatisfiable
  */
 export async function solveExpression(expr, oldValues, mode = 'auto') {
+  // Ensure Z3 is ready before proceeding
+  const { Z3 } = await ensureZ3Ready();
   
   // Helper function to determine variable type
   function getVarType(value, defaultMode) {

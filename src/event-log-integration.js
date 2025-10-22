@@ -1,3 +1,6 @@
+import { EventLogGenerator } from './event-log-generator.js';
+import { PetriNet } from './petri-net-simulator.js';
+
 /**
  * Event Log Generator Integration
  * This module integrates the EventLogGenerator class with the Petri Net Editor
@@ -682,3 +685,6 @@ class EventLogIntegration {
       }
     }, 100);
   });
+
+
+  export { EventLogIntegration };

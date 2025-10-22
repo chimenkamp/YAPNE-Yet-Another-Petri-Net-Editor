@@ -1,3 +1,5 @@
+import { Transition, PetriNet, Place, Arc } from '../petri-net-simulator.js';
+
 /**
  * Represents a data variable in a Data Petri Net
  */
@@ -583,7 +585,7 @@ class DataPetriNet extends PetriNet {
         placeData.label,
         placeData.tokens,
         placeData.capacity,
-        placeData.finalMarking || null // Add this line
+        placeData.finalMarking || null
       );
       net.places.set(place.id, place);
     });
@@ -814,3 +816,5 @@ class DataPetriNet extends PetriNet {
     return Array.from(modifiedVars);
   }
 }
+
+export { DataVariable, DataAwareTransition, DataPetriNet };

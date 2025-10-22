@@ -157,3 +157,5 @@ class ExpressionSolver {
     return result;
   }
 }
+
+export { ExpressionSolver };

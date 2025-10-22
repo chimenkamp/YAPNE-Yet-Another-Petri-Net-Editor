@@ -1,35 +1,82 @@
 /**
- * Z3 Solver interface using the same pattern as the original working code
+ * Z3 Solver interface - Simple ES module approach
  */
+
 let _z3 = null;
 let _context = null;
 let _solver = null;
+let _initPromise = null;
 
-// Initialize Z3 using the same pattern as the original code
+// Initialize Z3 using ES modules and dynamic import
 async function initializeZ3() {
   if (_z3) return;
-
-  try {
-    const { init, Z3_lbool } = await import("z3-solver");
-    const { Context, Z3 } = await init({
-      z3Path: "/assets/z3/z3-built.js",
-      wasmURL: "/assets/z3/z3-built.wasm",
-      workerPath: "/assets/z3/z3-built.js",
-    });
-
-    _z3 = Z3;
-    const config = _z3.mk_config();
-
-    _z3.set_param_value(config, "trace", "true");
-
-    _context = _z3.mk_context(config);
-    _solver = _z3.mk_solver(_context);
-
-    console.log("Z3 initialized successfully for SMT verification");
-  } catch (error) {
-    console.error("Failed to initialize Z3:", error);
-    throw error;
+  
+  // Prevent multiple simultaneous initializations
+  if (_initPromise) {
+    return _initPromise;
   }
+
+  _initPromise = (async () => {
+    try {
+      // Load z3-built.js to make initZ3 available globally
+      if (!window.initZ3) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = '/z3-built.js';
+          script.onload = () => {
+            if (window.initZ3) {
+              resolve();
+            } else {
+              reject(new Error('z3-built.js loaded but initZ3 not found'));
+            }
+          };
+          script.onerror = () => reject(new Error('Failed to load z3-built.js'));
+          document.head.appendChild(script);
+        });
+      }
+      
+      // Make initZ3 available on global
+      if (!window.global) {
+        window.global = window;
+      }
+      window.global.initZ3 = window.initZ3;
+      
+      // Import z3-solver and call init
+      const z3SolverModule = await import('z3-solver');
+      const { init } = z3SolverModule;
+      
+      if (!init || typeof init !== 'function') {
+        throw new Error('z3-solver does not export an init function');
+      }
+      
+      // Call init to get the Z3 API
+      const api = await init();
+      
+      // Extract the Z3 low-level API
+      if (api.Z3 && typeof api.Z3 === 'object' && api.Z3.mk_config) {
+        _z3 = api.Z3;
+      } else if (api.mk_config) {
+        _z3 = api;
+      } else {
+        throw new Error('Z3 API not found in init result');
+      }
+      
+      // Create context and solver
+      const config = _z3.mk_config();
+      _z3.set_param_value(config, "trace", "true");
+      _context = _z3.mk_context(config);
+      _solver = _z3.mk_solver(_context);
+      
+      console.log('Z3 initialized successfully for SMT verification');
+      
+    } catch (error) {
+      console.error("Failed to initialize Z3:", error);
+      _initPromise = null; // Reset so we can try again
+      throw error;
+    }
+  })();
+  
+  return _initPromise;
 }
 
 /**
@@ -6291,6 +6338,8 @@ class SuvorovLomazovaVerificationUI {
 window.SuvorovLomazovaTraceVisualizationRenderer = SuvorovLomazovaTraceVisualizationRenderer;
 window.SuvorovLomazovaVerificationUI = SuvorovLomazovaVerificationUI;
 
+export { SuvorovLomazovaTraceVisualizationRenderer, SuvorovLomazovaVerificationUI };
+
 // Enhanced initialization script for HTML overlay system
 document.addEventListener('DOMContentLoaded', () => {
   // Wait for the main app to be ready
@@ -6331,3 +6380,4 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+export default { SuvorovLomazovaTraceVisualizationRenderer, SuvorovLomazovaVerificationUI };

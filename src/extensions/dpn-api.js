@@ -1,3 +1,7 @@
+import { e } from "mathjs";
+import { PetriNetAPI, Place, Transition, Arc } from '../petri-net-simulator.js';
+import { DataPetriNet, DataAwareTransition, DataVariable } from './dpn-model.js';
+
 class DataPetriNetAPI extends PetriNetAPI {
   /**
    * Create a new Data Petri Net API
@@ -461,3 +465,5 @@ class DataPetriNetAPI extends PetriNetAPI {
   }
   
 }
+
+export { DataPetriNetAPI };
