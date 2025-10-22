@@ -1,6 +1,7 @@
 /**
  * Z3 Solver interface - Simple ES module approach
  */
+const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
 
 let _z3 = null;
 let _context = null;
@@ -22,7 +23,7 @@ async function initializeZ3() {
       if (!window.initZ3) {
         await new Promise((resolve, reject) => {
           const script = document.createElement('script');
-          script.src = '/z3-built.js';
+          script.src = `${BASE_PATH}z3-built.js`;
           script.onload = () => {
             if (window.initZ3) {
               resolve();

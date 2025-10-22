@@ -1,5 +1,7 @@
 import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
 
+const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
+
 document.addEventListener('DOMContentLoaded', () => {
     try {
 
@@ -160,12 +162,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Check ghost mode periodically
         setInterval(updateGhostMode, 100);
-        
-        app.loadTemplateFile('examples/example-config.json').then((data) => {
+
+        app.loadTemplateFile(`${BASE_PATH}examples/example-config.json`).then((data) => {
             const templateSelect = document.getElementById('template-select');
             data.forEach((example) => {
                 const option = document.createElement('option');
-                option.value = example.path;
+                option.value = `${BASE_PATH}${example.path}`;
                 option.textContent = example.name;
                 templateSelect.appendChild(option);
             });
