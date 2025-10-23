@@ -523,24 +523,5 @@
     opacity: 1;
   }
   
-  /* Enhance import button styling in File Operations */
-  #btn-import-pnml {
-    background: linear-gradient(135deg, #5E81AC 0%, #81A1C1 100%);
-    position: relative;
-    overflow: hidden;
-  }
-  
-  #btn-import-pnml::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-    transition: left 0.5s;
-  }
-  
-  #btn-import-pnml:hover::before {
-    left: 100%;
-  }
+
+ 

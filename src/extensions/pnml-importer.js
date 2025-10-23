@@ -25,19 +25,20 @@ class PNMLImporter {
       const fileOperationsSection = document.querySelector('#file-operations-section .section-content');
       if (!fileOperationsSection) return;
   
-      const buttonGroup = fileOperationsSection.querySelector('.button-group');
-      if (buttonGroup) {
+      const pnmlButtonGroup = fileOperationsSection.querySelector('#pnml-button-group');
+      if (pnmlButtonGroup) {
         const importButton = document.createElement('button');
         importButton.id = 'btn-import-pnml';
         importButton.textContent = 'Load (PNML)';
-        importButton.className = 'blue';
+        // importButton.className = 'blue';
         importButton.addEventListener('click', () => this.showImportDialog());
         
-        const loadButton = buttonGroup.querySelector('#btn-load');
-        if (loadButton) {
-          loadButton.insertAdjacentElement('afterend', importButton);
+        // Insert before the Save (PNML) button
+        const saveButton = pnmlButtonGroup.querySelector('#btn-export-pnml');
+        if (saveButton) {
+          pnmlButtonGroup.insertBefore(importButton, saveButton);
         } else {
-          buttonGroup.appendChild(importButton);
+          pnmlButtonGroup.appendChild(importButton);
         }
       }
     }

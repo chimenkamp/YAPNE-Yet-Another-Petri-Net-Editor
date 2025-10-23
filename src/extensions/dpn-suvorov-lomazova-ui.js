@@ -5590,6 +5590,211 @@ class SuvorovLomazovaVerificationUI {
         text-align: center;
         font-style: italic;
       }
+
+      /* Verification Details Modal Styles */
+      .sl-details-modal-content {
+        max-width: 900px;
+      }
+
+      .sl-details-modal-body {
+        max-height: 80vh;
+      }
+
+      .sl-details-overview {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        padding: 20px;
+        background: rgba(67, 76, 94, 0.4);
+        border-radius: 8px;
+        margin-bottom: 25px;
+      }
+
+      .sl-details-overview-item {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .sl-details-overview-label {
+        font-size: 12px;
+        color: #81A1C1;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .sl-details-overview-value {
+        font-size: 16px;
+        color: #ECEFF4;
+        font-weight: 600;
+      }
+
+      .sl-details-sound {
+        color: #A3BE8C;
+      }
+
+      .sl-details-unsound {
+        color: #BF616A;
+      }
+
+      .sl-details-description {
+        background: rgba(129, 161, 193, 0.1);
+        border-left: 4px solid #81A1C1;
+        padding: 20px;
+        border-radius: 6px;
+        margin-bottom: 25px;
+      }
+
+      .sl-details-description h3 {
+        margin-top: 0;
+        margin-bottom: 12px;
+        color: #88C0D0;
+        font-size: 18px;
+      }
+
+      .sl-details-description p {
+        color: #D8DEE9;
+        line-height: 1.6;
+        margin-bottom: 10px;
+      }
+
+      .sl-details-description ul {
+        margin: 10px 0;
+        padding-left: 20px;
+      }
+
+      .sl-details-description li {
+        color: #D8DEE9;
+        margin-bottom: 8px;
+        line-height: 1.5;
+      }
+
+      .sl-details-description strong {
+        color: #88C0D0;
+      }
+
+      .sl-details-steps-container {
+        margin-bottom: 25px;
+      }
+
+      .sl-details-steps-container h3 {
+        color: #88C0D0;
+        margin-bottom: 15px;
+        font-size: 18px;
+      }
+
+      .sl-details-category {
+        margin-bottom: 25px;
+        border: 1px solid #4C566A;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .sl-details-category-title {
+        background: linear-gradient(135deg, #434C5E, #4C566A);
+        color: #ECEFF4;
+        padding: 12px 15px;
+        margin: 0;
+        font-size: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .sl-details-category-icon {
+        font-size: 18px;
+      }
+
+      .sl-details-steps {
+        padding: 10px;
+        background: rgba(59, 66, 82, 0.3);
+      }
+
+      .sl-details-step {
+        background: rgba(76, 86, 106, 0.3);
+        border-left: 3px solid #5E81AC;
+        border-radius: 4px;
+        padding: 12px;
+        margin-bottom: 10px;
+        transition: all 0.2s ease;
+      }
+
+      .sl-details-step:hover {
+        background: rgba(76, 86, 106, 0.5);
+        border-left-color: #88C0D0;
+        transform: translateX(2px);
+      }
+
+      .sl-details-step:last-child {
+        margin-bottom: 0;
+      }
+
+      .sl-details-step-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .sl-details-step-number {
+        background: linear-gradient(135deg, #5E81AC, #81A1C1);
+        color: #ECEFF4;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .sl-details-step-time {
+        color: #81A1C1;
+        font-size: 11px;
+        font-family: monospace;
+      }
+
+      .sl-details-step-content {
+        color: #D8DEE9;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .sl-details-metadata {
+        margin-top: 10px;
+        padding: 10px;
+        background: rgba(46, 52, 64, 0.5);
+        border-radius: 4px;
+        border: 1px solid #434C5E;
+      }
+
+      .sl-metadata-item {
+        font-size: 12px;
+        color: #D8DEE9;
+        margin-bottom: 5px;
+        font-family: monospace;
+      }
+
+      .sl-metadata-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .sl-metadata-item strong {
+        color: #88C0D0;
+      }
+
+      .sl-details-no-steps {
+        text-align: center;
+        color: #81A1C1;
+        padding: 40px 20px;
+        font-style: italic;
+      }
+
+      .sl-details-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        padding-top: 20px;
+        border-top: 1px solid #434C5E;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -6039,6 +6244,9 @@ class SuvorovLomazovaVerificationUI {
           <button class="sl-btn sl-btn-secondary" id="sl-clear-highlights">
             Clear Highlights
           </button>
+          <button class="sl-btn sl-btn-secondary" id="sl-show-verification-details">
+            📋 Show Verification Details
+          </button>
           <button class="sl-btn sl-btn-secondary" id="sl-export-results">
             Export Results
           </button>
@@ -6130,6 +6338,10 @@ class SuvorovLomazovaVerificationUI {
     // Control panel buttons
     document.getElementById("sl-clear-highlights")?.addEventListener("click", () => {
       this.clearVisualization();
+    });
+
+    document.getElementById("sl-show-verification-details")?.addEventListener("click", () => {
+      this.showVerificationDetailsModal();
     });
 
     document.getElementById("sl-export-results")?.addEventListener("click", () => {
@@ -6306,6 +6518,246 @@ class SuvorovLomazovaVerificationUI {
   }
 
   /**
+   * Show verification details modal with all steps and formulas
+   */
+  showVerificationDetailsModal() {
+    if (!this.currentResults) return;
+
+    // Create modal if it doesn't exist
+    let detailsModal = document.getElementById("sl-details-modal");
+    if (!detailsModal) {
+      detailsModal = document.createElement("div");
+      detailsModal.id = "sl-details-modal";
+      detailsModal.className = "sl-verification-modal";
+      document.body.appendChild(detailsModal);
+    }
+
+    const steps = this.currentResults.verificationSteps || [];
+    const algorithmUsed = this.currentResults.checks?.some((c) =>
+      c.name.includes("Algorithm 6")
+    )
+      ? "Algorithm 6 (Improved)"
+      : "Algorithm 5 (Direct)";
+
+    // Group steps by category
+    const stepsByCategory = {};
+    steps.forEach(step => {
+      const category = step.name || 'General';
+      if (!stepsByCategory[category]) {
+        stepsByCategory[category] = [];
+      }
+      stepsByCategory[category].push(step);
+    });
+
+    // Generate step sections
+    let stepsHTML = '';
+    for (const [category, categorySteps] of Object.entries(stepsByCategory)) {
+      stepsHTML += `
+        <div class="sl-details-category">
+          <h4 class="sl-details-category-title">
+            <span class="sl-details-category-icon">📍</span>
+            ${this.escapeHtml(category)}
+          </h4>
+          <div class="sl-details-steps">
+            ${categorySteps.map((step, idx) => `
+              <div class="sl-details-step">
+                <div class="sl-details-step-header">
+                  <span class="sl-details-step-number">${idx + 1}</span>
+                  <span class="sl-details-step-time">+${step.timestamp}ms</span>
+                </div>
+                <div class="sl-details-step-content">
+                  ${this.escapeHtml(step.details || 'No details available')}
+                  ${step.metadata ? `
+                    <div class="sl-details-metadata">
+                      ${this.formatMetadata(step.metadata)}
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Create modal content
+    detailsModal.innerHTML = `
+      <div class="sl-modal-content sl-details-modal-content">
+        <div class="sl-modal-header">
+          <h2 class="sl-modal-title">
+            <span>📋</span>
+            <span>Verification Details</span>
+          </h2>
+          <button class="sl-close-btn" id="sl-close-details-modal">×</button>
+        </div>
+        <div class="sl-modal-body sl-details-modal-body">
+          <div class="sl-details-overview">
+            <div class="sl-details-overview-item">
+              <span class="sl-details-overview-label">Algorithm:</span>
+              <span class="sl-details-overview-value">${this.escapeHtml(algorithmUsed)}</span>
+            </div>
+            <div class="sl-details-overview-item">
+              <span class="sl-details-overview-label">Total Duration:</span>
+              <span class="sl-details-overview-value">${this.currentResults.duration}ms</span>
+            </div>
+            <div class="sl-details-overview-item">
+              <span class="sl-details-overview-label">Total Steps:</span>
+              <span class="sl-details-overview-value">${steps.length}</span>
+            </div>
+            <div class="sl-details-overview-item">
+              <span class="sl-details-overview-label">Result:</span>
+              <span class="sl-details-overview-value ${this.currentResults.isSound ? 'sl-details-sound' : 'sl-details-unsound'}">
+                ${this.currentResults.isSound ? '✅ Sound' : '❌ Unsound'}
+              </span>
+            </div>
+          </div>
+
+          <div class="sl-details-description">
+            <h3>About the Verification Process</h3>
+            <p>
+              The Suvorov & Lomazova soundness verification uses symbolic state exploration with 
+              SMT formulas to represent data constraints. The algorithm constructs a Labeled 
+              Transition System (LTS) where each state is represented by a marking (token distribution) 
+              and a formula (data constraints).
+            </p>
+            <p>
+              Key techniques used:
+            </p>
+            <ul>
+              <li><strong>Quantifier Elimination:</strong> Removes existentially quantified variables to keep formulas in the image-closed fragment</li>
+              <li><strong>Formula Canonicalization:</strong> Simplifies formulas using Z3 SMT solver for efficient equivalence checking</li>
+              <li><strong>Refinement:</strong> Adds τ-transitions to model invisible actions and refines preconditions</li>
+              <li><strong>Reachability Analysis:</strong> Forward and backward reachability to check soundness properties</li>
+            </ul>
+          </div>
+
+          <div class="sl-details-steps-container">
+            <h3>Verification Steps</h3>
+            ${stepsHTML || '<p class="sl-details-no-steps">No detailed steps recorded.</p>'}
+          </div>
+
+          <div class="sl-details-footer">
+            <button class="sl-btn sl-btn-secondary" id="sl-copy-details">
+              📋 Copy to Clipboard
+            </button>
+            <button class="sl-btn sl-btn-secondary" id="sl-export-details">
+              💾 Export as JSON
+            </button>
+            <button class="sl-btn sl-btn-primary" id="sl-close-details-btn">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Show modal
+    detailsModal.classList.add("show");
+
+    // Add event listeners
+    document.getElementById("sl-close-details-modal")?.addEventListener("click", () => {
+      detailsModal.classList.remove("show");
+    });
+
+    document.getElementById("sl-close-details-btn")?.addEventListener("click", () => {
+      detailsModal.classList.remove("show");
+    });
+
+    detailsModal.addEventListener("click", (e) => {
+      if (e.target === detailsModal) {
+        detailsModal.classList.remove("show");
+      }
+    });
+
+    document.getElementById("sl-copy-details")?.addEventListener("click", () => {
+      this.copyDetailsToClipboard();
+    });
+
+    document.getElementById("sl-export-details")?.addEventListener("click", () => {
+      this.exportDetails();
+    });
+  }
+
+  /**
+   * Format metadata object for display
+   */
+  formatMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object') return '';
+    
+    return Object.entries(metadata)
+      .map(([key, value]) => {
+        const displayValue = typeof value === 'object' 
+          ? JSON.stringify(value, null, 2)
+          : String(value);
+        return `<div class="sl-metadata-item">
+          <strong>${this.escapeHtml(key)}:</strong> 
+          <span>${this.escapeHtml(displayValue)}</span>
+        </div>`;
+      })
+      .join('');
+  }
+
+  /**
+   * Escape HTML to prevent XSS
+   */
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  /**
+   * Copy verification details to clipboard
+   */
+  copyDetailsToClipboard() {
+    if (!this.currentResults) return;
+
+    const steps = this.currentResults.verificationSteps || [];
+    const text = steps.map(step => 
+      `[${step.name}] +${step.timestamp}ms: ${step.details}${
+        step.metadata ? '\n  Metadata: ' + JSON.stringify(step.metadata) : ''
+      }`
+    ).join('\n\n');
+
+    navigator.clipboard.writeText(text).then(() => {
+      this.showNotification("Verification details copied to clipboard!");
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+      this.showNotification("Failed to copy to clipboard");
+    });
+  }
+
+  /**
+   * Export verification details as JSON
+   */
+  exportDetails() {
+    if (!this.currentResults) return;
+
+    const exportData = {
+      timestamp: new Date().toISOString(),
+      verificationSteps: this.currentResults.verificationSteps,
+      duration: this.currentResults.duration,
+      isSound: this.currentResults.isSound,
+      checks: this.currentResults.checks
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: "application/json",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `verification-details-${new Date().getTime()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    this.showNotification("Details exported successfully");
+  }
+
+  /**
    * Cleanup when component is destroyed
    */
   destroy() {
@@ -6319,6 +6771,12 @@ class SuvorovLomazovaVerificationUI {
     const modal = document.getElementById("sl-verification-modal");
     if (modal && modal.parentNode) {
       modal.parentNode.removeChild(modal);
+    }
+
+    // Remove details modal
+    const detailsModal = document.getElementById("sl-details-modal");
+    if (detailsModal && detailsModal.parentNode) {
+      detailsModal.parentNode.removeChild(detailsModal);
     }
 
     // Remove floating controls

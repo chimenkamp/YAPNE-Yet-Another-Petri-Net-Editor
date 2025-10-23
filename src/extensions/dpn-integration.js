@@ -343,46 +343,87 @@ async initializeUI() {
 
     const originalLoadFromFile = this.app.loadFromFile;
     this.app.loadFromFile = (file) => {
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const json = e.target?.result;
-          
-
-          this.app.api = DataPetriNetAPI.importFromJSON(json);
-          this.app.editor = this.app.api.attachEditor(this.app.canvas);
-          
-
-          this.app.editor.renderer = new DataPetriNetRenderer(this.app.canvas, this.app.api.petriNet);
-          
-
-          this.app.editor.app = this.app;
-          
-
-          this.app.editor.setOnSelectCallback(this.app.handleElementSelected.bind(this.app));
-          this.app.editor.setOnChangeCallback(this.app.handleNetworkChanged.bind(this.app));
-          this.app.editor.setSnapToGrid(this.app.gridEnabled);
-          this.app.editor.setMode('select');
-          this.app.updateActiveButton('btn-select');
-          
-
-          this.app.editor.render();
-          this.app.updateTokensDisplay();
-          this.app.updateZoomDisplay();
-          this.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
-          
-
-          if (this.dataPetriNetUI) {
-            this.dataPetriNetUI.updateDataVariablesDisplay();
-            this.dataPetriNetUI.updateDataValuesDisplay();
+      // Call the original loadFromFile which handles cleanup properly
+      const originalOnload = () => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const json = e.target?.result;
+            if (!json) return;
+            
+            // Stop all running processes
+            this.app.stopAutoRun();
+            this.app.stopAllInteractions();
+            
+            // Clear any pending timeouts
+            if (this.app.fitCanvasTimeout) {
+              clearTimeout(this.app.fitCanvasTimeout);
+              this.app.fitCanvasTimeout = null;
+            }
+            
+            // Completely destroy the old editor
+            this.app.destroyCurrentEditor();
+            
+            // Clear the canvas
+            const canvas = this.app.canvas;
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            canvas.width = width;
+            canvas.height = height;
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, width, height);
+            
+            setTimeout(() => {
+              // Create new API with DPN support
+              this.app.api = DataPetriNetAPI.importFromJSON(json);
+              this.app.editor = this.app.api.attachEditor(this.app.canvas);
+              
+              // CRITICAL: Use the newly created API's petriNet, not the old one
+              const newPetriNet = this.app.api.petriNet;
+              this.app.editor.renderer = new DataPetriNetRenderer(this.app.canvas, newPetriNet);
+              
+              // Ensure editor also references the new petriNet
+              this.app.editor.petriNet = newPetriNet;
+              
+              this.app.editor.app = this.app;
+              this.app.editor.setOnSelectCallback(this.app.handleElementSelected.bind(this.app));
+              this.app.editor.setOnChangeCallback(this.app.handleNetworkChanged.bind(this.app));
+              
+              // Reinitialize all handlers
+              this.app.initEventHandlers();
+              
+              this.app.initialState = null;
+              this.app.simulationStarted = false;
+              this.app.editor.setSnapToGrid(this.app.gridEnabled);
+              this.app.editor.setMode('select');
+              this.app.updateActiveButton('btn-select');
+              this.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
+              
+              this.app.editor.render();
+              this.app.updateTokensDisplay();
+              this.app.updateZoomDisplay();
+              this.app.updateFinalMarkingDisplay();
+              
+              if (this.dataPetriNetUI) {
+                this.dataPetriNetUI.updateDataVariablesDisplay();
+                this.dataPetriNetUI.updateDataValuesDisplay();
+              }
+              
+              this.app.fitCanvasTimeout = setTimeout(() => {
+                this.app.fitNetworkToCanvas();
+              }, 100);
+            }, 50);
+          } catch (error) {
+            console.error("Error loading file:", error);
+            alert('Error loading file: ' + error);
           }
-        } catch (error) {
-          console.error("Error loading file:", error);
-          alert('Error loading file: ' + error);
-        }
+        };
+        reader.readAsText(file);
       };
-      reader.readAsText(file);
+      
+      // Execute the load
+      originalOnload();
     };
   }
 }

@@ -77,9 +77,6 @@ class PetriNetApp {
     this.updateTokensDisplay();
     this.updateZoomDisplay();
 
-    // Clone the clean renderer state for reset purposes
-    this.clean_renderer = this.editor.renderer.clone();
-
   }
 
   /**
@@ -1213,14 +1210,12 @@ initEventHandlers() {
           this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
 
           this._resetTimeout = null;
-          setTimeout(() => {
-            resolve();
-          }, 5000);
+          resolve();
         } catch (err) {
           this._resetTimeout = null;
           reject(err);
         }
-      }, 10);
+      }, 50);
     });
   }
 
@@ -1291,92 +1286,75 @@ initEventHandlers() {
         const json = e.target?.result;
         if (!json) return;
 
-        this.resetPetriNet().then(() => {
-          // 2. Clear any pending timeouts that might interfere
-          if (this.fitCanvasTimeout) {
-            clearTimeout(this.fitCanvasTimeout);
-            this.fitCanvasTimeout = null;
+        // Stop all running processes
+        this.stopAutoRun();
+        this.stopAllInteractions();
+
+        // Clear any pending timeouts
+        if (this.fitCanvasTimeout) {
+          clearTimeout(this.fitCanvasTimeout);
+          this.fitCanvasTimeout = null;
+        }
+
+        // Completely destroy the old editor and clean up event listeners
+        this.destroyCurrentEditor();
+
+        // Clear the canvas completely and keep it clear
+        const canvas = this.canvas;
+        const ctx = canvas.getContext('2d');
+        
+        // Force complete canvas reset - this prevents any cached render data
+        const width = canvas.width;
+        const height = canvas.height;
+        canvas.width = width;  // Resetting width clears the entire canvas buffer
+        canvas.height = height;
+        
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, width, height);
+
+        // Small delay to ensure cleanup is complete
+        setTimeout(() => {
+          // Create completely new API and editor instances
+          this.api = PetriNetAPI.importFromJSON(json);
+          this.editor = this.api.attachEditor(this.canvas);
+
+          // CRITICAL FIX: Ensure all references point to the new petriNet
+          // The editor and renderer must both reference the same new PetriNet instance
+          if (this.editor.renderer) {
+            this.editor.renderer.petriNet = this.api.petriNet;
+          }
+          if (this.editor) {
+            this.editor.petriNet = this.api.petriNet;
           }
 
-          const canvas = this.canvas;
-          const ctx = canvas.getContext('2d');
+          // Re-establish app reference and callbacks
+          this.editor.app = this;
+          this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
+          this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
           
-          // Method 1: Standard clear with transform reset
-          ctx.save();
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.restore();
-          
-          // Method 2: Fill with background color to ensure complete override
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          
-          // Method 3: Force canvas dimension reset (triggers complete buffer recreation)
-          const originalWidth = canvas.width;
-          const originalHeight = canvas.height;
-          canvas.width = 0;
-          canvas.height = 0;
-          // Force immediate buffer flush
-          ctx.clearRect(0, 0, 1, 1);
-          canvas.width = originalWidth;
-          canvas.height = originalHeight;
+          // Reinitialize all handlers
+          this.initEventHandlers();
 
-          // 4. Completely destroy current editor and all references
-          this.destroyCurrentEditor();
+          // Reset all simulation and UI state
+          this.initialState = null;
+          this.simulationStarted = false;
+          this.editor.setSnapToGrid(this.gridEnabled);
+          this.editor.setMode("select");
+          this.updateActiveButton("btn-select");
+          this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
 
-          // 5. Force longer pause to ensure complete cleanup
-          setTimeout(() => {
-            // Ensure canvas is still clear before proceeding
-            const freshCtx = this.canvas.getContext('2d');
-            freshCtx.fillStyle = 'white';
-            freshCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-            
-            // Create completely new API and editor instances
-            this.api = PetriNetAPI.importFromJSON(json);
-            this.editor = this.api.attachEditor(this.canvas);
+          // Force immediate render
+          this.editor.render();
+          this.updateTokensDisplay();
+          this.updateZoomDisplay();
+          this.updateFinalMarkingDisplay();
 
-            this.editor.renderer = this.clean_renderer
+          // Fit canvas to new network
+          this.fitCanvasTimeout = setTimeout(() => {
+            this.fitNetworkToCanvas();
+          }, 100);
 
-            // Clear any residual interaction states
-            this.editor.selectedElement = null;
-            this.editor.dragStart = null;
-            this.editor.dragOffset = null;
-            this.editor.arcDrawing = null;
-            this.editor.ghostElement = null;
-            this.editor.ghostPosition = null;
-            this.editor.isShiftPressed = false;
-            this.editor.isPanning = false;
-            this.editor.lastPanPosition = null;
-
-            // Re-establish app reference and callbacks
-            this.editor.app = this;
-            this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
-            this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
-            
-            // Reinitialize all handlers
-            this.initEventHandlers();
-
-            // Reset all simulation and UI state
-            this.initialState = null;
-            this.simulationStarted = false;
-            this.editor.setSnapToGrid(this.gridEnabled);
-            this.editor.setMode("select");
-            this.updateActiveButton("btn-select");
-            this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
-
-            // Force immediate render - this should show only the new model
-            this.editor.render();
-            this.updateTokensDisplay();
-            this.updateZoomDisplay();
-            this.updateFinalMarkingDisplay();
-
-            // Fit canvas after ensuring everything is rendered cleanly
-            this.fitCanvasTimeout = setTimeout(() => {
-              this.fitNetworkToCanvas();
-            }, 0);
-
-          }, 0);
-        });
+        }, 50);
 
       } catch (error) {
         console.error("Error loading file:", error);

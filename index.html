@@ -353,7 +353,7 @@
                         <button id="btn-select" class="active" title="Select tool - Hold Shift while selected element to create connected elements">✓</button>
                         <button id="btn-add-place" title="Add place">○</button>
                         <button id="btn-add-transition" title="Add transition">□</button>
-                        <button id="btn-add-arc" title="Add arc - Hotkey: C">→</button>
+                        <button id="btn-add-arc" title="Add arc - Hotkey: Space">→</button>
                         <hr>
                         <button id="btn-delete" class="danger" title="Delete selected element">🗑️</button>
                         <button id="btn-clear" class="danger" title="Clear canvas">🧹</button>
@@ -541,14 +541,25 @@
                             </div>
                             <div class="section-content">
                                 <div class="button-group">
-                                    <button id="btn-save">Save (JSON)</button>
                                     <button id="btn-load">Load (JSON)</button>
+                                    <button id="btn-save">Save (JSON)</button>
                                     <input type="file" id="file-input" class="hidden" accept=".json">
                                 </div>
-                                <div class="button-group">
+                                <div class="button-group" id="pnml-button-group">
                                     <button id="btn-export-pnml">Save (PNML)</button>
-                                    <!-- <button id="btn-event-log" class="blue">Generate Event Log</button> -->
                                 </div>
+                            </div>
+                        </div>
+                        <div id="file-generation" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">⚙️</span>
+                                    <h3>Generation</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                               <button id="btn-event-log" style="width: 100%;">Generate Event Log</button>
                             </div>
                         </div>
                     </div>
