@@ -1,7 +1,6 @@
 import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
 
-// Use Vite's BASE_URL which is '/' for dev and '/YAPNE-Yet-Another-Petri-Net-Editor/' for production
-const BASE_PATH = import.meta.env.BASE_URL;
+const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
 
 document.addEventListener('DOMContentLoaded', () => {
     try {

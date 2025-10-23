@@ -4,9 +4,8 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import nodePolyfills from 'rollup-plugin-polyfill-node';
 import crossOriginIsolation from 'vite-plugin-cross-origin-isolation'
  
-export default defineConfig(({ command }) => ({
-  // Use base path for GitHub Pages in production, root for local dev
-  base: command === 'build' ? '/YAPNE-Yet-Another-Petri-Net-Editor/' : '/',
+export default defineConfig({
+  base: '/YAPNE-Yet-Another-Petri-Net-Editor',
   build: {
     target: 'esnext',
     commonjsOptions: {
@@ -67,4 +66,4 @@ export default defineConfig(({ command }) => ({
     }),
   ],
 
-}));
+});
