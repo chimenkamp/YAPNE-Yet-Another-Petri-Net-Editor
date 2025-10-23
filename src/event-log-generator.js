@@ -1,8 +1,10 @@
 import { PetriNet, Place, Transition, Arc } from './petri-net-simulator.js';
+import { DataPetriNet, DataAwareTransition, DataVariable } from './extensions/dpn-model.js';
 
 /**
  * Petri Net Simulator
  * A class for simulating Petri nets and generating event logs.
+ * Now supports Data Petri Nets with variable evaluation and pre/post conditions.
  */
 class EventLogGenerator {
     /**
@@ -143,15 +145,24 @@ class EventLogGenerator {
       const caseId = `${this.options.caseName}_${this.caseCounter++}`;
       const timestamp = new Date(this.currentTimestamp);
       
-
+      // Clone the Petri net for this case
       const net = this.clonePetriNet();
       
-
+      // Apply initial marking if specified
       if (this.options.initialMarking) {
         this.applyMarking(net, this.options.initialMarking);
       }
       
-
+      // Capture initial variable state for DPN
+      const isDataPetriNet = net instanceof DataPetriNet || 
+                             net.dataVariables instanceof Map;
+      let initialVariables = null;
+      
+      if (isDataPetriNet && net.dataVariables) {
+        initialVariables = net.getDataValuation();
+      }
+      
+      // Create the new case
       const newCase = {
         id: caseId,
         net: net,
@@ -163,14 +174,19 @@ class EventLogGenerator {
         events: []
       };
       
-
+      // Log case start with initial variables
+      const startData = { startPlaces: this.options.startPlaces };
+      if (initialVariables) {
+        startData.initial_variables = { ...initialVariables };
+      }
+      
       this.logEvent({
         case: caseId,
         activity: 'Case_Start',
         timestamp: timestamp,
         lifecycle: 'complete',
         resource: 'system',
-        data: { startPlaces: this.options.startPlaces }
+        data: startData
       });
       
       return newCase;
@@ -178,18 +194,28 @@ class EventLogGenerator {
     
     /**
      * Creates a deep clone of the Petri net
-     * @returns {PetriNet} A cloned Petri net
+     * @returns {PetriNet|DataPetriNet} A cloned Petri net
      * @private
      */
     clonePetriNet() {
-
-      const clone = new PetriNet(
-        this.petriNet.id,
-        this.petriNet.name,
-        this.petriNet.description
-      );
+      // Check if this is a Data Petri Net
+      const isDataPetriNet = this.petriNet instanceof DataPetriNet || 
+                             this.petriNet.dataVariables instanceof Map;
       
-
+      // Create the appropriate type of clone
+      const clone = isDataPetriNet
+        ? new DataPetriNet(
+            this.petriNet.id,
+            this.petriNet.name,
+            this.petriNet.description
+          )
+        : new PetriNet(
+            this.petriNet.id,
+            this.petriNet.name,
+            this.petriNet.description
+          );
+      
+      // Clone places
       for (const [id, place] of this.petriNet.places) {
         const placeClone = new Place(
           id,
@@ -201,19 +227,34 @@ class EventLogGenerator {
         clone.places.set(id, placeClone);
       }
       
-
+      // Clone transitions (including data-aware transitions)
       for (const [id, transition] of this.petriNet.transitions) {
-        const transitionClone = new Transition(
-          id,
-          { x: transition.position.x, y: transition.position.y },
-          transition.label,
-          transition.priority,
-          transition.delay
-        );
+        let transitionClone;
+        
+        if (transition instanceof DataAwareTransition || 
+            (transition.precondition !== undefined && transition.postcondition !== undefined)) {
+          transitionClone = new DataAwareTransition(
+            id,
+            { x: transition.position.x, y: transition.position.y },
+            transition.label,
+            transition.priority,
+            transition.delay,
+            transition.precondition || "",
+            transition.postcondition || ""
+          );
+        } else {
+          transitionClone = new Transition(
+            id,
+            { x: transition.position.x, y: transition.position.y },
+            transition.label,
+            transition.priority,
+            transition.delay
+          );
+        }
         clone.transitions.set(id, transitionClone);
       }
       
-
+      // Clone arcs
       for (const [id, arc] of this.petriNet.arcs) {
         const arcClone = new Arc(
           id,
@@ -225,6 +266,20 @@ class EventLogGenerator {
           arc.label
         );
         clone.arcs.set(id, arcClone);
+      }
+      
+      // Clone data variables if this is a Data Petri Net
+      if (isDataPetriNet && this.petriNet.dataVariables) {
+        for (const [id, variable] of this.petriNet.dataVariables) {
+          const variableClone = new DataVariable(
+            id,
+            variable.name,
+            variable.type,
+            variable.currentValue,
+            variable.description
+          );
+          clone.dataVariables.set(id, variableClone);
+        }
       }
       
       return clone;
@@ -257,7 +312,7 @@ class EventLogGenerator {
      * @private
      */
     logEvent(event) {
-
+      // Create base log entry
       const logEntry = {
         'case:concept:name': event.case,
         'concept:name': event.activity,
@@ -266,17 +321,23 @@ class EventLogGenerator {
         'org:resource': event.resource || 'system'
       };
       
-
+      // Add custom data fields
       if (event.data) {
         for (const [key, value] of Object.entries(event.data)) {
-          logEntry[key] = value;
+          // Handle nested objects (like variables, precondition, postcondition)
+          if (typeof value === 'object' && value !== null) {
+            // Serialize objects as JSON strings for better readability
+            logEntry[key] = JSON.stringify(value);
+          } else {
+            logEntry[key] = value;
+          }
         }
       }
       
-
+      // Add to main event log
       this.eventLog.push(logEntry);
       
-
+      // Add to case-specific events
       if (event.case) {
         const activeCase = this.activeCases.find(c => c.id === event.case);
         if (activeCase) {
@@ -449,20 +510,20 @@ class EventLogGenerator {
     /**
      * Processes a single step for a simulation case
      * @param {Object} simulationCase - The simulation case
-     * @returns {boolean} True if the case is still active, false if it's complete
+     * @returns {Promise<boolean>} True if the case is still active, false if it's complete
      * @private
      */
-    processCase(simulationCase) {
-
+    async processCase(simulationCase) {
+      // If already complete, return false
       if (simulationCase.state === 'complete') {
         return false;
       }
       
-
+      // Select the next transition to fire
       const transitionId = this.selectNextTransition(simulationCase);
       
       if (!transitionId) {
-
+        // No enabled transitions - check if case is complete
         if (this.isCaseComplete(simulationCase)) {
           this.completeCase(simulationCase);
           return false;
@@ -470,46 +531,120 @@ class EventLogGenerator {
         return true; // Case is not complete but stuck (deadlock)
       }
       
-
+      // Get the transition and its name
       const transition = simulationCase.net.transitions.get(transitionId);
       const transitionName = transition.label || transitionId;
       
-
+      // Get variable state BEFORE transition firing (for DPN)
+      const isDataPetriNet = simulationCase.net instanceof DataPetriNet || 
+                             simulationCase.net.dataVariables instanceof Map;
+      let variablesBefore = null;
+      let preconditionResult = null;
+      
+      if (isDataPetriNet && simulationCase.net.dataVariables) {
+        variablesBefore = simulationCase.net.getDataValuation();
+        
+        // Evaluate precondition for logging
+        if (transition.precondition && transition.precondition.trim() !== "") {
+          preconditionResult = {
+            expression: transition.precondition,
+            satisfied: transition.evaluatePrecondition(variablesBefore)
+          };
+        }
+      }
+      
+      // Log transition start event
+      const startEventData = { transitionId };
+      if (variablesBefore) {
+        startEventData.variables_before = { ...variablesBefore };
+        if (preconditionResult) {
+          startEventData.precondition = preconditionResult;
+        }
+      }
+      
       this.logEvent({
         case: simulationCase.id,
         activity: transitionName,
         timestamp: new Date(simulationCase.currentTime),
         lifecycle: 'start',
         resource: 'system',
-        data: { transitionId }
+        data: startEventData
       });
       
-
+      // Calculate duration
       const duration = transition.delay || this.options.defaultTransitionDuration;
       
-
-      simulationCase.net.fireTransition(transitionId);
+      // Fire the transition (async for DPN)
+      if (isDataPetriNet && typeof simulationCase.net.fireTransition === 'function') {
+        await simulationCase.net.fireTransition(transitionId);
+      } else {
+        simulationCase.net.fireTransition(transitionId);
+      }
+      
       simulationCase.steps++;
       
-
+      // Get variable state AFTER transition firing (for DPN)
+      let variablesAfter = null;
+      let postconditionResult = null;
+      let variableChanges = null;
+      
+      if (isDataPetriNet && simulationCase.net.dataVariables) {
+        variablesAfter = simulationCase.net.getDataValuation();
+        
+        // Track variable changes
+        if (variablesBefore && variablesAfter) {
+          variableChanges = {};
+          for (const [varName, afterValue] of Object.entries(variablesAfter)) {
+            const beforeValue = variablesBefore[varName];
+            if (beforeValue !== afterValue) {
+              variableChanges[varName] = {
+                before: beforeValue,
+                after: afterValue
+              };
+            }
+          }
+        }
+        
+        // Log postcondition information
+        if (transition.postcondition && transition.postcondition.trim() !== "") {
+          postconditionResult = {
+            expression: transition.postcondition,
+            applied: true
+          };
+        }
+      }
+      
+      // Update case time
       const completionTime = this.calculateNextTimestamp(simulationCase.currentTime, duration);
       simulationCase.currentTime = completionTime;
       
-
+      // Log transition complete event
+      const completeEventData = { 
+        transitionId,
+        duration,
+        step: simulationCase.steps 
+      };
+      
+      if (variablesAfter) {
+        completeEventData.variables_after = { ...variablesAfter };
+        if (postconditionResult) {
+          completeEventData.postcondition = postconditionResult;
+        }
+        if (variableChanges && Object.keys(variableChanges).length > 0) {
+          completeEventData.variable_changes = variableChanges;
+        }
+      }
+      
       this.logEvent({
         case: simulationCase.id,
         activity: transitionName,
         timestamp: new Date(completionTime),
         lifecycle: 'complete',
         resource: 'system',
-        data: { 
-          transitionId,
-          duration,
-          step: simulationCase.steps 
-        }
+        data: completeEventData
       });
       
-
+      // Check if case is complete after this step
       if (this.isCaseComplete(simulationCase)) {
         this.completeCase(simulationCase);
         return false;
@@ -527,20 +662,35 @@ class EventLogGenerator {
       simulationCase.state = 'complete';
       simulationCase.endTime = new Date(simulationCase.currentTime);
       
-
+      // Capture final variable state for DPN
+      const isDataPetriNet = simulationCase.net instanceof DataPetriNet || 
+                             simulationCase.net.dataVariables instanceof Map;
+      let finalVariables = null;
+      
+      if (isDataPetriNet && simulationCase.net.dataVariables) {
+        finalVariables = simulationCase.net.getDataValuation();
+      }
+      
+      // Log case end with final variables
+      const endData = { 
+        duration: simulationCase.endTime - simulationCase.startTime,
+        steps: simulationCase.steps
+      };
+      
+      if (finalVariables) {
+        endData.final_variables = { ...finalVariables };
+      }
+      
       this.logEvent({
         case: simulationCase.id,
         activity: 'Case_End',
         timestamp: simulationCase.endTime,
         lifecycle: 'complete',
         resource: 'system',
-        data: { 
-          duration: simulationCase.endTime - simulationCase.startTime,
-          steps: simulationCase.steps
-        }
+        data: endData
       });
       
-
+      // Move case from active to completed
       const index = this.activeCases.findIndex(c => c.id === simulationCase.id);
       if (index !== -1) {
         const [completedCase] = this.activeCases.splice(index, 1);
@@ -552,21 +702,21 @@ class EventLogGenerator {
      * Runs the simulation for a specific number of cases
      * @param {number} numCases - Number of cases to simulate
      * @param {number} maxSteps - Maximum number of steps per case (optional)
-     * @returns {Array} The generated event log
+     * @returns {Promise<Array>} The generated event log
      */
-    simulateCases(numCases, maxSteps = 1000) {
-
+    async simulateCases(numCases, maxSteps = 1000) {
+      // Reset simulation state
       this.activeCases = [];
       this.completedCases = [];
       this.eventLog = [];
       this.caseCounter = 1;
       this.currentTimestamp = new Date(this.options.startTimestamp);
       
-
+      // Create the first case
       const firstCase = this.createCase();
       this.activeCases.push(firstCase);
       
-
+      // Calculate arrival times for all cases
       const caseArrivals = [{ time: this.currentTimestamp, caseNum: 1 }];
       
       for (let i = 2; i <= numCases; i++) {
@@ -575,27 +725,27 @@ class EventLogGenerator {
         this.currentTimestamp = arrivalTime;
       }
       
-
+      // Sort arrivals by time
       caseArrivals.sort((a, b) => a.time - b.time);
       
-
+      // Process simulation
       let nextArrivalIndex = 1; // Skip the first one which we already created
       
       while (this.activeCases.length > 0 || nextArrivalIndex < caseArrivals.length) {
-
+        // Find the next event time among active cases
         let nextEventTime = null;
         
-
+        // Check earliest active case
         for (const activeCase of this.activeCases) {
           if (!nextEventTime || activeCase.currentTime < nextEventTime) {
             nextEventTime = activeCase.currentTime;
           }
         }
         
-
+        // Check if next case arrival is before next event
         const nextArrival = caseArrivals[nextArrivalIndex];
         if (nextArrival && (!nextEventTime || nextArrival.time < nextEventTime)) {
-
+          // Create a new case
           this.currentTimestamp = nextArrival.time;
           const newCase = this.createCase();
           this.activeCases.push(newCase);
@@ -603,26 +753,26 @@ class EventLogGenerator {
           continue;
         }
         
-
+        // Process the earliest active case
         this.currentTimestamp = nextEventTime;
         
-
+        // Find the case with the earliest time
         const earliestCaseIndex = this.activeCases.findIndex(
           c => c.currentTime.getTime() === nextEventTime.getTime()
         );
         
         const currentCase = this.activeCases[earliestCaseIndex];
         
-
+        // Process the case step (now async)
         if (currentCase.steps < maxSteps) {
-          const isActive = this.processCase(currentCase);
+          const isActive = await this.processCase(currentCase);
           
-
+          // Case will be removed from activeCases if complete
           if (!isActive) {
-
+            // Case is complete
           }
         } else {
-
+          // Max steps reached, force complete
           this.completeCase(currentCase);
         }
       }

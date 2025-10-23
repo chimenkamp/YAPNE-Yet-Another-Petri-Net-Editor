@@ -1,10 +1,12 @@
 import { EventLogGenerator } from './event-log-generator.js';
 import { PetriNet } from './petri-net-simulator.js';
+import { DataPetriNet } from './extensions/dpn-model.js';
 
 /**
  * Event Log Generator Integration
  * This module integrates the EventLogGenerator class with the Petri Net Editor
  * It adds UI elements for configuring and running simulations
+ * Now supports Data Petri Nets with variable tracking
  */
 
 class EventLogIntegration {
@@ -413,16 +415,27 @@ class EventLogIntegration {
       return options;
     }
     
-    runSimulation() {
+    async runSimulation() {
       try {
-
+        // Collect options from UI
         const options = this.collectOptions();
         this.simulationOptions = { ...this.simulationOptions, ...options };
         
-
-
+        // Get the Petri Net (now with potential DPN support)
         const petriNetJson = this.app.api.exportAsJSON();
-        const petriNet = PetriNet.fromJSON(petriNetJson);
+        
+        // Try to parse as DataPetriNet first, fall back to regular PetriNet
+        let petriNet;
+        try {
+          const jsonData = JSON.parse(petriNetJson);
+          if (jsonData.dataVariables && jsonData.dataVariables.length > 0) {
+            petriNet = DataPetriNet.fromJSON(petriNetJson);
+          } else {
+            petriNet = PetriNet.fromJSON(petriNetJson);
+          }
+        } catch (e) {
+          petriNet = PetriNet.fromJSON(petriNetJson);
+        }
         
         if (!petriNet) {
           throw new Error('Petri Net is not defined or invalid');
@@ -434,16 +447,16 @@ class EventLogIntegration {
 
         this.eventLogGenerator = new EventLogGenerator(petriNet, this.simulationOptions);
         
-
-        this.eventLog = this.eventLogGenerator.simulateCases(
+        // Run simulation (now async for DPN support)
+        this.eventLog = await this.eventLogGenerator.simulateCases(
           this.simulationOptions.numCases,
           this.simulationOptions.maxSteps
         );
         
-
+        // Close dialog
         this.closeDialog();
         
-
+        // Display results
         this.displayEventLog();
       } catch (error) {
         console.error('Error running simulation:', error);
