@@ -2,19 +2,7 @@
  * Z3 Solver interface - Simple ES module approach
  */
 // Use Vite's BASE_URL which is '/' for dev and '/YAPNE-Yet-Another-Petri-Net-Editor/' for production
-// Fallback to auto-detection if import.meta.env is not available
-const BASE_PATH = (() => {
-    try {
-        return import.meta.env?.BASE_URL || '/';
-    } catch (e) {
-        // Fallback: detect if we're on GitHub Pages
-        const path = window.location.pathname;
-        if (path.startsWith('/YAPNE-Yet-Another-Petri-Net-Editor/')) {
-            return '/YAPNE-Yet-Another-Petri-Net-Editor/';
-        }
-        return '/';
-    }
-})();
+const BASE_PATH = import.meta.env.BASE_URL;
 
 let _z3 = null;
 let _context = null;
