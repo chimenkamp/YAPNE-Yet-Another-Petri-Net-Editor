@@ -15,7 +15,7 @@ async function getZ3() {
     if (!window.initZ3) {
       await new Promise((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = '/z3-built.js';
+        script.src = '/YAPNE-Yet-Another-Petri-Net-Editor/z3/z3-built.js';
         script.onload = () => window.initZ3 ? resolve() : reject(new Error('initZ3 not found'));
         script.onerror = () => reject(new Error('Failed to load z3-built.js'));
         document.head.appendChild(script);

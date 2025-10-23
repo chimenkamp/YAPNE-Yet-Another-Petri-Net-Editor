@@ -47,10 +47,6 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: 'node_modules/z3-solver/build/z3-built.*',
-          dest: '.'
-        },
-        {
           src: 'node_modules/z3-solver/build/browser.js',
           dest: 'z3-solver'
         },

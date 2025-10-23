@@ -15,7 +15,7 @@ async function initializeZ3() {
   // Prevent multiple simultaneous initializations
   if (_initPromise) {
     return _initPromise;
-  }
+  } 
 
   _initPromise = (async () => {
     try {
@@ -23,7 +23,7 @@ async function initializeZ3() {
       if (!window.initZ3) {
         await new Promise((resolve, reject) => {
           const script = document.createElement('script');
-          script.src = `${BASE_PATH}z3-built.js`;
+          script.src = `${BASE_PATH}z3/z3-built.js`;
           script.onload = () => {
             if (window.initZ3) {
               resolve();
