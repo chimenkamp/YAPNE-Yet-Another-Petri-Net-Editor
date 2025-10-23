@@ -10,7 +10,19 @@ let Context = null;
 let Z3 = null;
 
 // Use Vite's BASE_URL which is '/' for dev and '/YAPNE-Yet-Another-Petri-Net-Editor/' for production
-const BASE_PATH = import.meta.env.BASE_URL;
+// Fallback to auto-detection if import.meta.env is not available
+const BASE_PATH = (() => {
+    try {
+        return import.meta.env?.BASE_URL || '/';
+    } catch (e) {
+        // Fallback: detect if we're on GitHub Pages
+        const path = window.location.pathname;
+        if (path.startsWith('/YAPNE-Yet-Another-Petri-Net-Editor/')) {
+            return '/YAPNE-Yet-Another-Petri-Net-Editor/';
+        }
+        return '/';
+    }
+})();
 
 async function getZ3() {
   if (!z3Module) {
