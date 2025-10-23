@@ -1,7 +1,8 @@
 /**
  * Z3 Solver interface - Simple ES module approach
  */
-const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
+// Use Vite's BASE_URL which is '/' for dev and '/YAPNE-Yet-Another-Petri-Net-Editor/' for production
+const BASE_PATH = import.meta.env.BASE_URL;
 
 let _z3 = null;
 let _context = null;

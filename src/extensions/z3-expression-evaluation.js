@@ -9,13 +9,16 @@ let z3Module = null;
 let Context = null;
 let Z3 = null;
 
+// Use Vite's BASE_URL which is '/' for dev and '/YAPNE-Yet-Another-Petri-Net-Editor/' for production
+const BASE_PATH = import.meta.env.BASE_URL;
+
 async function getZ3() {
   if (!z3Module) {
     // Load z3-built.js if not already loaded
     if (!window.initZ3) {
       await new Promise((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = '/z3-built.js';
+        script.src = `${BASE_PATH}z3-built.js`;
         script.onload = () => window.initZ3 ? resolve() : reject(new Error('initZ3 not found'));
         script.onerror = () => reject(new Error('Failed to load z3-built.js'));
         document.head.appendChild(script);
