@@ -193,7 +193,7 @@ class DataPetriNetAPI extends PetriNetAPI {
     do {
       firedAny = false;
 
-      // Update enabled transitions
+      // Update enabled transitions for the current marking
       this.petriNet.updateEnabledTransitions();
       const enabledTransitions = [];
 
@@ -203,16 +203,9 @@ class DataPetriNetAPI extends PetriNetAPI {
         }
       }
 
-      // Sort by priority
-      enabledTransitions.sort((a, b) => {
-        const transA = this.petriNet.transitions.get(a);
-        const transB = this.petriNet.transitions.get(b);
-        return (transB?.priority || 0) - (transA?.priority || 0);
-      });
-
-      // Fire the highest priority transition
+      // Fire all enabled transitions simultaneously (synchronous step semantics)
       if (enabledTransitions.length > 0) {
-        firedAny = await this.petriNet.fireTransition(enabledTransitions[0]);
+        firedAny = await this.petriNet.fireTransitionsSynchronously(enabledTransitions);
         if (firedAny) steps++;
       }
     } while (firedAny && steps < maxSteps);

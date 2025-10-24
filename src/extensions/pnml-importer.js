@@ -30,7 +30,7 @@ class PNMLImporter {
         const importButton = document.createElement('button');
         importButton.id = 'btn-import-pnml';
         importButton.textContent = 'Load (PNML)';
-        // importButton.className = 'blue';
+
         importButton.addEventListener('click', () => this.showImportDialog());
         
         // Insert before the Save (PNML) button
@@ -669,7 +669,7 @@ class PNMLImporter {
         transitions.forEach(transition => {
           // Check for data-aware attributes
           let precondition = this.getTextContent(transition.querySelector('dataGuard text')) || 
-                             transition.getAttribute('guard') || '';
+                             this.unescapeXML(transition.getAttribute('guard')) || '';
 
           let postcondition = this.getTextContent(transition.querySelector('dataUpdate text')) || 
                               this.getTextContent(transition.querySelector('dataAction text')) || '';
@@ -782,6 +782,21 @@ class PNMLImporter {
       return result;
     }
   
+    /**
+     * Unescapes XML entities back to their original characters
+     * @param {string} str - The string to unescape
+     * @returns {string} The unescaped string
+     */
+    unescapeXML(str) {
+      if (str == null || str === '') return '';
+      return String(str)
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&'); // Must be last to avoid double-unescaping
+    }
+
     getTextContent(element) {
       return element ? element.textContent.trim() : null;
     }

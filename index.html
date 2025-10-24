@@ -542,11 +542,11 @@
                             <div class="section-content">
                                 <div class="button-group">
                                     <button id="btn-load">Load (JSON)</button>
-                                    <button id="btn-save">Save (JSON)</button>
+                                    <button id="btn-save" style="background-color: rgb(101, 127, 152);">Save (JSON)</button>
                                     <input type="file" id="file-input" class="hidden" accept=".json">
                                 </div>
                                 <div class="button-group" id="pnml-button-group">
-                                    <button id="btn-export-pnml">Save (PNML)</button>
+                                    <button id="btn-export-pnml" style="background-color: rgb(101, 127, 152);">Save (PNML)</button>
                                 </div>
                             </div>
                         </div>
@@ -750,79 +750,7 @@
 
 
 
-    <script type="module" src="petri-net-app.js"></script>
-
-    <script>
-        document.debugObj = async function debugObj(target) {
-            const maxDepth = 2;
-
-            /**
-             * Recursively formats any value (including Promises) to a string.
-             *
-             * @param {*} value     The value to format.
-             * @param {number} depth  Current recursion depth.
-             * @return {Promise<string>}  Resolves to the formatted string.
-             */
-            async function formatValue(value, depth = 0) {
-                if (value instanceof Promise) {
-                    try {
-                        const resolved = await value;
-                        return `Promise → ${await formatValue(resolved, depth)}`;
-                    } catch (err) {
-                        return `Promise rejected → ${err}`;
-                    }
-                }
-                if (depth > maxDepth) {
-                    return Array.isArray(value) ? '[Array]' : '[Object]';
-                }
-                const type = typeof value;
-                if (value === null || ['undefined', 'boolean', 'number', 'string'].includes(type)) {
-                    return JSON.stringify(value);
-                }
-                if (type === 'function') {
-                    const sig = value.toString().split('\n')[0];
-                    return `[Function ${sig.length > 50 ? sig.slice(0, 47) + '...' : sig}]`;
-                }
-                if (Array.isArray(value)) {
-                    const items = await Promise.all(
-                        value.map(v => formatValue(v, depth + 1))
-                    );
-                    return `[${items.join(', ')}]`;
-                }
-                if (type === 'object') {
-                    const entries = await Promise.all(
-                        Object.getOwnPropertyNames(value).map(async key => {
-                            let val;
-                            try {
-                                val = value[key];
-                            } catch (err) {
-                                return `${key}: [Error accessing property]`;
-                            }
-                            const formatted = await formatValue(val, depth + 1);
-                            return `${key}: ${formatted}`;
-                        })
-                    );
-                    return `{ ${entries.join(', ')} }`;
-                }
-                return String(value);
-            }
-
-            console.group(`debugObj dump of ${target && target.constructor ? target.constructor.name : typeof target}`);
-            const props = Object.getOwnPropertyNames(target).sort();
-            for (const key of props) {
-                let rawValue;
-                try {
-                    rawValue = target[key];
-                } catch (err) {
-                    rawValue = `[Error accessing property: ${err}]`;
-                }
-                const formatted = await formatValue(rawValue, 0);
-                console.log(`${key} (${typeof rawValue}):`, formatted);
-            }
-            console.groupEnd();
-        };
-    </script>
-
+    <script type="module" src="src/petri-net-app.js"></script>
 
     <script>
         if (window.crossOriginIsolated) {
@@ -831,60 +759,6 @@
             console.warn("%c❌ This page is not cross-origin isolated. Some features may not work as expected.", "color: red; font-weight: bold;");
         }
     </script>
-
-  <!-- <script type="module">      
-        import { init } from 'z3-solver';
-        function getMethods(obj) {
-        var result = [];
-        for (var id in obj) {
-            try {
-            if (typeof(obj[id]) == "function") {
-                result.push(id + ": " + obj[id].toString());
-            }
-            } catch (err) {
-            result.push(id + ": inaccessible");
-            }
-        }
-        return result;
-        }
-
-        let _ctx = null;
-        let _z3 = null;
-
-        const { Context, Z3 } = await init();
-
-        _ctx = new Context('main2');
-        _z3 = Z3;
-        // console.log(`Z3 Context created: ${Object.keys(_ctx)} `);
-        let expression = "(assert (and (= org1 0) (= org2 0) (= statusLedig false) (= valueHistory false)))"
-        // console.log(getMethods(_z3));
-
-        let smt_template = `
-        (set-logic QF_LIA)                ; quantifier­free linear integer arithmetic + Bool
-        (declare-fun org1 () Int)
-        (declare-fun org2 () Int)
-        (declare-fun statusLedig () Bool)
-        (declare-fun valueHistory () Bool)
-
-        (assert
-        (and
-            (= org1 0)
-            (= org2 0)
-            (= statusLedig false)
-            (= valueHistory false)))
-        (check-sat)
-        `
-
-
-        const solver = new _ctx.Solver();
-
-        const ast   = _ctx.ast_from_string(smt_template);
-        console.log(`Z3 AST created: ${ast}`);
-        solver.add(ast);
-
-        const res = await solver.check();
-        console.log(`Z3 Solver check result: ${res}`);
-    </script> -->
 
     <script type="module" src="app.js"></script>
 
