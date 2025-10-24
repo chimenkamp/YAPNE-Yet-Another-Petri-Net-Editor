@@ -230,6 +230,193 @@ class PetriNet {
     return true;
   }
 
+  /**
+   * Detect if two transitions are in structural conflict (share input places)
+   * @param {string} trans1Id - First transition ID
+   * @param {string} trans2Id - Second transition ID
+   * @returns {boolean} - True if transitions are in conflict
+   */
+  areTransitionsInConflict(trans1Id, trans2Id) {
+    const incomingArcs1 = Array.from(this.arcs.values())
+      .filter(arc => arc.target === trans1Id && arc.type === "regular");
+    const incomingArcs2 = Array.from(this.arcs.values())
+      .filter(arc => arc.target === trans2Id && arc.type === "regular");
+
+    // Check if they share any input places
+    const inputPlaces1 = new Set(incomingArcs1.map(arc => arc.source));
+    const inputPlaces2 = new Set(incomingArcs2.map(arc => arc.source));
+
+    for (const placeId of inputPlaces1) {
+      if (inputPlaces2.has(placeId)) {
+        // Check if there are enough tokens to fire both
+        const place = this.places.get(placeId);
+        if (!place) continue;
+
+        // Calculate total token requirement
+        const weight1 = incomingArcs1.find(arc => arc.source === placeId)?.weight || 0;
+        const weight2 = incomingArcs2.find(arc => arc.source === placeId)?.weight || 0;
+
+        if (place.tokens < weight1 + weight2) {
+          return true; // Conflict: not enough tokens for both
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Resolve conflicts by selecting a subset of transitions that can fire together
+   * Randomly selects among transitions with equal priority and weight
+   * @param {Array<string>} enabledTransitionIds - Array of enabled transition IDs
+   * @returns {Array<string>} - Array of non-conflicting transition IDs to fire
+   */
+  resolveConflicts(enabledTransitionIds) {
+    if (enabledTransitionIds.length <= 1) {
+      return enabledTransitionIds;
+    }
+
+    // Group transitions by their input places to identify conflict sets
+    const conflictGroups = new Map(); // placeId -> array of transition IDs
+
+    for (const transId of enabledTransitionIds) {
+      const incomingArcs = Array.from(this.arcs.values())
+        .filter(arc => arc.target === transId && arc.type === "regular");
+
+      for (const arc of incomingArcs) {
+        if (!conflictGroups.has(arc.source)) {
+          conflictGroups.set(arc.source, []);
+        }
+        conflictGroups.get(arc.source).push({
+          transitionId: transId,
+          weight: arc.weight
+        });
+      }
+    }
+
+    // Find transitions that are actually in conflict
+    const toFire = new Set(enabledTransitionIds);
+
+    for (const [placeId, transitions] of conflictGroups) {
+      if (transitions.length <= 1) continue;
+
+      const place = this.places.get(placeId);
+      if (!place) continue;
+
+      // Calculate total token requirement
+      const totalRequired = transitions.reduce((sum, t) => sum + t.weight, 0);
+
+      // If there's a conflict (not enough tokens for all)
+      if (place.tokens < totalRequired) {
+        // Group by priority and weight
+        const transitionDetails = transitions.map(t => {
+          const transition = this.transitions.get(t.transitionId);
+          return {
+            id: t.transitionId,
+            priority: transition?.priority || 1,
+            weight: t.weight
+          };
+        });
+
+        // Sort by priority (higher first), then randomly shuffle within same priority
+        transitionDetails.sort((a, b) => {
+          if (b.priority !== a.priority) {
+            return b.priority - a.priority;
+          }
+          // Same priority - randomize
+          return Math.random() - 0.5;
+        });
+
+        // Select transitions until we run out of tokens
+        let availableTokens = place.tokens;
+        const selected = [];
+
+        for (const trans of transitionDetails) {
+          const arcWeight = transitions.find(t => t.transitionId === trans.id)?.weight || 0;
+          if (availableTokens >= arcWeight && toFire.has(trans.id)) {
+            selected.push(trans.id);
+            availableTokens -= arcWeight;
+          } else {
+            toFire.delete(trans.id);
+          }
+        }
+      }
+    }
+
+    return Array.from(toFire);
+  }
+
+  /**
+   * Fire multiple transitions simultaneously in one atomic step (synchronous step semantics)
+   * All transitions that are enabled at the start of the step will fire together
+   * @param {Array<string>} transitionIds - Array of transition IDs to fire
+   * @returns {boolean} - True if at least one transition was successfully fired
+   */
+  fireTransitionsSynchronously(transitionIds) {
+    // Filter to only enabled transitions
+    const enabledTransitions = transitionIds.filter(id => this.isTransitionEnabled(id));
+    
+    if (enabledTransitions.length === 0) {
+      return false;
+    }
+
+    // Resolve conflicts - randomly select among transitions with same priority/weight
+    const transitionsToFire = this.resolveConflicts(enabledTransitions);
+
+    if (transitionsToFire.length === 0) {
+      return false;
+    }
+
+    // Phase 1: Collect all arc operations (token consumption and production)
+    const tokenDeltas = new Map(); // placeId -> delta (positive for production, negative for consumption)
+
+    for (const transitionId of transitionsToFire) {
+      const incomingArcs = Array.from(this.arcs.values())
+        .filter(arc => arc.target === transitionId);
+      const outgoingArcs = Array.from(this.arcs.values())
+        .filter(arc => arc.source === transitionId);
+
+      // Handle incoming arcs (token consumption)
+      for (const arc of incomingArcs) {
+        const place = this.places.get(arc.source);
+        if (!place) continue;
+
+        if (arc.type === "regular") {
+          const currentDelta = tokenDeltas.get(arc.source) || 0;
+          tokenDeltas.set(arc.source, currentDelta - arc.weight);
+        } else if (arc.type === "reset") {
+          // Reset arcs set tokens to 0 (overrides any delta)
+          tokenDeltas.set(arc.source, -place.tokens);
+        }
+      }
+
+      // Handle outgoing arcs (token production)
+      for (const arc of outgoingArcs) {
+        const place = this.places.get(arc.target);
+        if (!place) continue;
+
+        const currentDelta = tokenDeltas.get(arc.target) || 0;
+        tokenDeltas.set(arc.target, currentDelta + arc.weight);
+      }
+    }
+
+    // Phase 2: Apply all token changes atomically
+    for (const [placeId, delta] of tokenDeltas) {
+      const place = this.places.get(placeId);
+      if (!place) continue;
+
+      place.tokens += delta;
+      // Ensure tokens don't go negative (safety check)
+      if (place.tokens < 0) place.tokens = 0;
+      // Ensure we don't exceed capacity
+      if (place.capacity !== null && place.tokens > place.capacity) {
+        place.tokens = place.capacity;
+      }
+    }
+
+    return true;
+  }
+
 
   getReachabilityGraph() {
 
@@ -324,20 +511,36 @@ class PetriNet {
   }
 
 
+  /**
+   * Escapes XML special characters to prevent breaking XML structure
+   * @param {string} str - The string to escape
+   * @returns {string} The escaped string
+   * @private
+   */
+  escapeXML(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
   toPNML() {
     let pnml = `<?xml version="1.0" encoding="UTF-8"?>
   <pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
-    <net id="${this.id}" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <net id="${this.escapeXML(this.id)}" type="http://www.pnml.org/version-2009/grammar/ptnet">
       <n>
-        <text>${this.name}</text>
+        <text>${this.escapeXML(this.name)}</text>
       </n>`;
 
 
     for (const [id, place] of this.places) {
       pnml += `
-      <place id="${id}">
+      <place id="${this.escapeXML(id)}">
         <n>
-          <text>${place.label}</text>
+          <text>${this.escapeXML(place.label)}</text>
         </n>
         <initialMarking>
           <text>${place.tokens}</text>
@@ -351,9 +554,9 @@ class PetriNet {
 
     for (const [id, transition] of this.transitions) {
       pnml += `
-      <transition id="${id}">
+      <transition id="${this.escapeXML(id)}">
         <n>
-          <text>${transition.label}</text>
+          <text>${this.escapeXML(transition.label)}</text>
         </n>
         <graphics>
           <position x="${transition.position.x}" y="${transition.position.y}"/>
@@ -364,9 +567,9 @@ class PetriNet {
 
     for (const [id, arc] of this.arcs) {
       pnml += `
-      <arc id="${id}" source="${arc.source}" target="${arc.target}">
+      <arc id="${this.escapeXML(id)}" source="${this.escapeXML(arc.source)}" target="${this.escapeXML(arc.target)}">
         <inscription>
-          <text>${arc.weight}</text>
+          <text>${this.escapeXML(arc.weight)}</text>
         </inscription>`;
 
       if (arc.points.length > 0) {
@@ -2285,7 +2488,7 @@ class PetriNetAPI {
     do {
       firedAny = false;
 
-
+      // Update enabled transitions for the current marking
       this.petriNet.updateEnabledTransitions();
       const enabledTransitions = [];
 
@@ -2295,16 +2498,9 @@ class PetriNetAPI {
         }
       }
 
-
-      enabledTransitions.sort((a, b) => {
-        const transA = this.petriNet.transitions.get(a);
-        const transB = this.petriNet.transitions.get(b);
-        return (transB?.priority || 0) - (transA?.priority || 0);
-      });
-
-
+      // Fire all enabled transitions simultaneously (synchronous step semantics)
       if (enabledTransitions.length > 0) {
-        firedAny = this.petriNet.fireTransition(enabledTransitions[0]);
+        firedAny = this.petriNet.fireTransitionsSynchronously(enabledTransitions);
         if (firedAny) steps++;
       }
     } while (firedAny && steps < maxSteps);

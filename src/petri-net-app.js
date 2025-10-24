@@ -4,7 +4,7 @@
  * This file contains the implementation of a web application that uses the Petri Net Editor library.
  * It demonstrates how to create, edit, simulate, and analyze Petri nets.
  */
-import { PetriNetAPI } from './src/petri-net-simulator.js';
+import { PetriNetAPI } from './petri-net-simulator.js';
 
 class PetriNetApp {
   /**
@@ -983,7 +983,8 @@ initEventHandlers() {
   }
 
   /**
-   * Steps the simulation by firing one enabled transition (ASYNC)
+   * Steps the simulation by firing all enabled transitions simultaneously (ASYNC)
+   * Uses synchronous step semantics with conflict resolution
    */
   async stepSimulation() {
     const enabledTransitions = this.api.getEnabledTransitions();
@@ -993,14 +994,22 @@ initEventHandlers() {
       return;
     }
 
-    // Sort by priority
-    enabledTransitions.sort((a, b) => {
-      const transA = this.api.petriNet.transitions.get(a);
-      const transB = this.api.petriNet.transitions.get(b);
-      return (transB?.priority || 0) - (transA?.priority || 0);
-    });
-
-    await this.api.fireTransition(enabledTransitions[0]);
+    // Fire all enabled transitions simultaneously using synchronous step semantics
+    // This includes automatic conflict resolution with randomization
+    if (typeof this.api.petriNet.fireTransitionsSynchronously === 'function') {
+      await this.api.petriNet.fireTransitionsSynchronously(enabledTransitions);
+    } else {
+      // Fallback for non-DPN petri nets - call synchronous method directly
+      this.api.petriNet.fireTransitionsSynchronously(enabledTransitions);
+    }
+    
+    // Update enabled transitions after firing
+    this.api.petriNet.updateEnabledTransitions();
+    
+    // Force a render update
+    if (this.api.editor) {
+      this.api.editor.render();
+    }
     
     this.updateTokensDisplay();
     this.updateSelectedElementProperties();
