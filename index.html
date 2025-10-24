@@ -5,7 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>YAPNE - Yet Another Petri Net Editor</title>
+    <title>YAPNE - Yet Another Petri Net Editor - Accessible Petri Net Editor</title>
+    <meta name="description" content="WCAG 2.0 AA compliant Petri Net Editor with full keyboard navigation and screen reader support">
     
     <!-- Cross-Origin Isolation Service Worker -->
     <script src="/YAPNE-Yet-Another-Petri-Net-Editor/coi-serviceworker.js"></script>
@@ -14,6 +15,7 @@
     <link rel="stylesheet" href="styles/event-log.css">
     <link rel="stylesheet" href="styles/dpn-styles.css">
     <link rel="stylesheet" href="styles/pnml-importer.css">
+    <link rel="stylesheet" href="styles/accessibility.css">
 
     <!-- Polyfills for Z3 and Node.js compatibility -->
     <script>
@@ -350,27 +352,64 @@
             <div class="canvas-container">
                 <div class="vertical-toolbar">
                     <div class="toolbar-group vertical">
-                        <button id="btn-select" class="active" title="Select tool - Hold Shift while selected element to create connected elements">✓</button>
-                        <button id="btn-add-place" title="Add place">○</button>
-                        <button id="btn-add-transition" title="Add transition">□</button>
-                        <button id="btn-add-arc" title="Add arc - Hotkey: Space">→</button>
+                        <button id="btn-select" class="active" 
+                                title="Select tool - Hold Shift while selected element to create connected elements"
+                                aria-label="Select tool"
+                                data-keyboard-hint="Alt+S">✓</button>
+                        <button id="btn-add-place" 
+                                title="Add place"
+                                aria-label="Add place to canvas"
+                                data-keyboard-hint="Alt+P">○</button>
+                        <button id="btn-add-transition" 
+                                title="Add transition"
+                                aria-label="Add transition to canvas"
+                                data-keyboard-hint="Alt+T">□</button>
+                        <button id="btn-add-arc" 
+                                title="Add arc - Hotkey: Space"
+                                aria-label="Add arc between elements"
+                                data-keyboard-hint="Alt+A / Space">→</button>
                         <hr>
-                        <button id="btn-delete" class="danger" title="Delete selected element">🗑️</button>
-                        <button id="btn-clear" class="danger" title="Clear canvas">🧹</button>
+                        <button id="btn-delete" class="danger" 
+                                title="Delete selected element"
+                                aria-label="Delete selected element"
+                                data-keyboard-hint="Delete">🗑️</button>
+                        <button id="btn-clear" class="danger" 
+                                title="Clear canvas"
+                                aria-label="Clear entire canvas">🧹</button>
                         <hr>
-                        <button id="btn-auto-layout" class="blue" title="Auto-Layout">🪄</button>
-                        <button id="btn-grid" title="Toggle snap to grid">📏</button>
+                        <button id="btn-auto-layout" class="blue" 
+                                title="Auto-Layout"
+                                aria-label="Automatically arrange elements">🪄</button>
+                        <button id="btn-grid" 
+                                title="Toggle snap to grid"
+                                aria-label="Toggle snap to grid">📏</button>
                     </div>
                 </div>
                 
                 <!-- New Zoom Controls on Canvas -->
-                <div class="zoom-controls">
-                    <button id="btn-zoom-in" title="Zoom In">+</button>
-                    <span id="zoom-display">100%</span>
-                    <button id="btn-zoom-out" title="Zoom Out">-</button>
-                    <button id="btn-reset-view" title="Reset View">↺</button>
-                    <button id="btn-fullscreen" title="Toggle Full Screen">⛶</button>
-                    <button id="btn-fit-to-canvas" title="Fit to Canvas">⊡</button>
+                <div class="zoom-controls" role="toolbar" aria-label="Zoom and view controls">
+                    <button id="btn-zoom-in" 
+                            title="Zoom In"
+                            aria-label="Zoom in"
+                            data-keyboard-hint="Ctrl/Cmd +">+</button>
+                    <span id="zoom-display" 
+                          role="status" 
+                          aria-label="Current zoom level"
+                          aria-live="polite">100%</span>
+                    <button id="btn-zoom-out" 
+                            title="Zoom Out"
+                            aria-label="Zoom out"
+                            data-keyboard-hint="Ctrl/Cmd -">-</button>
+                    <button id="btn-reset-view" 
+                            title="Reset View"
+                            aria-label="Reset view to default"
+                            data-keyboard-hint="Ctrl/Cmd 0">↺</button>
+                    <button id="btn-fullscreen" 
+                            title="Toggle Full Screen"
+                            aria-label="Toggle fullscreen mode">⛶</button>
+                    <button id="btn-fit-to-canvas" 
+                            title="Fit to Canvas"
+                            aria-label="Fit network to canvas">⊡</button>
                 </div>
                 
                 <!-- Pan instructions overlay - will be updated with JS -->
@@ -437,20 +476,25 @@
                             <div class="section-header">
                                 <div class="section-title">
                                     <span class="section-icon">▶️</span>
-                                    <h3>Controls</h3>
+                                    <h3>Simulation</h3>
                                 </div>
                                 <button class="section-toggle">▼</button>
                             </div>
                             <div class="section-content">
                                 <div class="button-group">
-                                    <button id="btn-step" class="success" title="Fire a single transition">Step</button>
-                                    <button id="btn-auto-run" class="success" title="Auto-fire transitions">Auto Run</button>
-                                    <button id="btn-reset" title="Reset simulation to initial state">Reset</button>
+                                    <button id="btn-step" class="success" 
+                                            title="Fire a single transition"
+                                            aria-label="Execute one simulation step"
+                                            data-keyboard-hint="Ctrl/Cmd R">Step</button>
+                                    <button id="btn-auto-run" class="success" 
+                                            title="Auto-fire transitions"
+                                            aria-label="Start automatic simulation">Auto Run</button>
+                                    <button id="btn-reset" 
+                                            title="Reset simulation to initial state"
+                                            aria-label="Reset simulation to initial state">Reset</button>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <!-- Token Marking Section -->
+                        </div>                        <!-- Token Marking Section -->
                         <div id="tokens-section" class="sidebar-section">
                             <div class="section-header">
                                 <div class="section-title">
@@ -832,59 +876,6 @@
         }
     </script>
 
-  <!-- <script type="module">      
-        import { init } from 'z3-solver';
-        function getMethods(obj) {
-        var result = [];
-        for (var id in obj) {
-            try {
-            if (typeof(obj[id]) == "function") {
-                result.push(id + ": " + obj[id].toString());
-            }
-            } catch (err) {
-            result.push(id + ": inaccessible");
-            }
-        }
-        return result;
-        }
-
-        let _ctx = null;
-        let _z3 = null;
-
-        const { Context, Z3 } = await init();
-
-        _ctx = new Context('main2');
-        _z3 = Z3;
-        // console.log(`Z3 Context created: ${Object.keys(_ctx)} `);
-        let expression = "(assert (and (= org1 0) (= org2 0) (= statusLedig false) (= valueHistory false)))"
-        // console.log(getMethods(_z3));
-
-        let smt_template = `
-        (set-logic QF_LIA)                ; quantifier­free linear integer arithmetic + Bool
-        (declare-fun org1 () Int)
-        (declare-fun org2 () Int)
-        (declare-fun statusLedig () Bool)
-        (declare-fun valueHistory () Bool)
-
-        (assert
-        (and
-            (= org1 0)
-            (= org2 0)
-            (= statusLedig false)
-            (= valueHistory false)))
-        (check-sat)
-        `
-
-
-        const solver = new _ctx.Solver();
-
-        const ast   = _ctx.ast_from_string(smt_template);
-        console.log(`Z3 AST created: ${ast}`);
-        solver.add(ast);
-
-        const res = await solver.check();
-        console.log(`Z3 Solver check result: ${res}`);
-    </script> -->
 
     <script type="module" src="app.js"></script>
 
@@ -893,6 +884,22 @@
     
     <script type="module" src="src/extensions/variable-tracking.js"></script>
     <script type="module" src="src/extensions/pnml-importer.js"></script>
+    
+    <!-- Accessibility Features -->
+    <script type="module">
+        import { initializeAccessibility } from './src/accessibility/accessibility-integration.js';
+        
+        // Wait for app to be ready
+        window.addEventListener('load', () => {
+            // Give the app time to initialize
+            setTimeout(() => {
+                if (window.petriApp) {
+                    initializeAccessibility(window.petriApp);
+                    console.log('✅ WCAG 2.0 Accessibility Features Enabled');
+                }
+            }, 500);
+        });
+    </script>
 
 </body>
 </html>

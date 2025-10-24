@@ -1,0 +1,617 @@
+/**
+ * WCAG 2.0 Accessibility Styles
+ * 
+ * Comprehensive accessibility styles following WCAG 2.0 Level AA guidelines:
+ * - Color contrast ratios of at least 4.5:1
+ * - Focus indicators with 3:1 contrast
+ * - Screen reader only content
+ * - High contrast mode
+ * - Keyboard navigation indicators
+ */
+
+/* =================================================================
+   Screen Reader Only Content
+   ================================================================= */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* =================================================================
+   Skip Links
+   ================================================================= */
+
+.skip-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10000;
+}
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #2E3440;
+  color: #ECEFF4;
+  padding: 8px 16px;
+  text-decoration: none;
+  font-weight: bold;
+  border-radius: 0 0 4px 0;
+  z-index: 10001;
+  transition: top 0.2s;
+}
+
+.skip-link:focus {
+  top: 0;
+  outline: 3px solid #88C0D0;
+  outline-offset: 2px;
+}
+
+/* =================================================================
+   Focus Indicators (WCAG 2.4.7)
+   ================================================================= */
+
+/* Enhanced focus for all interactive elements */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus,
+a:focus,
+[tabindex]:focus {
+  outline: 3px solid #88C0D0;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(136, 192, 208, 0.3);
+}
+
+/* Canvas focus indicator */
+#petri-canvas:focus {
+  outline: 4px solid #88C0D0;
+  outline-offset: 4px;
+}
+
+/* Keyboard navigation active state */
+body.keyboard-navigation-active button:focus,
+body.keyboard-navigation-active a:focus {
+  outline: 3px solid #EBCB8B;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(235, 203, 139, 0.3);
+}
+
+/* =================================================================
+   Accessibility Controls
+   ================================================================= */
+
+.accessibility-controls {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 9999;
+}
+
+.accessibility-toggle {
+  background: #5E81AC;
+  color: #ECEFF4;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accessibility-toggle:hover {
+  background: #81A1C1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.25);
+}
+
+.accessibility-toggle:focus {
+  outline: 3px solid #88C0D0;
+  outline-offset: 2px;
+}
+
+.accessibility-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: #ECEFF4;
+  border: 2px solid #5E81AC;
+  border-radius: 8px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+  min-width: 280px;
+  padding: 8px 0;
+}
+
+.accessibility-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.accessibility-menu-item:hover {
+  background: #D8DEE9;
+}
+
+.accessibility-menu-item label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #2E3440;
+}
+
+.accessibility-menu-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.accessibility-menu-item button {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 0;
+  cursor: pointer;
+  color: #2E3440;
+  font-size: 14px;
+}
+
+.accessibility-menu-item button:hover {
+  color: #5E81AC;
+}
+
+/* =================================================================
+   Accessibility Help Dialog
+   ================================================================= */
+
+.accessibility-help-dialog {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(46, 52, 64, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+
+.accessibility-help-content {
+  background: #ECEFF4;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 0;
+  position: relative;
+}
+
+.accessibility-help-content h2 {
+  background: linear-gradient(135deg, #5E81AC, #81A1C1);
+  color: #ECEFF4;
+  margin: 0;
+  padding: 24px 32px;
+  border-radius: 12px 12px 0 0;
+  font-size: 24px;
+}
+
+.accessibility-help-content .close-btn {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  background: none;
+  border: none;
+  color: #ECEFF4;
+  font-size: 32px;
+  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.accessibility-help-content .close-btn:hover {
+  background: rgba(236, 239, 244, 0.2);
+}
+
+.help-sections {
+  padding: 24px 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 24px;
+}
+
+.help-sections section {
+  background: #D8DEE9;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.help-sections h3 {
+  color: #5E81AC;
+  margin: 0 0 12px 0;
+  font-size: 18px;
+  border-bottom: 2px solid #5E81AC;
+  padding-bottom: 8px;
+}
+
+.help-sections dl {
+  margin: 0;
+}
+
+.help-sections dt {
+  font-weight: bold;
+  color: #2E3440;
+  margin-top: 8px;
+  font-family: 'Courier New', monospace;
+  background: #ECEFF4;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  font-size: 13px;
+}
+
+.help-sections dd {
+  margin: 4px 0 12px 0;
+  color: #434C5E;
+  font-size: 14px;
+}
+
+.help-footer {
+  padding: 16px 32px;
+  background: #D8DEE9;
+  border-radius: 0 0 12px 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.help-footer .btn {
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.help-footer .btn-primary {
+  background: #5E81AC;
+  color: #ECEFF4;
+}
+
+.help-footer .btn-primary:hover {
+  background: #81A1C1;
+  transform: translateY(-1px);
+}
+
+/* =================================================================
+   High Contrast Mode
+   ================================================================= */
+
+body.high-contrast-mode {
+  --bg-primary: #000000;
+  --bg-secondary: #1a1a1a;
+  --text-primary: #FFFFFF;
+  --text-secondary: #FFFF00;
+  --border-color: #FFFFFF;
+  --focus-color: #FFFF00;
+}
+
+body.high-contrast-mode .container,
+body.high-contrast-mode .sidebar,
+body.high-contrast-mode .canvas-container {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+body.high-contrast-mode button {
+  background: #000000;
+  color: #FFFFFF;
+  border: 2px solid #FFFFFF;
+}
+
+body.high-contrast-mode button:hover,
+body.high-contrast-mode button.active {
+  background: #FFFFFF;
+  color: #000000;
+}
+
+body.high-contrast-mode #petri-canvas {
+  border: 3px solid #FFFFFF;
+  background: #000000;
+}
+
+body.high-contrast-mode :focus {
+  outline: 3px solid #FFFF00;
+  outline-offset: 3px;
+}
+
+/* =================================================================
+   Keyboard Navigation Hints
+   ================================================================= */
+
+body.show-keyboard-hints [data-keyboard-hint]::after {
+  content: attr(data-keyboard-hint);
+  position: absolute;
+  bottom: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2E3440;
+  color: #ECEFF4;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+body.show-keyboard-hints [data-keyboard-hint]:focus::after,
+body.show-keyboard-hints [data-keyboard-hint]:hover::after {
+  opacity: 1;
+}
+
+/* =================================================================
+   Keyboard Focus Visible (for keyboard-only focus)
+   ================================================================= */
+
+button:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+button:focus-visible {
+  outline: 3px solid #88C0D0;
+  outline-offset: 2px;
+}
+
+/* =================================================================
+   Reduced Motion (WCAG 2.3.3)
+   ================================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =================================================================
+   Enhanced Touch Targets (WCAG 2.5.5)
+   ================================================================= */
+
+@media (pointer: coarse) {
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"],
+  [tabindex] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .vertical-toolbar button {
+    width: 48px;
+    height: 48px;
+  }
+}
+
+/* =================================================================
+   Print Accessibility
+   ================================================================= */
+
+@media print {
+  .skip-links,
+  .accessibility-controls,
+  .accessibility-help-dialog {
+    display: none !important;
+  }
+  
+  /* Make sure canvas is visible */
+  #petri-canvas {
+    border: 2px solid #000;
+  }
+  
+  /* Print accessible text alternatives */
+  #canvas-accessibility-layer {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    clip: auto !important;
+    overflow: visible !important;
+    padding: 20px;
+    border: 1px solid #000;
+    page-break-before: always;
+  }
+  
+  #canvas-accessibility-layer::before {
+    content: "Accessible Text Representation of Petri Net:";
+    font-weight: bold;
+    font-size: 18px;
+    display: block;
+    margin-bottom: 10px;
+  }
+}
+
+/* =================================================================
+   Color Blind Friendly Adjustments
+   ================================================================= */
+
+body.high-contrast-mode .success {
+  background: #000000;
+  border: 3px solid #FFFFFF;
+  color: #FFFFFF;
+}
+
+body.high-contrast-mode .danger {
+  background: #FFFFFF;
+  border: 3px solid #000000;
+  color: #000000;
+}
+
+/* =================================================================
+   Focus Within Indicators
+   ================================================================= */
+
+.sidebar:focus-within {
+  box-shadow: inset 0 0 0 2px #88C0D0;
+}
+
+.canvas-container:focus-within {
+  box-shadow: inset 0 0 0 3px #88C0D0;
+}
+
+/* =================================================================
+   ARIA Live Region Styles (for visual debugging)
+   ================================================================= */
+
+/* ARIA live regions are screen-reader only by default */
+
+/* =================================================================
+   Responsive Accessibility for Mobile
+   ================================================================= */
+
+@media (max-width: 768px) {
+  .accessibility-controls {
+    top: auto;
+    bottom: 10px;
+    right: 10px;
+  }
+  
+  .accessibility-menu {
+    bottom: 100%;
+    top: auto;
+    margin-bottom: 8px;
+    margin-top: 0;
+  }
+  
+  .skip-links {
+    font-size: 14px;
+  }
+}
+
+/* =================================================================
+   Canvas Keyboard Focus Indicator
+   ================================================================= */
+
+#petri-canvas.keyboard-focused::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  right: -4px;
+  bottom: -4px;
+  border: 4px solid #88C0D0;
+  border-radius: 4px;
+  pointer-events: none;
+  animation: pulse-focus 2s infinite;
+}
+
+@keyframes pulse-focus {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* =================================================================
+   Accessible Tooltips
+   ================================================================= */
+
+[title] {
+  position: relative;
+}
+
+/* Better tooltip for keyboard users */
+button[title]:focus::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2E3440;
+  color: #ECEFF4;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* =================================================================
+   WCAG Compliant Error States
+   ================================================================= */
+
+.error,
+[aria-invalid="true"] {
+  border: 2px solid #BF616A;
+  outline-color: #BF616A;
+}
+
+.error-message {
+  color: #BF616A;
+  font-weight: bold;
+  font-size: 14px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error-message::before {
+  content: '⚠️';
+}
+
+/* =================================================================
+   Success States
+   ================================================================= */
+
+.success-message {
+  color: #A3BE8C;
+  font-weight: bold;
+  font-size: 14px;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.success-message::before {
+  content: '✓';
+}

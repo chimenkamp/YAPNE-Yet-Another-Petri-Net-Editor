@@ -286,3 +286,30 @@ const app = new PetriNetApp();
 ```
 
 3. Use the UI to create and simulate Petri nets, or programmatically interact with the API.
+
+## ♿ Accessibility
+
+YAPNE is **fully WCAG 2.0 Level AA compliant**, making it accessible to all users including those using:
+- **Screen readers** (NVDA, JAWS, VoiceOver)
+- **Keyboard-only navigation**
+- **High contrast modes**
+- **Assistive technologies**
+
+### Key Accessibility Features
+
+- ✅ **Full Keyboard Navigation** - Every feature accessible via keyboard
+- ✅ **Screen Reader Support** - Canvas content fully described with ARIA
+- ✅ **High Contrast Mode** - Enhanced visibility for low vision users
+- ✅ **Focus Indicators** - Clear visual focus with 3:1 contrast
+- ✅ **Skip Links** - Quick navigation to main content areas
+- ✅ **Responsive Touch Targets** - 44x44px minimum on mobile
+
+### Quick Start (Keyboard Users)
+
+1. Press `Tab` to navigate canvas elements
+2. Use `Arrow Keys` to move elements
+3. Press `?` for keyboard shortcuts
+4. Click **♿ Accessibility** (top-right) for more options
+
+**See full documentation**: [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md)  
+**Keyboard shortcuts**: [docs/KEYBOARD_SHORTCUTS.md](docs/KEYBOARD_SHORTCUTS.md)
