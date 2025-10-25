@@ -1,34 +1,102 @@
 [
-
     {
-        "name": "DPN: (P3) Violation Deadlock",
-        "description": "Test Soundness of a Data Petri Net with guards and data variables",
+        "name": "=== SOUNDNESS VERIFICATION TEST SUITE ===",
+        "description": "Comprehensive test cases for Suvorov-Lomazova soundness verification",
+        "path": ""
+    },
+    {
+        "name": "✓ SOUND: Simple Workflow",
+        "description": "Basic sound workflow (Start → Task → End). Passes all properties P1, P2, P3.",
+        "path": "examples/soundness-test-simple-sound.json"
+    },
+    {
+        "name": "✓ SOUND: Sequential Workflow",
+        "description": "Sequential workflow with data variables. Sound - passes P1, P2, P3.",
+        "path": "examples/soundness-test-sequence-sound.json"
+    },
+    {
+        "name": "✓ SOUND: Choice Workflow",
+        "description": "Choice workflow with proper guards. Both branches lead to end. Sound - passes P1, P2, P3.",
+        "path": "examples/soundness-test-choice-sound.json"
+    },
+    {
+        "name": "✓ SOUND: Loop Workflow",
+        "description": "Workflow with bounded loop (counter < 3). Sound - passes P1, P2, P3.",
+        "path": "examples/soundness-test-loop-sound.json"
+    },
+    {
+        "name": "✓ SOUND: Parallel Workflow",
+        "description": "Parallel workflow with AND-split/join. Sound - passes P1, P2, P3.",
+        "path": "examples/soundness-test-parallel-sound.json"
+    },
+    {
+        "name": "✗ UNSOUND: Violation - Deadlock",
+        "description": "Violates P1 (Deadlock Freedom): One branch leads to deadlock with no path to final marking.",
+        "path": "examples/soundness-test-p1-violation-deadlock.json"
+    },
+    {
+        "name": "✗ UNSOUND: Violation - No Final Reachable",
+        "description": "Violates P1 (Deadlock Freedom): Final state unreachable due to impossible guard (x > 100 but x = 10).",
+        "path": "examples/soundness-test-p1-violation-no-final-reachable.json"
+    },
+    {
+        "name": "✗ UNSOUND: Violation - Overfinal Marking",
+        "description": "Violates P2 (No Overfinal Markings): Reachable state has 2 tokens in end place instead of 1.",
+        "path": "examples/soundness-test-p2-violation-overfinal.json"
+    },
+    {
+        "name": "✗ UNSOUND: Violation - Extra Tokens",
+        "description": "Violates P2 (No Overfinal Markings): Transition produces 2 tokens but final marking expects 1.",
+        "path": "examples/soundness-test-p2-violation-extra-tokens.json"
+    },
+    {
+        "name": "✗ UNSOUND: Violation - Dead Transition",
+        "description": "Violates P3 (No Dead Transitions): Transition never fires due to conflicting data constraint (x == 5 but x = 10).",
+        "path": "examples/soundness-test-p3-violation-dead-transition.json"
+    },
+    {
+        "name": "✗ UNSOUND: Violation - Unreachable Transition",
+        "description": "Violates P3 (No Dead Transitions): Transition is structurally unreachable (no incoming arcs).",
+        "path": "examples/soundness-test-p3-violation-unreachable-transition.json"
+    },
+    {
+        "name": "✗ UNSOUND: P1+P3 Multiple Violations",
+        "description": "Violates both P1 (Deadlock) and P3 (Dead Transition): Multiple soundness property violations.",
+        "path": "examples/soundness-test-p1-p3-violation-multiple.json"
+    },
+    {
+        "name": "=== ORIGINAL EXAMPLES ===",
+        "description": "Original test cases from the repository",
+        "path": ""
+    },
+    {
+        "name": "DPN: (P1) Violation Deadlock",
+        "description": "Original test: Soundness violation - deadlock scenario",
         "path": "examples/p1_violation_deadlock.json"
     },
     {
-        "name": "DPN: (P1) Overfinal Marking",
-        "description": "Test Soundness of a Data Petri Net with guards and data variables",
+        "name": "DPN: (P2) Overfinal Marking",
+        "description": "Original test: Soundness violation - overfinal marking",
         "path": "examples/p2_violation_overfinal_marking.json"
     },
     {
-        "name": "DPN: (P1) Dead Transition",
-        "description": "Test Soundness of a Data Petri Net with guards and data variables",
+        "name": "DPN: (P3) Dead Transition",
+        "description": "Original test: Soundness violation - dead transition",
         "path": "examples/p3_violation_dead_transition.json"
     },
     {
         "name": "DPN: Soundness Control Flow with Guards",
-        "description": "Test Soundness of a Data Petri Net with guards and data variables",
+        "description": "Original test: Soundness verification with guards and data variables",
         "path": "examples/soundness_proba_CF_GUARDS.json"
     },
     {
         "name": "DPN: Digital Whiteboard - Discharge",
-        "description": "",
+        "description": "Real-world example: Digital transfer discharge process",
         "path": "examples/Digital transfer: Discharge.json"
     },
     {
         "name": "DPN: Digital Whiteboard - Transfer",
-        "description": "",
+        "description": "Real-world example: Digital whiteboard transfer process",
         "path": "examples/Digital whiteboard: Transfer.json"
     }
-
 ]
