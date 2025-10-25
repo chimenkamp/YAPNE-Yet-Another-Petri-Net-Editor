@@ -355,7 +355,7 @@ const Z3Solver = {
       declsNeeded.push([tok, sort]);
     }
 
-    console.log(`[isSatisfiable] Checking "${body.substring(0, 50)}...":`);
+    console.log(`[isSatisfiable] Checking "${body.substring(0, 500)}...":`);
     console.log(`  Variables: ${declsNeeded.map(([n, s]) => `${n}:${s}`).join(", ")}`);
 
     try {
@@ -414,7 +414,7 @@ const Z3Solver = {
       console.log(`[isSatisfiable] Asserted ${assertedCount} out of ${n} nodes`);
 
       const res = await _z3.solver_check(_context, solver);
-      console.log(`[isSatisfiable] Z3 result for "${body.substring(0, 50)}...": ${res} (1=SAT, 0=UNSAT, -1=UNDEF)`);
+      console.log(`[isSatisfiable] Z3 result for "${body.substring(0, 500)}...": ${res} (1=SAT, 0=UNSAT, -1=UNDEF)`);
       
       // Only get model if SAT
       if (res === 1) {
@@ -2195,7 +2195,8 @@ async computeNewFormula(stateFormula, transition, dpn) {
       .replace(/\bOR\b/gi, "or")
       .replace(/\bNOT\b/gi, "not")
       .replace(/\|\|/g, "or")
-      .replace(/&&/g, "and");
+      .replace(/&&/g, "and")
+      .replace(/==/g, "=");
 
     const splitTop = (s, op) => {
       const parts = [];
@@ -2246,6 +2247,55 @@ async computeNewFormula(stateFormula, transition, dpn) {
           ? `(distinct ${L} ${R})`
           : `(${op} ${L} ${R})`;
       }
+      
+      // Handle arithmetic expressions with proper parenthesis handling
+      const parseArithmetic = (expr) => {
+        // Helper to extract balanced tokens
+        const tokens = [];
+        let current = '';
+        let depth = 0;
+        
+        for (let i = 0; i < expr.length; i++) {
+          const ch = expr[i];
+          if (ch === '(') {
+            depth++;
+            current += ch;
+          } else if (ch === ')') {
+            depth--;
+            current += ch;
+          } else if (depth === 0 && /\s/.test(ch)) {
+            if (current) {
+              tokens.push(current);
+              current = '';
+            }
+          } else {
+            current += ch;
+          }
+        }
+        if (current) tokens.push(current);
+        
+        // Look for binary operators at depth 0
+        for (const op of ['+', '-', '*', '/']) {
+          for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] === op) {
+              const left = tokens.slice(0, i).join(' ');
+              const right = tokens.slice(i + 1).join(' ');
+              if (left && right) {
+                return `(${op} ${rec(left)} ${rec(right)})`;
+              }
+            }
+          }
+        }
+        
+        return expr;
+      };
+      
+      const arResult = parseArithmetic(t);
+      if (arResult !== t) {
+        return arResult;
+      }
+      
+      // Fallback to the old regex approach for simple cases
       const ar = t
         .replace(/([^()\s]+)\s*\+\s*([^()\s]+)/g, "(+ $1 $2)")
         .replace(/([^()\s]+)\s*-\s*([^()\s]+)/g, "(- $1 $2)")
@@ -2357,26 +2407,134 @@ async computeNewFormula(stateFormula, transition, dpn) {
     console.log(`[computeNewFormula] Written vars:`, W);
     console.log(`[computeNewFormula] Read-only vars:`, Array.from(readOnly));
     
-    // Start with postcondition in terms of next state (replace v' with v)
-    let postNext = String(transition.postcondition || "").trim() || "true";
-    console.log(`[computeNewFormula] Postcondition before substitution: "${postNext}"`);
+    // Check if postcondition references current state values (unprimed variables)
+    const postOriginal = String(transition.postcondition || "").trim();
+    const referencesCurrentState = varNames.some(v => {
+      // Check if unprimed v appears in postcondition (not as v')
+      const regex = new RegExp(`\\b${escapeReg(v)}(?!\\s*')`, 'g');
+      return regex.test(postOriginal);
+    });
     
-    for (const v of W) {
-      // Match v' (with optional whitespace before the prime) and replace with just v
-      postNext = postNext.replace(new RegExp(`\\b${escapeReg(v)}\\s*'`, "g"), v);
+    console.log(`[computeNewFormula] Postcondition references current state: ${referencesCurrentState}`);
+    
+    let writtenConstraints = [];
+    
+    if (referencesCurrentState) {
+      // Postcondition references current state (e.g., x' = x + 5)
+      // We need to substitute current state values
+      console.log(`[computeNewFormula] Postcondition: "${postOriginal}"`);
+      
+      // Extract current state values from phi_r
+      const stateStr = dropSuffixes(phi_r);
+      const stateValues = new Map();
+      
+      // Helper to extract balanced expression after variable in equality
+      const extractValue = (str, varName) => {
+        // Match (= varName VALUE) where VALUE can be nested parens
+        const pattern = `\\(=\\s+${escapeReg(varName)}\\s+`;
+        const idx = str.search(new RegExp(pattern));
+        if (idx === -1) return null;
+        
+        // Find start of value (after the variable name and whitespace)
+        const afterEq = str.indexOf(varName, idx) + varName.length;
+        let start = afterEq;
+        while (start < str.length && /\s/.test(str[start])) start++;
+        
+        // Extract value with balanced parentheses
+        let depth = 0;
+        let end = start;
+        let inValue = false;
+        
+        for (let i = start; i < str.length; i++) {
+          const ch = str[i];
+          if (ch === '(') {
+            depth++;
+            inValue = true;
+          } else if (ch === ')') {
+            if (depth === 0) {
+              // This is the closing paren of the (= ...) expression
+              end = i;
+              break;
+            }
+            depth--;
+            if (depth === 0 && inValue) {
+              end = i + 1;
+              break;
+            }
+          } else if (depth === 0 && /\s/.test(ch)) {
+            // End of atomic value
+            end = i;
+            break;
+          } else if (depth === 0 && !inValue) {
+            // Atomic value (number, variable, etc.)
+            end = i + 1;
+          }
+        }
+        
+        if (end > start) {
+          return str.substring(start, end).trim();
+        }
+        return null;
+      };
+      
+      // Try to extract simple equalities from current state
+      for (const v of varNames) {
+        const value = extractValue(stateStr, v);
+        if (value) {
+          stateValues.set(v, value);
+          console.log(`[computeNewFormula] Extracted state value: ${v} = ${value}`);
+        }
+      }
+      
+      let postNext = postOriginal;
+      
+      // Substitute unprimed variables with their current values
+      for (const v of varNames) {
+        if (stateValues.has(v)) {
+          const value = stateValues.get(v);
+          // Replace v (but not v') with its current value
+          postNext = postNext.replace(
+            new RegExp(`\\b${escapeReg(v)}(?!\\s*')`, 'g'),
+            value
+          );
+        }
+      }
+      
+      console.log(`[computeNewFormula] After value substitution: "${postNext}"`);
+      
+      // Now replace v' with v (this gives us the next state constraint)
+      for (const v of W) {
+        postNext = postNext.replace(new RegExp(`\\b${escapeReg(v)}\\s*'`, "g"), v);
+      }
+      
+      console.log(`[computeNewFormula] After v' → v: "${postNext}"`);
+      
+      postNext = toPrefix(postNext);
+      writtenConstraints = [postNext];
+    } else {
+      // Postcondition doesn't reference current state (e.g., choice' >= 0 && choice' <= 1)
+      // Just rename v' to v to get the next state constraint
+      console.log(`[computeNewFormula] Postcondition (no current state refs): "${postOriginal}"`);
+      
+      let postNext = postOriginal;
+      
+      // Replace v' with v
+      for (const v of W) {
+        postNext = postNext.replace(new RegExp(`\\b${escapeReg(v)}\\s*'`, "g"), v);
+      }
+      
+      console.log(`[computeNewFormula] After v' → v: "${postNext}"`);
+      
+      postNext = toPrefix(postNext);
+      writtenConstraints = [postNext];
     }
-    console.log(`[computeNewFormula] Postcondition after v' → v: "${postNext}"`);
     
-    postNext = toPrefix(postNext);
-    console.log(`[computeNewFormula] Postcondition after toPrefix: "${postNext}"`);
+    console.log(`[computeNewFormula] Written constraints:`, writtenConstraints);
     
     // For read-only variables, they keep their values from current state
-    // Extract constraints on read-only vars from φ_r and convert to base names
     const readOnlyParts = [];
     if (readOnly.size > 0) {
       for (const v of readOnly) {
-        // Try to extract the value of v from phi_r
-        // Look for patterns like (= v_r <value>) or (and ... (= v_r <value>) ...)
         const currentStateStr = String(phi_r);
         
         // Simple pattern match for (= v_r value)
@@ -2384,7 +2542,6 @@ async computeNewFormula(stateFormula, transition, dpn) {
         const matches = currentStateStr.match(eqPattern);
         if (matches) {
           for (const match of matches) {
-            // Replace v_r with v in the constraint
             const nextConstraint = match.replace(new RegExp(`\\b${escapeReg(v)}_r\\b`, 'g'), v);
             readOnlyParts.push(nextConstraint);
           }
@@ -2404,8 +2561,8 @@ async computeNewFormula(stateFormula, transition, dpn) {
       }
     }
     
-    // Combine postcondition with read-only constraints
-    const allParts = [postNext, ...readOnlyParts].filter(p => p && p !== "true");
+    // Combine written and read-only constraints
+    const allParts = [...writtenConstraints, ...readOnlyParts].filter(p => p && p !== "true");
     phi_next = allParts.length === 0 ? "true" :
                allParts.length === 1 ? allParts[0] :
                `(and ${allParts.join(" ")})`;
