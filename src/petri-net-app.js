@@ -23,10 +23,9 @@ class PetriNetApp {
 
 
     this.autoRunInterval = null;
-    this.autoRunDelay = 1000; // ms
+    this.autoRunDelay = 1000;
     this.gridEnabled = true;
 
-    // Add properties for simulation reset functionality
     this.initialState = null;
     this.simulationStarted = false;
 

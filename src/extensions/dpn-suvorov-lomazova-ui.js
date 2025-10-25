@@ -311,7 +311,7 @@ const Z3Solver = {
       while ((m = qre.exec(src)) !== null) {
         const blob = m[1];
         for (const mm of blob.matchAll(
-          /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+          /\(\s*([A-Za-z_]\w*)\s+[A-ZaZ_]\w*\s*\)/g
         )) {
           bound.add(mm[1]);
         }
@@ -334,7 +334,7 @@ const Z3Solver = {
     const tokens = body.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
     const bound = collectBound(body);
     const seen = new Set();
-    const decls = [];
+    const declsNeeded = []; // [name, sort] pairs
 
     for (const tok of tokens) {
       if (KEYWORDS.has(tok)) continue;
@@ -352,40 +352,89 @@ const Z3Solver = {
       } else {
         sort = "Real";
       }
-      decls.push(`(declare-const ${tok} ${sort})`);
+      declsNeeded.push([tok, sort]);
     }
 
-    const script =
-      `(set-logic ALL)\n` +
-      (decls.length ? decls.join("\n") + "\n" : "") +
-      `(assert ${body})`;
+    console.log(`[isSatisfiable] Checking "${body.substring(0, 50)}...":`);
+    console.log(`  Variables: ${declsNeeded.map(([n, s]) => `${n}:${s}`).join(", ")}`);
 
     try {
-      // Parse the script; collect asserted ASTs explicitly.
-      const astVec = _z3.parse_smtlib2_string(_context, script, [], [], [], []);
+      // Create a fresh solver
+      const solver = _z3.mk_solver(_context);
+      _z3.solver_inc_ref(_context, solver);
+      
+      // Build script with declarations and assert wrapper
+      const decls = declsNeeded.map(([name, sort]) => `(declare-const ${name} ${sort})`);
+      const script = decls.join("\n") + (decls.length ? "\n" : "") + `(assert ${body})`;
+      
+      console.log(`[isSatisfiable] Full script:\n${script}`);
+      
+      // Parse the script - parse_smtlib2_string will handle declarations
+      const astVec = _z3.parse_smtlib2_string(
+        _context, 
+        script,
+        [],  // sort_names
+        [],  // sort_symbols  
+        [],  // sorts
+        [],  // decl_names
+        [],  // decl_symbols
+        []   // decls
+      );
       const n = _z3.ast_vector_size(_context, astVec);
 
       if (n <= 0) {
-        console.warn(
-          "[isSatisfiable] Parser produced 0 assertions — returning UNSAT."
-        );
+        console.warn("[isSatisfiable] Parser produced 0 assertions — returning UNSAT.");
+        _z3.solver_dec_ref(_context, solver);
         return false;
       }
 
-      // Create a fresh solver, assert ASTs, then check.
-      const solver = _z3.mk_solver(_context);
+      console.log(`[isSatisfiable] AST vector has ${n} nodes`);
+      
+      // Assert all nodes (should all be Bool since we're parsing a formula)
+      let assertedCount = 0;
       for (let i = 0; i < n; i++) {
-        _z3.solver_assert(
-          _context,
-          solver,
-          _z3.ast_vector_get(_context, astVec, i)
-        );
+        const node = _z3.ast_vector_get(_context, astVec, i);
+        const nodeStr = _z3.ast_to_string(_context, node);
+        
+        const sort = _z3.get_sort(_context, node);
+        const sortKind = _z3.get_sort_kind(_context, sort);
+        
+        console.log(`[isSatisfiable] Node ${i}: sortKind=${sortKind}, ast="${nodeStr.substring(0, 100)}"`);
+        
+        // Z3_BOOL_SORT = 1
+        if (sortKind === 1) {
+          _z3.solver_assert(_context, solver, node);
+          assertedCount++;
+          console.log(`[isSatisfiable]   → Asserted (Bool)`);
+        } else {
+          console.log(`[isSatisfiable]   → Skipped (not Bool)`);
+        }
       }
+      
+      console.log(`[isSatisfiable] Asserted ${assertedCount} out of ${n} nodes`);
 
       const res = await _z3.solver_check(_context, solver);
+      console.log(`[isSatisfiable] Z3 result for "${body.substring(0, 50)}...": ${res} (1=SAT, 0=UNSAT, -1=UNDEF)`);
+      
+      // Only get model if SAT
+      if (res === 1) {
+        const model = _z3.solver_get_model(_context, solver);
+        const modelStr = _z3.model_to_string(_context, model);
+        console.log(`[isSatisfiable] Model: ${modelStr}`);
+      }
+      
+      // Clean up solver
+      _z3.solver_dec_ref(_context, solver);
+      
       // Map: SAT=1, UNSAT=0, UNDEF=-1 (treat UNDEF as failure -> UNSAT here).
-      if (res === 1) return true;
-      if (res === 0) return false;
+      if (res === 1) {
+        console.log(`[isSatisfiable] Formula is SAT`);
+        return true;
+      }
+      if (res === 0) {
+        console.log(`[isSatisfiable] Formula is UNSAT`);
+        return false;
+      }
       console.warn("[isSatisfiable] Z3 returned UNDEF; treating as UNSAT.");
       return false;
     } catch (e) {
@@ -481,13 +530,14 @@ const Z3Solver = {
         while ((m = qre.exec(src)) !== null) {
           const blob = m[1];
           for (const mm of blob.matchAll(
-            /\(\s*([A-Za-z_]\w*)\s+[A-Za-z_]\w*\s*\)/g
+            /\(\s*([A-Za-z_]\w*)\s+[A-ZaZ_]\w*\s*\)/g
           )) {
             bound.add(mm[1]);
           }
         }
         return bound;
       };
+
       const inferBool = (name, src) => {
         const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const ps = [
@@ -524,12 +574,13 @@ const Z3Solver = {
       }
 
       const script =
-        `(set-logic ALL)\n` +
         (decls.length ? decls.join("\n") + "\n" : "") +
         `(assert ${s})`;
 
       try {
         const solver = _z3.mk_solver(_context);
+        _z3.solver_inc_ref(_context, solver);
+        
         const astVec = _z3.parse_smtlib2_string(
           _context,
           script,
@@ -540,6 +591,7 @@ const Z3Solver = {
         );
         const n = _z3.ast_vector_size(_context, astVec);
         if (n <= 0) {
+          _z3.solver_dec_ref(_context, solver);
           return {
             isSat: false,
             model: new Map(),
@@ -548,12 +600,14 @@ const Z3Solver = {
           };
         }
 
+        // Only assert Bool formulas
         for (let i = 0; i < n; i++) {
-          _z3.solver_assert(
-            _context,
-            solver,
-            _z3.ast_vector_get(_context, astVec, i)
-          );
+          const node = _z3.ast_vector_get(_context, astVec, i);
+          const sort = _z3.get_sort(_context, node);
+          const sortKind = _z3.get_sort_kind(_context, sort);
+          if (sortKind === 1) { // Z3_BOOL_SORT
+            _z3.solver_assert(_context, solver, node);
+          }
         }
 
         const res = await _z3.solver_check(_context, solver);
@@ -569,13 +623,17 @@ const Z3Solver = {
             );
             if (m) modelMap.set(m[1], m[2].trim());
           }
+          
+          _z3.solver_dec_ref(_context, solver);
           return { isSat: true, model: modelMap, rawModel };
         }
 
         if (res === 0) {
+          _z3.solver_dec_ref(_context, solver);
           return { isSat: false, model: new Map(), rawModel: "" };
         }
 
+        _z3.solver_dec_ref(_context, solver);
         return {
           isSat: false,
           model: new Map(),
@@ -595,9 +653,12 @@ const Z3Solver = {
     // If it's a full script: we still avoid solver_from_string.
     try {
       const solver = _z3.mk_solver(_context);
+      _z3.solver_inc_ref(_context, solver);
+      
       const astVec = _z3.parse_smtlib2_string(_context, s, [], [], [], []);
       const n = _z3.ast_vector_size(_context, astVec);
       if (n <= 0) {
+        _z3.solver_dec_ref(_context, solver);
         return {
           isSat: false,
           model: new Map(),
@@ -606,12 +667,14 @@ const Z3Solver = {
         };
       }
 
+      // Only assert Bool formulas
       for (let i = 0; i < n; i++) {
-        _z3.solver_assert(
-          _context,
-          solver,
-          _z3.ast_vector_get(_context, astVec, i)
-        );
+        const node = _z3.ast_vector_get(_context, astVec, i);
+        const sort = _z3.get_sort(_context, node);
+        const sortKind = _z3.get_sort_kind(_context, sort);
+        if (sortKind === 1) { // Z3_BOOL_SORT
+          _z3.solver_assert(_context, solver, node);
+        }
       }
 
       const res = await _z3.solver_check(_context, solver);
@@ -621,17 +684,21 @@ const Z3Solver = {
         const modelMap = new Map();
         for (const line of rawModel.split(/\r?\n/)) {
           const m = line.match(
-            /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-Za-z0-9_]*\s+(.+)\)/
+            /\(define-fun\s+([A-Za-z_][A-Za-z0-9_]*)\s+\(\)\s+[A-Za-z_][A-ZaZ0-9_]*\s+(.+)\)/
           );
           if (m) modelMap.set(m[1], m[2].trim());
         }
+        
+        _z3.solver_dec_ref(_context, solver);
         return { isSat: true, model: modelMap, rawModel };
       }
 
       if (res === 0) {
+        _z3.solver_dec_ref(_context, solver);
         return { isSat: false, model: new Map(), rawModel: "" };
       }
 
+      _z3.solver_dec_ref(_context, solver);
       return {
         isSat: false,
         model: new Map(),
@@ -1258,7 +1325,8 @@ class SmtFromDpnGenerator {
 
     let res = rec(norm).replace(/\s+/g, " ").trim();
     if (isAtom(res)) return res;
-    return stripOuter(res.startsWith("(") ? res : `(${res})`);
+    // Don't strip outer parens - they're part of the SMT-LIB2 syntax
+    return res.startsWith("(") ? res : `(${res})`;
   }
 
   /**
@@ -1767,9 +1835,18 @@ class LabeledTransitionSystem {
  * DPN Refinement Engine implementing Algorithm 4 from the paper
  */
 class DPNRefinementEngine {
-  constructor(smtGenerator, z3Solver) {
+  constructor(smtGenerator, z3Solver, logStepFn = null) {
     this.smtGenerator = smtGenerator;
     this.z3Solver = z3Solver;
+    this.logStepFn = logStepFn;
+  }
+
+  logStep(name, details, extra) {
+    if (this.logStepFn) {
+      this.logStepFn(name, details, extra);
+    } else {
+      console.log(`[${name}] ${details}`, extra || "");
+    }
   }
 
   async refineDPN(dpn, maxIterations = 10) {
@@ -1949,8 +2026,14 @@ async constructLTS(dpn) {
   const maxNodes = 5000;
 
   const initM = this.getInitialMarking(dpn);
-  const initF = await this.canonicalizeFormula(this.getInitialFormula(dpn));
+  const initFRaw = this.getInitialFormula(dpn);
+  console.log(`[LTS] Raw initial formula: ${initFRaw}`);
+  console.log(`[LTS] Data variables:`, dpn.dataVariables);
+  // Don't canonicalize initial formula - it's already in good form
+  const initF = initFRaw;
   const initId = lts.addNode(initM, initF);
+
+  console.log(`[LTS] Initial node ${initId}: marking=${JSON.stringify(initM)}, formula=${initF}`);
 
   const queue = [initId];
   const processed = new Set();
@@ -1970,6 +2053,8 @@ async constructLTS(dpn) {
     if (processed.has(keyHere)) continue;
     processed.add(keyHere);
 
+    console.log(`[LTS] Processing node ${nid}`);
+
     for (const t of dpn.transitions || []) {
       const succ = await this.computeSuccessorState(
         node.marking,
@@ -1977,15 +2062,19 @@ async constructLTS(dpn) {
         t,
         dpn
       );
-      if (!succ) continue;
+      if (!succ) {
+        console.log(`[LTS] Transition ${t.id} not enabled in node ${nid}`);
+        continue;
+      }
       
       const isSat = await Z3Solver.isSatisfiable(succ.formula);
       if (!isSat) {
-        console.log(`[LTS] Transition ${t.id} filtered: unsatisfiable constraint. Pre: ${t.precondition}, Post: ${t.postcondition}`);
+        console.log(`[LTS] Transition ${t.id} filtered: unsatisfiable constraint`);
         continue;
       }
 
-      succ.formula = await this.canonicalizeFormula(succ.formula);
+      // Don't canonicalize successor formulas - it loses information
+      // succ.formula = await this.canonicalizeFormula(succ.formula);
 
       const mkey = markingKey(succ.marking);
       let targetId = null;
@@ -1999,14 +2088,18 @@ async constructLTS(dpn) {
       }
       if (!targetId) {
         targetId = lts.addNode(succ.marking, succ.formula);
+        console.log(`[LTS] Created node ${targetId} via ${t.id}: marking=${JSON.stringify(succ.marking)}, formula=${succ.formula}`);
         if (!byMarking.has(mkey)) byMarking.set(mkey, []);
         byMarking.get(mkey).push(targetId);
         queue.push(targetId);
+      } else {
+        console.log(`[LTS] Transition ${t.id} leads to existing node ${targetId}`);
       }
       lts.addEdge(nid, targetId, t.id);
     }
   }
 
+  console.log(`[LTS] Construction complete: ${lts.nodes.size} nodes, ${lts.edges.size} edges`);
   return lts;
 }
 
@@ -2084,6 +2177,11 @@ async computeNewFormula(stateFormula, transition, dpn) {
   const toPrefix = (expr) => {
     const e0 = String(expr || "").trim();
     if (!e0) return "true";
+    
+    // If already in SMT-LIB2 format (starts with parenthesis), return as-is
+    // This handles tau preconditions that are already properly formatted
+    if (e0.startsWith("(")) return e0;
+    
     if (
       /^[A-Za-z_][A-Za-z0-9_]*$/.test(e0) ||
       /^[-+]?\d+(?:\.\d+)?$/.test(e0) ||
@@ -2122,6 +2220,17 @@ async computeNewFormula(stateFormula, transition, dpn) {
     const rec = (s) => {
       const t = s.trim();
       if (!t) return "true";
+      
+      // Check if it's an atom (variable, number, or boolean)
+      if (
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(t) ||
+        /^[-+]?\d+(?:\.\d+)?$/.test(t) ||
+        t === "true" ||
+        t === "false"
+      ) {
+        return t; // Return atoms as-is without wrapping
+      }
+      
       if (t.startsWith("(") && t.endsWith(")")) return rec(t.slice(1, -1));
       const a = splitTop(t, "and");
       if (a.length > 1) return `(and ${a.map(rec).join(" ")})`;
@@ -2164,14 +2273,20 @@ async computeNewFormula(stateFormula, transition, dpn) {
   const writtenOf = (post) => {
     const set = new Set();
     const s = String(post || "");
+    console.log(`[writtenOf] Input postcondition: "${s}"`);
+    console.log(`[writtenOf] varNames:`, varNames);
     for (const v of varNames) {
-      if (
-        new RegExp(`\\b${escapeReg(v)}\\s*'\\b`).test(s) ||
-        new RegExp(`\\b${escapeReg(v)}_w\\b`).test(s)
-      ) {
+      // Match v' (with optional whitespace before the prime)
+      const primePattern = new RegExp(`\\b${escapeReg(v)}\\s*'`);
+      const wPattern = new RegExp(`\\b${escapeReg(v)}_w\\b`);
+      const hasPrime = primePattern.test(s);
+      const hasW = wPattern.test(s);
+      console.log(`[writtenOf] Variable ${v}: hasPrime=${hasPrime}, hasW=${hasW}`);
+      if (hasPrime || hasW) {
         set.add(v);
       }
     }
+    console.log(`[writtenOf] Result:`, Array.from(set));
     return set;
   };
 
@@ -2184,6 +2299,23 @@ async computeNewFormula(stateFormula, transition, dpn) {
   };
 
   const isFalse = async (f) => !(await Z3Solver.isSatisfiable(f));
+
+  // First check if precondition is compatible with current state
+  const prePrefixed = toPrefix(transition.precondition || "true");
+  const statePrefixed = toPrefix(stateFormula || "true");
+  const preCheck = `(and ${prePrefixed} ${statePrefixed})`;
+  console.log(`[computeNewFormula] Checking precondition for ${transition.id}:`);
+  console.log(`  Precondition: "${transition.precondition || "true"}" → ${prePrefixed}`);
+  console.log(`  State formula: "${stateFormula || "true"}" → ${statePrefixed}`);
+  console.log(`  Combined check: ${preCheck}`);
+  
+  const checkResult = await isFalse(preCheck);
+  console.log(`  isFalse(preCheck) = ${checkResult}`);
+  if (checkResult) {
+    console.log(`[computeNewFormula] Precondition incompatible with current state for ${transition.id}`);
+    return "false";
+  }
+  console.log(`[computeNewFormula] Precondition check passed for ${transition.id}`);
 
   const phi_r = toPrefix(mapVars(stateFormula || "true", (v) => `${v}_r`));
 
@@ -2203,29 +2335,93 @@ async computeNewFormula(stateFormula, transition, dpn) {
   const body_rw = `(and ${pre_r} ${post_rw} ${phi_r})`;
 
   const W = Array.from(writtenOf(transition.postcondition));
-  let psi_rw = body_rw;
-  if (W.length > 0) {
-    const binders = W.map((v) => `(${v}_w ${getSortOf(v)})`).join(" ");
-    psi_rw = `(exists (${binders}) ${body_rw})`;
-  }
-
-  let qe;
-  try {
-    qe = await this.eliminateQuantifiers(psi_rw);
-  } catch (_e) {
-    if (W.length === 0) {
-      qe = body_rw;
-    } else {
-      qe = `(and ${pre_r} ${phi_r})`;
+  
+  console.log(`[computeNewFormula] Written variables W:`, W);
+  console.log(`[computeNewFormula] W.length =`, W.length);
+  
+  // Compute the successor state formula
+  let phi_next;
+  
+  if (W.length === 0) {
+    console.log(`[computeNewFormula] No written vars - keeping current state formula`);
+    // No variables written: state formula unchanged (but must satisfy precondition)
+    // Just remove the _r suffixes from current state formula
+    phi_next = dropSuffixes(phi_r);
+  } else {
+    console.log(`[computeNewFormula] Variables written - computing new formula`);
+    // Some variables are written
+    // We need to: (1) apply postcondition for written vars, (2) preserve read-only vars
+    
+    const readOnly = new Set(varNames.filter(v => !W.includes(v)));
+    
+    console.log(`[computeNewFormula] Written vars:`, W);
+    console.log(`[computeNewFormula] Read-only vars:`, Array.from(readOnly));
+    
+    // Start with postcondition in terms of next state (replace v' with v)
+    let postNext = String(transition.postcondition || "").trim() || "true";
+    console.log(`[computeNewFormula] Postcondition before substitution: "${postNext}"`);
+    
+    for (const v of W) {
+      // Match v' (with optional whitespace before the prime) and replace with just v
+      postNext = postNext.replace(new RegExp(`\\b${escapeReg(v)}\\s*'`, "g"), v);
     }
+    console.log(`[computeNewFormula] Postcondition after v' → v: "${postNext}"`);
+    
+    postNext = toPrefix(postNext);
+    console.log(`[computeNewFormula] Postcondition after toPrefix: "${postNext}"`);
+    
+    // For read-only variables, they keep their values from current state
+    // Extract constraints on read-only vars from φ_r and convert to base names
+    const readOnlyParts = [];
+    if (readOnly.size > 0) {
+      for (const v of readOnly) {
+        // Try to extract the value of v from phi_r
+        // Look for patterns like (= v_r <value>) or (and ... (= v_r <value>) ...)
+        const currentStateStr = String(phi_r);
+        
+        // Simple pattern match for (= v_r value)
+        const eqPattern = new RegExp(`\\(=\\s+${escapeReg(v)}_r\\s+([^)\\s]+)\\)`, 'g');
+        const matches = currentStateStr.match(eqPattern);
+        if (matches) {
+          for (const match of matches) {
+            // Replace v_r with v in the constraint
+            const nextConstraint = match.replace(new RegExp(`\\b${escapeReg(v)}_r\\b`, 'g'), v);
+            readOnlyParts.push(nextConstraint);
+          }
+        }
+        
+        // Also check for other comparison operators
+        const compPattern = new RegExp(`\\((<=?|>=?|distinct)\\s+${escapeReg(v)}_r\\s+([^)]+)\\)`, 'g');
+        const compMatches = currentStateStr.match(compPattern);
+        if (compMatches) {
+          for (const match of compMatches) {
+            const nextConstraint = match.replace(new RegExp(`\\b${escapeReg(v)}_r\\b`, 'g'), v);
+            if (!readOnlyParts.includes(nextConstraint)) {
+              readOnlyParts.push(nextConstraint);
+            }
+          }
+        }
+      }
+    }
+    
+    // Combine postcondition with read-only constraints
+    const allParts = [postNext, ...readOnlyParts].filter(p => p && p !== "true");
+    phi_next = allParts.length === 0 ? "true" :
+               allParts.length === 1 ? allParts[0] :
+               `(and ${allParts.join(" ")})`;
   }
 
-  let phi_next = dropSuffixes(qe);
+  // Don't canonicalize - we've already built the formula correctly
+  // phi_next = await this.canonicalizeFormula(phi_next);
 
-  phi_next = await this.canonicalizeFormula(phi_next);
+  console.log(`[computeNewFormula] Transition ${transition.id}:`);
+  console.log(`  Pre: ${transition.precondition || "(none)"}`);
+  console.log(`  Post: ${transition.postcondition || "(none)"}`);
+  console.log(`  State φ: ${stateFormula || "true"}`);
+  console.log(`  Result φ': ${phi_next}`);
 
   if (await isFalse(phi_next)) {
-    console.log(`[computeNewFormula] Result is UNSAT for transition ${transition.id}: pre=${transition.precondition}, post=${transition.postcondition}`);
+    console.log(`[computeNewFormula] Result is UNSAT for transition ${transition.id}`);
     return "false";
   }
   
@@ -3095,7 +3291,8 @@ class SuvorovLomazovaVerifier {
     this.smtGenerator = new SmtFromDpnGenerator();
     this.refinementEngine = new DPNRefinementEngine(
       this.smtGenerator,
-      Z3Solver
+      Z3Solver,
+      (name, details, extra) => this.logStep(name, details, extra)
     );
     this.verificationSteps = [];
     this.startTime = 0;
@@ -3105,9 +3302,19 @@ class SuvorovLomazovaVerifier {
       // Extract final markings from the Petri net
       let markings = [];
       let tempMarking = {};
-      Array.from(net.places || []).forEach(([id, place]) => {
-        tempMarking[id] = place.finalMarking || 0;
-      });
+      
+      // Handle both Map and Array formats
+      const places = net.places instanceof Map 
+        ? Array.from(net.places.values())
+        : Array.isArray(net.places) 
+        ? net.places
+        : [];
+      
+      for (const place of places) {
+        if (place && place.id) {
+          tempMarking[place.id] = place.finalMarking || 0;
+        }
+      }
       markings.push(tempMarking);
 
       return markings;
@@ -3369,6 +3576,16 @@ checkDeadTransitions(dpn, lts) {
     };
 
     const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    
+    // Helper: convert infix expression to SMT-LIB2 format
+    const toSmtLib = (expr) => {
+      if (!expr || expr === "true" || expr === "false") return expr || "true";
+      // If already in SMT-LIB2 format (starts with '('), return as-is
+      if (expr.trim().startsWith("(")) return expr;
+      // Otherwise, use the SmtFromDpnGenerator's conversion
+      const gen = new SmtFromDpnGenerator();
+      return gen._infixToSmt(expr);
+    };
 
     for (const t of originalTransitions) {
       if (!t || typeof t.id === "undefined") continue;
@@ -3390,19 +3607,19 @@ checkDeadTransitions(dpn, lts) {
         );
       }
 
+      // Convert pre and post to SMT-LIB2 format
+      const preSmt = toSmtLib(t.precondition || "true");
+      const postSmt = toSmtLib(postBody || "true");
+
       // τ-pre := ¬∃W.( pre ∧ post[v'↦v_w] ) ; if W=∅ then τ-pre := ¬(pre ∧ post)
       let tauPre;
       if (written.size === 0) {
-        tauPre = `(not (and ${t.precondition || "true"} ${
-          postBody || "true"
-        }))`;
+        tauPre = `(not (and ${preSmt} ${postSmt}))`;
       } else {
         const binders = Array.from(written)
           .map((v) => `(${v}_w ${getSort(v)})`)
           .join(" ");
-        tauPre = `(not (exists (${binders}) (and ${t.precondition || "true"} ${
-          postBody || "true"
-        })))`;
+        tauPre = `(not (exists (${binders}) (and ${preSmt} ${postSmt})))`;
       }
 
       const tauTransition = {
@@ -3419,7 +3636,20 @@ checkDeadTransitions(dpn, lts) {
       tauDpn.transitions.push(tauTransition);
       added += 1;
 
-      // DO NOT duplicate arcs for τ: τ is a pure stutter step (no token move).
+      // For tau transitions, copy arcs to create self-loops (marking stutter)
+      // τ transitions should have the same enabling conditions as the original transition
+      // but don't change the marking (input places = output places)
+      for (const arc of (tauDpn.arcs || [])) {
+        if (arc.target === t.id || arc.source === t.id) {
+          const tauArc = {
+            ...arc,
+            id: `${arc.id}_tau_${t.id}`,
+            source: arc.source === t.id ? makeTauId(t.id) : arc.source,
+            target: arc.target === t.id ? makeTauId(t.id) : arc.target,
+          };
+          tauDpn.arcs.push(tauArc);
+        }
+      }
     }
 
     this.logStep("TauTransitions", "τ-transitions added", {
@@ -3473,6 +3703,8 @@ checkDeadTransitions(dpn, lts) {
       };
     }
 
+    console.log(`[P1 Check] LTS has ${lts.nodes.size} nodes, ${lts.edges.size} edges`);
+
     // --- 1) Identify initial node(s) ---
     const initialIds = [];
     for (const [nid, node] of lts.nodes) {
@@ -3493,11 +3725,13 @@ checkDeadTransitions(dpn, lts) {
         }
     }
     const initialNodeId = initialIds[0];
+    console.log(`[P1 Check] Initial node: ${initialNodeId}`);
 
     // --- 2) Forward Reachability (FR) with parents for witness path ---
     const parent = new Map();
     const reachableNodes = lts.getReachableNodes(initialNodeId, parent);
     const fr = new Set(reachableNodes);
+    console.log(`[P1 Check] Forward reachable nodes: ${fr.size}`);
 
     // --- 3) Final nodes in FR ---
     const finalNodeIds = [];
@@ -3505,10 +3739,18 @@ checkDeadTransitions(dpn, lts) {
       const n = lts.nodes.get(nid);
       if (n && this.isFinalMarking(n.marking)) {
         finalNodeIds.push(nid);
+        console.log(`[P1 Check] Found final node: ${nid} with marking ${JSON.stringify(n.marking)}`);
       }
     }
 
     if (finalNodeIds.length === 0) {
+      console.log(`[P1 Check] NO final nodes reachable! Expected final markings:`, this.finalMarkings);
+      // Check all reachable node markings for debugging
+      for (const nid of fr) {
+        const n = lts.nodes.get(nid);
+        console.log(`[P1 Check]   Node ${nid}: marking = ${JSON.stringify(n.marking)}, formula = ${n.formula}`);
+      }
+      
       this.logStep(
         "DeadlockFreedom",
         "No final nodes reachable from initial; P1 violated"
@@ -3538,9 +3780,12 @@ checkDeadTransitions(dpn, lts) {
       };
     }
 
+    console.log(`[P1 Check] Found ${finalNodeIds.length} final nodes in FR`);
+
     // --- 4) Backward reachability from finals (BR) ---
     const nodesThatCanReachFinal = lts.getNodesThatCanReach(finalNodeIds);
     const br = new Set(nodesThatCanReachFinal);
+    console.log(`[P1 Check] Backward reachable nodes: ${br.size}`);
 
     // --- 5) Check FR ⊆ BR ---
     const violatingNodes = [];
@@ -3597,7 +3842,46 @@ checkDeadTransitions(dpn, lts) {
   async verify(progressCallback) {
     this.startTime = Date.now();
     this.verificationSteps = [];
+    this.debugLogs = []; // Initialize debug logs array
     this.counterexampleTraces = [];
+    
+    // Intercept console.log to capture all debug output
+    const originalConsoleLog = console.log;
+    const self = this;
+    console.log = function(...args) {
+      // Call original console.log
+      originalConsoleLog.apply(console, args);
+      
+      // Extract category and message from log format like "[Category] message"
+      const firstArg = String(args[0] || '');
+      const categoryMatch = firstArg.match(/^\[([^\]]+)\]/);
+      
+      if (categoryMatch) {
+        const category = categoryMatch[1];
+        const message = firstArg.substring(categoryMatch[0].length).trim();
+        const data = args.length > 1 ? args.slice(1) : null;
+        
+        self.debugLogs.push({
+          category,
+          level: 'debug',
+          message,
+          data,
+          timestamp: Date.now() - self.startTime,
+        });
+      }
+    };
+    
+    try {
+      // Verification logic continues...
+      const result = await this._performVerification(progressCallback);
+      return result;
+    } finally {
+      // Restore original console.log
+      console.log = originalConsoleLog;
+    }
+  }
+  
+  async _performVerification(progressCallback) {
 
     const dbg = (...args) =>
       console.log(`[verify +${Date.now() - this.startTime}ms]`, ...args);
@@ -3690,7 +3974,7 @@ checkDeadTransitions(dpn, lts) {
     this.logStep("VerifyImproved", "Step 2: Preliminary LTS_N construction");
     const ltsN = await this.refinementEngine.constructLTS(dpn);
 
-    say("Running preliminary checks on LTS_N (P2, P3)...");
+    say("Running preliminary checks on LTS_N (P2 only - P3 requires refinement)...");
     const p2_pre = this.checkOverfinalMarkings(ltsN);
     if (!p2_pre.satisfied) {
       return this.createResult(false, [
@@ -3698,12 +3982,9 @@ checkDeadTransitions(dpn, lts) {
       ]);
     }
 
-    const p3_pre = this.checkDeadTransitions(dpn, ltsN);
-    if (!p3_pre.satisfied) {
-      return this.createResult(false, [
-        { ...p3_pre, name: p3_pre.name + " - Preliminary Check" },
-      ]);
-    }
+    // NOTE: P3 (dead transitions) is NOT checked here because it requires refinement.
+    // The original transitions might not fire in LTS_N due to unrefined guards.
+    // P3 will be checked after refinement on the final LTS_{N_R^τ}.
 
     // 3) Refinement → N_R
     say("Refining DPN (Algorithm 4)...");
@@ -3746,6 +4027,15 @@ checkDeadTransitions(dpn, lts) {
     const say = (m) => {
       if (progressCallback) progressCallback(m);
     };
+
+    // Set data variables on Z3Solver so it knows the types
+    if (dpn.dataVariables) {
+      const varMap = new Map();
+      for (const v of dpn.dataVariables) {
+        varMap.set(v.name || v.id, v);
+      }
+      Z3Solver._globalDataVariables = varMap;
+    }
 
     // 1) Boundedness (Alg. 3) on N
     say("Checking boundedness (Algorithm 3)...");
@@ -4215,6 +4505,21 @@ checkDeadTransitions(dpn, lts) {
     return String(id).replace(/[^A-Za-z0-9_]/g, "_");
   }
 
+  /**
+   * Format log data for display in debug logs
+   */
+  _formatLogData(data) {
+    if (typeof data === 'string') return data;
+    if (typeof data === 'object') {
+      try {
+        return JSON.stringify(data, null, 2);
+      } catch (e) {
+        return String(data);
+      }
+    }
+    return String(data);
+  }
+
   logStep(name, details, extra) {
     const step = {
       name,
@@ -4226,12 +4531,44 @@ checkDeadTransitions(dpn, lts) {
     console.log(`[${name} +${step.timestamp}ms] ${details}`, extra || "");
   }
 
+  /**
+   * Add a debug log entry (visible in the UI)
+   * @param {string} category - Category of the log (e.g., 'Z3', 'LTS', 'Refinement')
+   * @param {string} level - Log level ('info', 'debug', 'warn', 'error')
+   * @param {string} message - Log message
+   * @param {*} data - Additional data to log
+   */
+  debugLog(category, level, message, data) {
+    if (!this.debugLogs) {
+      this.debugLogs = [];
+    }
+    
+    const logEntry = {
+      category,
+      level,
+      message,
+      data: data !== undefined ? data : null,
+      timestamp: Date.now() - this.startTime,
+    };
+    
+    this.debugLogs.push(logEntry);
+    
+    // Also keep console.log for developer console
+    const prefix = `[${category}]`;
+    if (data !== undefined && data !== null && data !== "") {
+      console.log(prefix, message, data);
+    } else {
+      console.log(prefix, message);
+    }
+  }
+
   createResult(isSound, checks) {
     return {
       isSound,
       checks,
       counterexamples: this.counterexampleTraces,
       verificationSteps: this.verificationSteps,
+      debugLogs: this.debugLogs || [],
       finalMarkings: this.finalMarkings,
       duration: Date.now() - this.startTime,
     };
@@ -5821,11 +6158,11 @@ class SuvorovLomazovaVerificationUI {
           Verify soundness properties using Suvorov & Lomazova algorithms.
         </p>
         <div style="margin-bottom: 10px;">
-          <label style="display: block; margin-bottom: 5px; font-size: 13px;">Algorithm:</label>
+           <!--<label style="display: block; margin-bottom: 5px; font-size: 13px;">Algorithm:</label>
           <select id="sl-algorithm-select" style="width: 100%; padding: 5px;">
             <option value="improved">Improved (Algorithm 6)</option>
             <option value="direct">Direct (Algorithm 5)</option>
-          </select>
+          </select> -->
         </div>
         <button id="btn-sl-verify" class="button-primary" style="width: 100%; background: linear-gradient(135deg, #5E81AC, #81A1C1); border: none; padding: 12px; border-radius: 6px;">
           🔬 Run Formal Verification
@@ -6023,7 +6360,7 @@ class SuvorovLomazovaVerificationUI {
    */
   async startVerification() {
     const verifyButton = document.getElementById("btn-sl-verify");
-    const algorithmSelect = document.getElementById("sl-algorithm-select");
+    // const algorithmSelect = document.getElementById("sl-algorithm-select");
     const modalBody = document.getElementById("sl-modal-body");
 
     // Clear any existing visualization
@@ -6038,11 +6375,11 @@ class SuvorovLomazovaVerificationUI {
 
     try {
       // Get selected algorithm
-      const useImprovedAlgorithm = algorithmSelect.value === "improved";
+      // const useImprovedAlgorithm = algorithmSelect.value === "improved";
 
       // Create verifier with options
       this.verifier = new SuvorovLomazovaVerifier(this.app.api.petriNet, {
-        useImprovedAlgorithm: useImprovedAlgorithm,
+        useImprovedAlgorithm: false,
         maxBound: 10,
         enableTauTransitions: true,
         enableCoverage: true,
@@ -6518,6 +6855,21 @@ class SuvorovLomazovaVerificationUI {
   }
 
   /**
+   * Format log data for display in debug logs
+   */
+  _formatLogData(data) {
+    if (typeof data === 'string') return data;
+    if (typeof data === 'object') {
+      try {
+        return JSON.stringify(data, null, 2);
+      } catch (e) {
+        return String(data);
+      }
+    }
+    return String(data);
+  }
+
+  /**
    * Show verification details modal with all steps and formulas
    */
   showVerificationDetailsModal() {
@@ -6533,6 +6885,7 @@ class SuvorovLomazovaVerificationUI {
     }
 
     const steps = this.currentResults.verificationSteps || [];
+    const debugLogs = this.currentResults.debugLogs || [];
     const algorithmUsed = this.currentResults.checks?.some((c) =>
       c.name.includes("Algorithm 6")
     )
@@ -6547,6 +6900,16 @@ class SuvorovLomazovaVerificationUI {
         stepsByCategory[category] = [];
       }
       stepsByCategory[category].push(step);
+    });
+
+    // Group debug logs by category
+    const logsByCategory = {};
+    debugLogs.forEach(log => {
+      const category = log.category || 'General';
+      if (!logsByCategory[category]) {
+        logsByCategory[category] = [];
+      }
+      logsByCategory[category].push(log);
     });
 
     // Generate step sections
@@ -6580,7 +6943,56 @@ class SuvorovLomazovaVerificationUI {
       `;
     }
 
-    // Create modal content
+    // Generate debug logs HTML with filtering
+    let debugLogsHTML = `
+      <div class="sl-debug-logs-controls">
+        <div class="sl-debug-filter-group">
+          <label>Filter by category:</label>
+          <select id="sl-debug-category-filter" class="sl-debug-filter-select">
+            <option value="all">All Categories</option>
+            ${Object.keys(logsByCategory).map(cat => `
+              <option value="${this.escapeHtml(cat)}">${this.escapeHtml(cat)} (${logsByCategory[cat].length})</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="sl-debug-filter-group">
+          <label>Search:</label>
+          <input type="text" id="sl-debug-search" class="sl-debug-search-input" placeholder="Search logs..." />
+        </div>
+      </div>
+      <div class="sl-debug-logs-container" id="sl-debug-logs-list">
+    `;
+
+    for (const [category, logs] of Object.entries(logsByCategory)) {
+      debugLogsHTML += `
+        <div class="sl-debug-category" data-category="${this.escapeHtml(category)}">
+          <h4 class="sl-debug-category-title">
+            <span class="sl-debug-category-icon">🔍</span>
+            ${this.escapeHtml(category)} (${logs.length} logs)
+          </h4>
+          <div class="sl-debug-logs-list">
+            ${logs.map((log, idx) => {
+              const levelClass = `sl-debug-level-${log.level || 'debug'}`;
+              const dataStr = log.data ? this._formatLogData(log.data) : '';
+              return `
+                <div class="sl-debug-log-entry ${levelClass}" data-timestamp="${log.timestamp}">
+                  <div class="sl-debug-log-header">
+                    <span class="sl-debug-log-time">+${log.timestamp}ms</span>
+                    <span class="sl-debug-log-level">${log.level || 'debug'}</span>
+                  </div>
+                  <div class="sl-debug-log-message">${this.escapeHtml(log.message)}</div>
+                  ${dataStr ? `<div class="sl-debug-log-data"><pre>${this.escapeHtml(dataStr)}</pre></div>` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    debugLogsHTML += '</div>';
+
+    // Create modal content with tabs
     detailsModal.innerHTML = `
       <div class="sl-modal-content sl-details-modal-content">
         <div class="sl-modal-header">
@@ -6605,6 +7017,10 @@ class SuvorovLomazovaVerificationUI {
               <span class="sl-details-overview-value">${steps.length}</span>
             </div>
             <div class="sl-details-overview-item">
+              <span class="sl-details-overview-label">Debug Logs:</span>
+              <span class="sl-details-overview-value">${debugLogs.length}</span>
+            </div>
+            <div class="sl-details-overview-item">
               <span class="sl-details-overview-label">Result:</span>
               <span class="sl-details-overview-value ${this.currentResults.isSound ? 'sl-details-sound' : 'sl-details-unsound'}">
                 ${this.currentResults.isSound ? '✅ Sound' : '❌ Unsound'}
@@ -6612,28 +7028,45 @@ class SuvorovLomazovaVerificationUI {
             </div>
           </div>
 
-          <div class="sl-details-description">
-            <h3>About the Verification Process</h3>
-            <p>
-              The Suvorov & Lomazova soundness verification uses symbolic state exploration with 
-              SMT formulas to represent data constraints. The algorithm constructs a Labeled 
-              Transition System (LTS) where each state is represented by a marking (token distribution) 
-              and a formula (data constraints).
-            </p>
-            <p>
-              Key techniques used:
-            </p>
-            <ul>
-              <li><strong>Quantifier Elimination:</strong> Removes existentially quantified variables to keep formulas in the image-closed fragment</li>
-              <li><strong>Formula Canonicalization:</strong> Simplifies formulas using Z3 SMT solver for efficient equivalence checking</li>
-              <li><strong>Refinement:</strong> Adds τ-transitions to model invisible actions and refines preconditions</li>
-              <li><strong>Reachability Analysis:</strong> Forward and backward reachability to check soundness properties</li>
-            </ul>
+          <!-- Tabs -->
+          <div class="sl-details-tabs">
+            <button class="sl-details-tab active" data-tab="overview">📖 Overview</button>
+            <button class="sl-details-tab" data-tab="steps">📍 Verification Steps</button>
+            <button class="sl-details-tab" data-tab="debug">🔍 Debug Logs (${debugLogs.length})</button>
           </div>
 
-          <div class="sl-details-steps-container">
-            <h3>Verification Steps</h3>
-            ${stepsHTML || '<p class="sl-details-no-steps">No detailed steps recorded.</p>'}
+          <!-- Tab Content -->
+          <div class="sl-details-tab-content active" data-tab-content="overview">
+            <div class="sl-details-description">
+              <h3>About the Verification Process</h3>
+              <p>
+                The Suvorov & Lomazova soundness verification uses symbolic state exploration with 
+                SMT formulas to represent data constraints. The algorithm constructs a Labeled 
+                Transition System (LTS) where each state is represented by a marking (token distribution) 
+                and a formula (data constraints).
+              </p>
+              <p>
+                Key techniques used:
+              </p>
+              <ul>
+                <li><strong>Quantifier Elimination:</strong> Removes existentially quantified variables to keep formulas in the image-closed fragment</li>
+                <li><strong>Formula Canonicalization:</strong> Simplifies formulas using Z3 SMT solver for efficient equivalence checking</li>
+                <li><strong>Refinement:</strong> Adds τ-transitions to model invisible actions and refines preconditions</li>
+                <li><strong>Reachability Analysis:</strong> Forward and backward reachability to check soundness properties</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="sl-details-tab-content" data-tab-content="steps">
+            <div class="sl-details-steps-container">
+              ${stepsHTML || '<p class="sl-details-no-steps">No detailed steps recorded.</p>'}
+            </div>
+          </div>
+
+          <div class="sl-details-tab-content" data-tab-content="debug">
+            <div class="sl-debug-logs-wrapper">
+              ${debugLogs.length > 0 ? debugLogsHTML : '<p class="sl-details-no-steps">No debug logs captured.</p>'}
+            </div>
           </div>
 
           <div class="sl-details-footer">
@@ -6653,6 +7086,65 @@ class SuvorovLomazovaVerificationUI {
 
     // Show modal
     detailsModal.classList.add("show");
+
+    // Add tab switching functionality
+    const tabs = detailsModal.querySelectorAll('.sl-details-tab');
+    const tabContents = detailsModal.querySelectorAll('.sl-details-tab-content');
+    
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+        
+        // Remove active class from all tabs and contents
+        tabs.forEach(t => t.classList.remove('active'));
+        tabContents.forEach(tc => tc.classList.remove('active'));
+        
+        // Add active class to clicked tab and corresponding content
+        tab.classList.add('active');
+        detailsModal.querySelector(`[data-tab-content="${tabName}"]`).classList.add('active');
+      });
+    });
+
+    // Add debug log filtering
+    const categoryFilter = document.getElementById('sl-debug-category-filter');
+    const searchInput = document.getElementById('sl-debug-search');
+    
+    const filterLogs = () => {
+      const category = categoryFilter?.value || 'all';
+      const searchTerm = searchInput?.value.toLowerCase() || '';
+      const logsList = document.getElementById('sl-debug-logs-list');
+      
+      if (!logsList) return;
+      
+      const categories = logsList.querySelectorAll('.sl-debug-category');
+      categories.forEach(catDiv => {
+        const catName = catDiv.dataset.category;
+        const shouldShowCategory = category === 'all' || category === catName;
+        
+        if (!shouldShowCategory) {
+          catDiv.style.display = 'none';
+          return;
+        }
+        
+        catDiv.style.display = 'block';
+        
+        if (searchTerm) {
+          const logs = catDiv.querySelectorAll('.sl-debug-log-entry');
+          logs.forEach(logEntry => {
+            const text = logEntry.textContent.toLowerCase();
+            logEntry.style.display = text.includes(searchTerm) ? 'block' : 'none';
+          });
+        } else {
+          const logs = catDiv.querySelectorAll('.sl-debug-log-entry');
+          logs.forEach(logEntry => {
+            logEntry.style.display = 'block';
+          });
+        }
+      });
+    };
+    
+    categoryFilter?.addEventListener('change', filterLogs);
+    searchInput?.addEventListener('input', filterLogs);
 
     // Add event listeners
     document.getElementById("sl-close-details-modal")?.addEventListener("click", () => {
