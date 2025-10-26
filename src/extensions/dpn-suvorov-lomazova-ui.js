@@ -1829,6 +1829,87 @@ class LabeledTransitionSystem {
     }
     return Array.from(canReach);
   }
+
+    /**
+   * Pretty-print the labeled transition system as multiline string.
+   *
+   * The format is:
+   *
+   * LTS:
+   *   Nodes:
+   *     node_0:
+   *       marking: <...>
+   *       formula: <...>
+   *       out:
+   *         edge_0 --[ <transition> ]--> node_1
+   *         ...
+   *       in:
+   *         edge_5 --[ <transition> ]-- node_2
+   *         ...
+   *   Edges:
+   *     edge_0: node_0 --[ <transition> ]--> node_1
+   *     edge_1: node_1 --[ <transition> ]--> node_2
+   *     ...
+   *
+   * @returns {string} A human-readable string representation of the full LTS.
+   */
+  toString() {
+    const lines = [];
+
+    lines.push("LTS:");
+    lines.push("  Nodes:");
+
+    for (const [nodeId, node] of this.nodes.entries()) {
+      lines.push(`    ${nodeId}:`);
+      lines.push(`      marking: ${JSON.stringify(node.marking)}`);
+      lines.push(`      formula: ${JSON.stringify(node.formula)}`);
+
+      lines.push("      out:");
+      if (node.outgoingEdges.length === 0) {
+        lines.push("        <none>");
+      } else {
+        for (const edgeId of node.outgoingEdges) {
+          const e = this.edges.get(edgeId);
+          if (!e) continue;
+          lines.push(
+            `        ${edgeId} --[ ${JSON.stringify(
+              e.transition
+            )} ]--> ${e.target}`
+          );
+        }
+      }
+
+      lines.push("      in:");
+      if (node.incomingEdges.length === 0) {
+        lines.push("        <none>");
+      } else {
+        for (const edgeId of node.incomingEdges) {
+          const e = this.edges.get(edgeId);
+          if (!e) continue;
+          lines.push(
+            `        ${edgeId} --[ ${JSON.stringify(
+              e.transition
+            )} ]-- ${e.source}`
+          );
+        }
+      }
+    }
+
+    lines.push("  Edges:");
+    if (this.edges.size === 0) {
+      lines.push("    <none>");
+    } else {
+      for (const [edgeId, e] of this.edges.entries()) {
+        lines.push(
+          `    ${edgeId}: ${e.source} --[ ${JSON.stringify(
+            e.transition
+          )} ]--> ${e.target}`
+        );
+      }
+    }
+
+    return lines.join("\n");
+  }
 }
 
 /**
@@ -2023,7 +2104,7 @@ class DPNRefinementEngine {
  */
 async constructLTS(dpn) {
   const lts = new LabeledTransitionSystem();
-  const maxNodes = 5000;
+  const MAX_NODES = 5000; // Security cap to avoid blowup -- restriction from the paper ...
 
   const initM = this.getInitialMarking(dpn);
   const initFRaw = this.getInitialFormula(dpn);
@@ -2046,7 +2127,7 @@ async constructLTS(dpn) {
 
   byMarking.set(markingKey(initM), [initId]);
 
-  while (queue.length && lts.nodes.size < maxNodes) {
+  while (queue.length && lts.nodes.size < MAX_NODES) {
     const nid = queue.shift();
     const node = lts.nodes.get(nid);
     const keyHere = this.getStateKey(node);
@@ -4157,6 +4238,9 @@ checkDeadTransitions(dpn, lts) {
     say("Constructing final LTS and analyzing for soundness...");
     this.logStep("VerifyImproved", "Step 5: Final LTS construction and analysis");
     const ltsRtau = await this.refinementEngine.constructLTS(dpnRtau);
+    
+    // Store the LTS for display in UI
+    this.lts = ltsRtau;
 
     const checks = [];
     const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnRtau);
@@ -4223,6 +4307,9 @@ checkDeadTransitions(dpn, lts) {
     say("Constructing final LTS and analyzing for soundness...");
     this.logStep("VerifyDirect", "Step 4: Final LTS construction and analysis");
     const ltsRtau = await this.refinementEngine.constructLTS(dpnRtau);
+    
+    // Store the LTS for display in UI
+    this.lts = ltsRtau;
 
     const checks = [];
     const p1 = await this.checkDeadlockFreedom(ltsRtau, dpnRtau);
@@ -4728,6 +4815,7 @@ checkDeadTransitions(dpn, lts) {
       debugLogs: this.debugLogs || [],
       finalMarkings: this.finalMarkings,
       duration: Date.now() - this.startTime,
+      lts: this.lts || null, // Include the LTS for display in UI
     };
   }
 
@@ -7190,6 +7278,7 @@ class SuvorovLomazovaVerificationUI {
             <button class="sl-details-tab active" data-tab="overview">📖 Overview</button>
             <button class="sl-details-tab" data-tab="steps">📍 Verification Steps</button>
             <button class="sl-details-tab" data-tab="debug">🔍 Debug Logs (${debugLogs.length})</button>
+            <button class="sl-details-tab" data-tab="lts">🔀 LTS Structure</button>
           </div>
 
           <!-- Tab Content -->
@@ -7223,6 +7312,35 @@ class SuvorovLomazovaVerificationUI {
           <div class="sl-details-tab-content" data-tab-content="debug">
             <div class="sl-debug-logs-wrapper">
               ${debugLogs.length > 0 ? debugLogsHTML : '<p class="sl-details-no-steps">No debug logs captured.</p>'}
+            </div>
+          </div>
+
+          <div class="sl-details-tab-content" data-tab-content="lts">
+            <div class="sl-lts-container">
+              ${this.currentResults.lts ? `
+                <div class="sl-lts-info">
+                  <div class="sl-lts-stats">
+                    <div class="sl-lts-stat">
+                      <span class="sl-lts-stat-label">Nodes:</span>
+                      <span class="sl-lts-stat-value">${this.currentResults.lts.nodes.size}</span>
+                    </div>
+                    <div class="sl-lts-stat">
+                      <span class="sl-lts-stat-label">Edges:</span>
+                      <span class="sl-lts-stat-value">${this.currentResults.lts.edges.size}</span>
+                    </div>
+                  </div>
+                  <div class="sl-lts-description">
+                    <p>
+                      The Labeled Transition System (LTS) represents all reachable states and transitions 
+                      of the refined Petri net. Each node contains a marking (token distribution) and a 
+                      formula (data constraints). Edges represent transition firings.
+                    </p>
+                  </div>
+                </div>
+                <div class="sl-lts-output">
+                  <pre class="sl-lts-text">${this.escapeHtml(this.currentResults.lts.toString())}</pre>
+                </div>
+              ` : '<p class="sl-details-no-steps">LTS not available for this verification.</p>'}
             </div>
           </div>
 
