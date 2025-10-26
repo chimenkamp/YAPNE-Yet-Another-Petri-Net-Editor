@@ -8,8 +8,8 @@
     <title>YAPNE - Yet Another Petri Net Editor</title>
     
     <!-- Cross-Origin Isolation Service Worker -->
-    <script src="/YAPNE-Yet-Another-Petri-Net-Editor/coi-serviceworker.js"></script>
-    
+    <script type="module" src="/public/coi-serviceworker.js"></script>
+
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/event-log.css">
     <link rel="stylesheet" href="styles/dpn-styles.css">
@@ -738,7 +738,6 @@
     <script type="module" src="/src/extensions/z3-expression-evaluation.js"></script>
 
     <script type="module" src="src/petri-net-simulator.js"></script>
-    <script type="module" src="src/dpn_to_smt.js"></script>
     <script type="module" src="src/extensions/dpn-expression-validation.js"></script>
     <script type="module" src="src/extensions/dpn-model.js"></script>
     <script type="module" src="src/extensions/dpn-api.js"></script>
@@ -746,7 +745,7 @@
     <script type="module" src="src/extensions/dpn-ui.js"></script>
     <script type="module" src="src/extensions/dpn-integration.js"></script>
 
-    <script type="module" src="src/extensions/dpn-suvorov-lomazova-ui.js"></script>
+    <script type="module" src="src/extensions/soundness-verification/suvorov-lomazova/verification-ui.js"></script>
 
 
 
