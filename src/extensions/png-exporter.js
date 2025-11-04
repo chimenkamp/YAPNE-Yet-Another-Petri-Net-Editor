@@ -1006,26 +1006,44 @@ class PNGExporter {
    */
   drawGrid(ctx, renderer) {
     const gridSize = this.exportSettings.gridSize;
-    const canvasWidth = renderer.canvas.width / renderer.zoomFactor;
-    const canvasHeight = renderer.canvas.height / renderer.zoomFactor;
+    
+    // Calculate the visible area in world coordinates
+    const canvasWidth = renderer.canvas.width;
+    const canvasHeight = renderer.canvas.height;
+    const zoom = renderer.zoomFactor;
+    const panX = renderer.panOffset.x;
+    const panY = renderer.panOffset.y;
+    
+    // Calculate world coordinates for the visible area
+    const worldLeft = -panX / zoom;
+    const worldTop = -panY / zoom;
+    const worldRight = (canvasWidth - panX) / zoom;
+    const worldBottom = (canvasHeight - panY) / zoom;
+    
+    // Extend the grid area slightly beyond visible bounds
+    const margin = gridSize * 2;
+    const gridLeft = Math.floor((worldLeft - margin) / gridSize) * gridSize;
+    const gridTop = Math.floor((worldTop - margin) / gridSize) * gridSize;
+    const gridRight = Math.ceil((worldRight + margin) / gridSize) * gridSize;
+    const gridBottom = Math.ceil((worldBottom + margin) / gridSize) * gridSize;
     
     ctx.strokeStyle = this.exportSettings.gridColor;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 / zoom; // Keep line width consistent regardless of zoom
     ctx.globalAlpha = 0.3;
 
-    // Vertical lines
-    for (let x = 0; x < canvasWidth; x += gridSize) {
+    // Draw vertical lines
+    for (let x = gridLeft; x <= gridRight; x += gridSize) {
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasHeight);
+      ctx.moveTo(x, gridTop);
+      ctx.lineTo(x, gridBottom);
       ctx.stroke();
     }
 
-    // Horizontal lines
-    for (let y = 0; y < canvasHeight; y += gridSize) {
+    // Draw horizontal lines
+    for (let y = gridTop; y <= gridBottom; y += gridSize) {
       ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvasWidth, y);
+      ctx.moveTo(gridLeft, y);
+      ctx.lineTo(gridRight, y);
       ctx.stroke();
     }
 
