@@ -1440,6 +1440,33 @@ class PetriNetEditor {
         return;
       }
 
+      // Add/remove tokens from selected place with arrow keys
+      if (this.selectedElement && this.selectedElement.type === 'place') {
+        if (event.code === 'ArrowUp') {
+          event.preventDefault();
+          const place = this.petriNet.places.get(this.selectedElement.id);
+          if (place) {
+            place.addTokens(1);
+            if (this.callbacks.onChange) {
+              this.callbacks.onChange();
+            }
+            this.render();
+          }
+          return;
+        } else if (event.code === 'ArrowDown') {
+          event.preventDefault();
+          const place = this.petriNet.places.get(this.selectedElement.id);
+          if (place && place.tokens > 0) {
+            place.removeTokens(1);
+            if (this.callbacks.onChange) {
+              this.callbacks.onChange();
+            }
+            this.render();
+          }
+          return;
+        }
+      }
+
       if (event.code === this.PAN_KEY_BUTTON_CODE) {
         this.isPanningKeyPressed = true;
       }

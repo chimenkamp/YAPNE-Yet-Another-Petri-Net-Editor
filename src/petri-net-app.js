@@ -56,7 +56,7 @@ class PetriNetApp {
     
     
 
-    this.api.setZoomSensitivity(0.5);
+    this.api.setZoomSensitivity(0.05);
 
     this.editor.app = this;
 
@@ -945,7 +945,10 @@ initEventHandlers() {
    */
   setupResizeObserver() {
     const resizeObserver = new ResizeObserver(() => {
-        this.resizeCanvas();
+        // Use requestAnimationFrame to avoid ResizeObserver loop errors in Safari
+        requestAnimationFrame(() => {
+            this.resizeCanvas();
+        });
     });
     // Observe the canvas's parent container for size changes
     if (this.canvas.parentElement) {

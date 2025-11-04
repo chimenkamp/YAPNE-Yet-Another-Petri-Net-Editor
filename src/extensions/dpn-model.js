@@ -800,15 +800,31 @@ class DataPetriNet extends PetriNet {
     });
 
     data.transitions.forEach((transitionData) => {
-      const transition = new DataAwareTransition(
-        transitionData.id,
-        transitionData.position,
-        transitionData.label,
-        transitionData.priority,
-        transitionData.delay,
-        transitionData.precondition || "",
-        transitionData.postcondition || ""
-      );
+      // Only create DataAwareTransition if it has precondition or postcondition
+      const hasPrecondition = transitionData.precondition && transitionData.precondition.trim() !== "";
+      const hasPostcondition = transitionData.postcondition && transitionData.postcondition.trim() !== "";
+      
+      let transition;
+      if (hasPrecondition || hasPostcondition) {
+        transition = new DataAwareTransition(
+          transitionData.id,
+          transitionData.position,
+          transitionData.label,
+          transitionData.priority,
+          transitionData.delay,
+          transitionData.precondition || "",
+          transitionData.postcondition || ""
+        );
+      } else {
+        // Create regular transition if no pre/post conditions
+        transition = new Transition(
+          transitionData.id,
+          transitionData.position,
+          transitionData.label,
+          transitionData.priority,
+          transitionData.delay
+        );
+      }
       net.transitions.set(transition.id, transition);
     });
 
