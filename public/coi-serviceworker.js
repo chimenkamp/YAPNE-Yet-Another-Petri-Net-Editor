@@ -121,7 +121,10 @@ if (typeof window === 'undefined') {
             return;
         }
 
-        n.serviceWorker.register(window.document.currentScript.src).then(
+        // Get script URL - handle both regular scripts and ES6 modules
+        const scriptUrl = (document.currentScript && document.currentScript.src) || new URL(import.meta.url).href;
+        
+        n.serviceWorker.register(scriptUrl).then(
             (registration) => {
                 !coi.quiet && console.log("COOP/COEP Service Worker registered", registration.scope);
 
