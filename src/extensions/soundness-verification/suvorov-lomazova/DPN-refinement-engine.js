@@ -190,87 +190,87 @@ class DPNRefinementEngine {
  * @param {object} dpn - Normalized DPN.
  * @returns {Promise<LabeledTransitionSystem>} LabeledTransitionSystem instance.
  */
-async constructLTS(dpn) {
-  const lts = new LabeledTransitionSystem();
-  const MAX_NODES = 5000; // Security cap to avoid blowup -- restriction from the paper ...
+  async constructLTS(dpn) {
+    const lts = new LabeledTransitionSystem();
+    const MAX_NODES = 5000; // Security cap to avoid blowup -- restriction from the paper ...
 
-  const initM = this.getInitialMarking(dpn);
-  const initFRaw = this.getInitialFormula(dpn);
-  console.log(`[LTS] Raw initial formula: ${initFRaw}`);
-  console.log(`[LTS] Data variables:`, dpn.dataVariables);
-  // Don't canonicalize initial formula - it's already in good form
-  const initF = initFRaw;
-  const initId = lts.addNode(initM, initF);
+    const initM = this.getInitialMarking(dpn);
+    const initFRaw = this.getInitialFormula(dpn);
+    console.log(`[LTS] Raw initial formula: ${initFRaw}`);
+    console.log(`[LTS] Data variables:`, dpn.dataVariables);
+    // Don't canonicalize initial formula - it's already in good form
+    const initF = initFRaw;
+    const initId = lts.addNode(initM, initF);
 
-  console.log(`[LTS] Initial node ${initId}: marking=${JSON.stringify(initM)}, formula=${initF}`);
+    console.log(`[LTS] Initial node ${initId}: marking=${JSON.stringify(initM)}, formula=${initF}`);
 
-  const queue = [initId];
-  const processed = new Set();
-  const byMarking = new Map();
-  const markingKey = (M) =>
-    Object.entries(M)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${k}:${v}`)
-      .join(",");
+    const queue = [initId];
+    const processed = new Set();
+    const byMarking = new Map();
+    const markingKey = (M) =>
+      Object.entries(M)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join(",");
 
-  byMarking.set(markingKey(initM), [initId]);
+    byMarking.set(markingKey(initM), [initId]);
 
-  while (queue.length && lts.nodes.size < MAX_NODES) {
-    const nid = queue.shift();
-    const node = lts.nodes.get(nid);
-    const keyHere = this.getStateKey(node);
-    if (processed.has(keyHere)) continue;
-    processed.add(keyHere);
+    while (queue.length && lts.nodes.size < MAX_NODES) {
+      const nid = queue.shift();
+      const node = lts.nodes.get(nid);
+      const keyHere = this.getStateKey(node);
+      if (processed.has(keyHere)) continue;
+      processed.add(keyHere);
 
-    console.log(`[LTS] Processing node ${nid}`);
+      console.log(`[LTS] Processing node ${nid}`);
 
-    for (const t of dpn.transitions || []) {
-      const succ = await this.computeSuccessorState(
-        node.marking,
-        node.formula,
-        t,
-        dpn
-      );
-      if (!succ) {
-        console.log(`[LTS] Transition ${t.id} not enabled in node ${nid}`);
-        continue;
-      }
-      
-      const isSat = await Z3Solver.isSatisfiable(succ.formula);
-      if (!isSat) {
-        console.log(`[LTS] Transition ${t.id} filtered: unsatisfiable constraint`);
-        continue;
-      }
-
-      // Don't canonicalize successor formulas - it loses information
-      // succ.formula = await this.canonicalizeFormula(succ.formula);
-
-      const mkey = markingKey(succ.marking);
-      let targetId = null;
-      const candIds = byMarking.get(mkey) || [];
-      for (const cid of candIds) {
-        const cnode = lts.nodes.get(cid);
-        if (await this.equivalentFormulas(cnode.formula, succ.formula)) {
-          targetId = cid;
-          break;
+      for (const t of dpn.transitions || []) {
+        const succ = await this.computeSuccessorState(
+          node.marking,
+          node.formula,
+          t,
+          dpn
+        );
+        if (!succ) {
+          console.log(`[LTS] Transition ${t.id} not enabled in node ${nid}`);
+          continue;
         }
-      }
-      if (!targetId) {
-        targetId = lts.addNode(succ.marking, succ.formula);
-        console.log(`[LTS] Created node ${targetId} via ${t.id}: marking=${JSON.stringify(succ.marking)}, formula=${succ.formula}`);
-        if (!byMarking.has(mkey)) byMarking.set(mkey, []);
-        byMarking.get(mkey).push(targetId);
-        queue.push(targetId);
-      } else {
-        console.log(`[LTS] Transition ${t.id} leads to existing node ${targetId}`);
-      }
-      lts.addEdge(nid, targetId, t.id);
-    }
-  }
+        
+        const isSat = await Z3Solver.isSatisfiable(succ.formula);
+        if (!isSat) {
+          console.log(`[LTS] Transition ${t.id} filtered: unsatisfiable constraint`);
+          continue;
+        }
 
-  console.log(`[LTS] Construction complete: ${lts.nodes.size} nodes, ${lts.edges.size} edges`);
-  return lts;
-}
+        // Don't canonicalize successor formulas - it loses information
+        // succ.formula = await this.canonicalizeFormula(succ.formula);
+
+        const mkey = markingKey(succ.marking);
+        let targetId = null;
+        const candIds = byMarking.get(mkey) || [];
+        for (const cid of candIds) {
+          const cnode = lts.nodes.get(cid);
+          if (await this.equivalentFormulas(cnode.formula, succ.formula)) {
+            targetId = cid;
+            break;
+          }
+        }
+        if (!targetId) {
+          targetId = lts.addNode(succ.marking, succ.formula);
+          console.log(`[LTS] Created node ${targetId} via ${t.id}: marking=${JSON.stringify(succ.marking)}, formula=${succ.formula}`);
+          if (!byMarking.has(mkey)) byMarking.set(mkey, []);
+          byMarking.get(mkey).push(targetId);
+          queue.push(targetId);
+        } else {
+          console.log(`[LTS] Transition ${t.id} leads to existing node ${targetId}`);
+        }
+        lts.addEdge(nid, targetId, t.id);
+      }
+    }
+
+    console.log(`[LTS] Construction complete: ${lts.nodes.size} nodes, ${lts.edges.size} edges`);
+    return lts;
+  }
 
   async computeSuccessorState(marking, formula, transition, dpn) {
     // Check if transition is enabled in current marking
