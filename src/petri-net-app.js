@@ -70,7 +70,7 @@ class PetriNetApp {
     this.initEventHandlers();
 
     // Add initial place to the editor
-    // this.addInitialPlace();
+    this.addInitialPlace();
 
     this.editor.render();
     this.updateTokensDisplay();
