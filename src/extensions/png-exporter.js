@@ -8,7 +8,8 @@ class PNGExporter {
     this.app = app;
     this.dialog = null;
     this.previewCanvas = null;
-    this.exportSettings = this.getDefaultSettings();
+    this.localStorageKey = 'pngExporterSettings';
+    this.exportSettings = this.loadSettings();
     this.initializeUI();
   }
 
@@ -69,7 +70,7 @@ class PNGExporter {
       includeMetadata: false,
       
       // Condition display
-      conditionPosition: 'bottom', // 'top', 'bottom', 'left', 'right', 'auto'
+      conditionPosition: 'top', // 'top', 'bottom', 'left', 'right', 'auto'
       conditionFontSize: 10,
       conditionColor: '#666666',
       conditionBackground: true,
@@ -79,9 +80,38 @@ class PNGExporter {
       
       // Grid and guidelines
       showGrid: false,
-      gridColor: '#e0e0e0',
+      gridColor: '#767676ff',
       gridSize: 20
     };
+  }
+
+  /**
+   * Load settings from local storage or return defaults
+   */
+  loadSettings() {
+    try {
+      const savedSettings = localStorage.getItem(this.localStorageKey);
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        // Merge with defaults to ensure new settings are included
+        const defaults = this.getDefaultSettings();
+        return { ...defaults, ...parsed };
+      }
+    } catch (error) {
+      console.warn('Failed to load PNG exporter settings from local storage:', error);
+    }
+    return this.getDefaultSettings();
+  }
+
+  /**
+   * Save current settings to local storage
+   */
+  saveSettings() {
+    try {
+      localStorage.setItem(this.localStorageKey, JSON.stringify(this.exportSettings));
+    } catch (error) {
+      console.error('Failed to save PNG exporter settings to local storage:', error);
+    }
   }
 
   /**
@@ -682,6 +712,7 @@ class PNGExporter {
       button.addEventListener('click', () => {
         const preset = presets[presetId];
         Object.assign(this.exportSettings, preset);
+        this.saveSettings();
         this.updateDialogFromSettings(dialog);
         this.updatePreview();
       });
@@ -691,6 +722,7 @@ class PNGExporter {
     const resetBtn = dialog.querySelector('#reset-settings');
     resetBtn.addEventListener('click', () => {
       this.exportSettings = this.getDefaultSettings();
+      this.saveSettings();
       this.updateDialogFromSettings(dialog);
       this.updatePreview();
     });
@@ -770,6 +802,9 @@ class PNGExporter {
     this.exportSettings.dpiScale = parseFloat(dialog.querySelector('#dpi-scale').value);
     this.exportSettings.antialiasing = dialog.querySelector('#antialiasing').checked;
     this.exportSettings.includeMetadata = dialog.querySelector('#include-metadata').checked;
+    
+    // Save settings to local storage
+    this.saveSettings();
   }
 
   /**
