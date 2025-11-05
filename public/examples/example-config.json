@@ -98,5 +98,10 @@
         "name": "DPN: Digital Whiteboard - Transfer",
         "description": "Real-world example: Digital whiteboard transfer process",
         "path": "examples/Digital whiteboard: Transfer.json"
+    },
+    {
+        "name": "DPN: Pretty Print Showcase",
+        "description": "Showcase of pretty-printing features",
+        "path": "examples/pretty-print-showcase.json"
     }
 ]

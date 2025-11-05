@@ -1,0 +1,685 @@
+{
+  "name": "Pretty Print Expression Showcase",
+  "description": "A comprehensive example demonstrating all mathematical operators with pretty printing. Use PNG export with 'Pretty print operators' and 'Italic variables' enabled to see Unicode symbols (≥, ≤, ≠, ∧, ∨, ¬, ×) and italic variable names.",
+  "places": [
+    {
+      "id": "P_Start",
+      "position": { "x": 100, "y": 50 },
+      "label": "Start",
+      "tokens": 1,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Comparison",
+      "position": { "x": 300, "y": 50 },
+      "label": "Comparison",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Logical",
+      "position": { "x": 500, "y": 50 },
+      "label": "Logical",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Arithmetic",
+      "position": { "x": 700, "y": 50 },
+      "label": "Arithmetic",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Complex1",
+      "position": { "x": 100, "y": 250 },
+      "label": "Complex1",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Complex2",
+      "position": { "x": 300, "y": 250 },
+      "label": "Complex2",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Mixed",
+      "position": { "x": 500, "y": 250 },
+      "label": "Mixed",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Advanced",
+      "position": { "x": 700, "y": 250 },
+      "label": "Advanced",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Primed",
+      "position": { "x": 100, "y": 450 },
+      "label": "Primed Vars",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Nested",
+      "position": { "x": 300, "y": 450 },
+      "label": "Nested",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_Boolean",
+      "position": { "x": 500, "y": 450 },
+      "label": "Boolean",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    },
+    {
+      "id": "P_End",
+      "position": { "x": 700, "y": 450 },
+      "label": "End",
+      "tokens": 0,
+      "capacity": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "T_GreaterEqual",
+      "position": { "x": 200, "y": 50 },
+      "label": "T_GreaterEqual",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "x >= 10",
+      "postcondition": "result' = x + 5"
+    },
+    {
+      "id": "T_LessEqual",
+      "position": { "x": 400, "y": 50 },
+      "label": "T_LessEqual",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "y <= 100",
+      "postcondition": "counter' = counter + 1"
+    },
+    {
+      "id": "T_NotEqual",
+      "position": { "x": 600, "y": 50 },
+      "label": "T_NotEqual",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "value != 0",
+      "postcondition": "status' = 1"
+    },
+    {
+      "id": "T_And",
+      "position": { "x": 800, "y": 50 },
+      "label": "T_And",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "x >= 5 && y <= 20",
+      "postcondition": "flag' = true"
+    },
+    {
+      "id": "T_Or",
+      "position": { "x": 200, "y": 250 },
+      "label": "T_Or",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "a == 0 || b != 0",
+      "postcondition": "choice' = a"
+    },
+    {
+      "id": "T_Multiply",
+      "position": { "x": 400, "y": 250 },
+      "label": "T_Multiply",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "count >= 2",
+      "postcondition": "area' = width * height"
+    },
+    {
+      "id": "T_ComplexAnd",
+      "position": { "x": 600, "y": 250 },
+      "label": "T_ComplexAnd",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "x >= min && x <= max && active == true",
+      "postcondition": "validated' = x"
+    },
+    {
+      "id": "T_ComplexOr",
+      "position": { "x": 800, "y": 250 },
+      "label": "T_ComplexOr",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "error != 0 || timeout >= 100 || cancelled == true",
+      "postcondition": "state' = 99"
+    },
+    {
+      "id": "T_MultiPrimed",
+      "position": { "x": 200, "y": 450 },
+      "label": "T_MultiPrimed",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "x' >= x + 1 && y' <= y * 2",
+      "postcondition": "x' = x + 1; y' = y * 2; z' = x * y"
+    },
+    {
+      "id": "T_NestedLogic",
+      "position": { "x": 400, "y": 450 },
+      "label": "T_NestedLogic",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "(a >= 10 && b <= 50) || (c != 0 && d == 1)",
+      "postcondition": "output' = a + b * c"
+    },
+    {
+      "id": "T_BooleanOps",
+      "position": { "x": 600, "y": 450 },
+      "label": "T_BooleanOps",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "enabled == true && locked != true",
+      "postcondition": "ready' = true; active' = false"
+    },
+    {
+      "id": "T_AllOperators",
+      "position": { "x": 800, "y": 450 },
+      "label": "T_AllOperators",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "precondition": "x >= 0 && y <= 100 && z != 50 && w == 25",
+      "postcondition": "result' = x + y * z; final' = result >= threshold"
+    }
+  ],
+  "arcs": [
+    {
+      "id": "A1",
+      "source": "P_Start",
+      "target": "T_GreaterEqual",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A2",
+      "source": "T_GreaterEqual",
+      "target": "P_Comparison",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A3",
+      "source": "P_Comparison",
+      "target": "T_LessEqual",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A4",
+      "source": "T_LessEqual",
+      "target": "P_Logical",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A5",
+      "source": "P_Logical",
+      "target": "T_NotEqual",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A6",
+      "source": "T_NotEqual",
+      "target": "P_Arithmetic",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A7",
+      "source": "P_Arithmetic",
+      "target": "T_And",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A8",
+      "source": "T_And",
+      "target": "P_Complex1",
+      "weight": 1,
+      "type": "regular",
+      "points": [
+      ],
+      "label": "1"
+    },
+    {
+      "id": "A9",
+      "source": "P_Complex1",
+      "target": "T_Or",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A10",
+      "source": "T_Or",
+      "target": "P_Complex2",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A11",
+      "source": "P_Complex2",
+      "target": "T_Multiply",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A12",
+      "source": "T_Multiply",
+      "target": "P_Mixed",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A13",
+      "source": "P_Mixed",
+      "target": "T_ComplexAnd",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A14",
+      "source": "T_ComplexAnd",
+      "target": "P_Advanced",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A15",
+      "source": "P_Advanced",
+      "target": "T_ComplexOr",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A16",
+      "source": "T_ComplexOr",
+      "target": "P_Primed",
+      "weight": 1,
+      "type": "regular",
+      "points": [
+      ],
+      "label": "1"
+    },
+    {
+      "id": "A17",
+      "source": "P_Primed",
+      "target": "T_MultiPrimed",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A18",
+      "source": "T_MultiPrimed",
+      "target": "P_Nested",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A19",
+      "source": "P_Nested",
+      "target": "T_NestedLogic",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A20",
+      "source": "T_NestedLogic",
+      "target": "P_Boolean",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A21",
+      "source": "P_Boolean",
+      "target": "T_BooleanOps",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A22",
+      "source": "T_BooleanOps",
+      "target": "P_End",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    },
+    {
+      "id": "A23",
+      "source": "P_End",
+      "target": "T_AllOperators",
+      "weight": 1,
+      "type": "regular",
+      "points": [],
+      "label": "1"
+    }
+  ],
+  "dataVariables": [
+    {
+      "id": "var_x",
+      "name": "x",
+      "type": "number",
+      "currentValue": 15,
+      "description": "Test variable for >= operator"
+    },
+    {
+      "id": "var_y",
+      "name": "y",
+      "type": "number",
+      "currentValue": 50,
+      "description": "Test variable for <= operator"
+    },
+    {
+      "id": "var_z",
+      "name": "z",
+      "type": "number",
+      "currentValue": 75,
+      "description": "Test variable for complex expressions"
+    },
+    {
+      "id": "var_w",
+      "name": "w",
+      "type": "number",
+      "currentValue": 25,
+      "description": "Test variable for == operator"
+    },
+    {
+      "id": "var_value",
+      "name": "value",
+      "type": "number",
+      "currentValue": 5,
+      "description": "Test variable for != operator"
+    },
+    {
+      "id": "var_a",
+      "name": "a",
+      "type": "number",
+      "currentValue": 10,
+      "description": "Variable a for complex expressions"
+    },
+    {
+      "id": "var_b",
+      "name": "b",
+      "type": "number",
+      "currentValue": 20,
+      "description": "Variable b for complex expressions"
+    },
+    {
+      "id": "var_c",
+      "name": "c",
+      "type": "number",
+      "currentValue": 1,
+      "description": "Variable c for nested logic"
+    },
+    {
+      "id": "var_d",
+      "name": "d",
+      "type": "number",
+      "currentValue": 1,
+      "description": "Variable d for nested logic"
+    },
+    {
+      "id": "var_counter",
+      "name": "counter",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Counter variable"
+    },
+    {
+      "id": "var_result",
+      "name": "result",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Result variable"
+    },
+    {
+      "id": "var_status",
+      "name": "status",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Status code"
+    },
+    {
+      "id": "var_width",
+      "name": "width",
+      "type": "number",
+      "currentValue": 10,
+      "description": "Width for multiplication example"
+    },
+    {
+      "id": "var_height",
+      "name": "height",
+      "type": "number",
+      "currentValue": 5,
+      "description": "Height for multiplication example"
+    },
+    {
+      "id": "var_area",
+      "name": "area",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Calculated area (width × height)"
+    },
+    {
+      "id": "var_min",
+      "name": "min",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Minimum threshold"
+    },
+    {
+      "id": "var_max",
+      "name": "max",
+      "type": "number",
+      "currentValue": 100,
+      "description": "Maximum threshold"
+    },
+    {
+      "id": "var_threshold",
+      "name": "threshold",
+      "type": "number",
+      "currentValue": 50,
+      "description": "Threshold for comparison"
+    },
+    {
+      "id": "var_error",
+      "name": "error",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Error code"
+    },
+    {
+      "id": "var_timeout",
+      "name": "timeout",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Timeout counter"
+    },
+    {
+      "id": "var_count",
+      "name": "count",
+      "type": "number",
+      "currentValue": 3,
+      "description": "Item count"
+    },
+    {
+      "id": "var_choice",
+      "name": "choice",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Choice variable"
+    },
+    {
+      "id": "var_validated",
+      "name": "validated",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Validated value"
+    },
+    {
+      "id": "var_state",
+      "name": "state",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Current state"
+    },
+    {
+      "id": "var_output",
+      "name": "output",
+      "type": "number",
+      "currentValue": 0,
+      "description": "Output value"
+    },
+    {
+      "id": "var_final",
+      "name": "final",
+      "type": "boolean",
+      "currentValue": false,
+      "description": "Final boolean result"
+    },
+    {
+      "id": "var_flag",
+      "name": "flag",
+      "type": "boolean",
+      "currentValue": false,
+      "description": "Boolean flag"
+    },
+    {
+      "id": "var_active",
+      "name": "active",
+      "type": "boolean",
+      "currentValue": true,
+      "description": "Active status"
+    },
+    {
+      "id": "var_enabled",
+      "name": "enabled",
+      "type": "boolean",
+      "currentValue": true,
+      "description": "Enabled status"
+    },
+    {
+      "id": "var_locked",
+      "name": "locked",
+      "type": "boolean",
+      "currentValue": false,
+      "description": "Locked status"
+    },
+    {
+      "id": "var_ready",
+      "name": "ready",
+      "type": "boolean",
+      "currentValue": false,
+      "description": "Ready status"
+    },
+    {
+      "id": "var_cancelled",
+      "name": "cancelled",
+      "type": "boolean",
+      "currentValue": false,
+      "description": "Cancelled flag"
+    }
+  ]
+}
