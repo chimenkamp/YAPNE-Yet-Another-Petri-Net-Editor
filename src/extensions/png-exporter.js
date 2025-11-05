@@ -74,6 +74,8 @@ class PNGExporter {
       conditionColor: '#666666',
       conditionBackground: true,
       conditionBackgroundColor: '#f0f0f0',
+      prettyPrintConditions: true,
+      prettyPrintVariablesItalic: true,
       
       // Grid and guidelines
       showGrid: false,
@@ -406,6 +408,20 @@ class PNGExporter {
 
                   <div class="setting-group">
                     <h4>Condition Appearance</h4>
+                    <div class="setting-item">
+                      <label for="pretty-print-conditions">
+                        <input type="checkbox" id="pretty-print-conditions" ${this.exportSettings.prettyPrintConditions ? 'checked' : ''}>
+                        Pretty print operators
+                      </label>
+                      <small>Use Unicode symbols (≥, ≤, ≠, ∧, ∨, ¬, ×) for mathematical operators</small>
+                    </div>
+                    <div class="setting-item">
+                      <label for="pretty-print-variables-italic">
+                        <input type="checkbox" id="pretty-print-variables-italic" ${this.exportSettings.prettyPrintVariablesItalic ? 'checked' : ''}>
+                        Italic variables
+                      </label>
+                      <small>Render variable names in italic font</small>
+                    </div>
                     <div class="setting-item">
                       <label for="condition-position">Position:</label>
                       <select id="condition-position">
@@ -747,6 +763,8 @@ class PNGExporter {
     this.exportSettings.conditionColor = dialog.querySelector('#condition-color').value;
     this.exportSettings.conditionBackground = dialog.querySelector('#condition-background').checked;
     this.exportSettings.conditionBackgroundColor = dialog.querySelector('#condition-background-color').value;
+    this.exportSettings.prettyPrintConditions = dialog.querySelector('#pretty-print-conditions').checked;
+    this.exportSettings.prettyPrintVariablesItalic = dialog.querySelector('#pretty-print-variables-italic').checked;
 
     // Advanced
     this.exportSettings.dpiScale = parseFloat(dialog.querySelector('#dpi-scale').value);
@@ -1370,6 +1388,100 @@ class PNGExporter {
   }
 
   /**
+   * Prettify mathematical expressions by replacing operators with Unicode symbols
+   * and identifying variables for italic formatting.
+   * Based on supported operators from z3-expression-evaluation.js
+   * @param {string} expression - The mathematical expression to prettify
+   * @returns {Array<{text: string, isVariable: boolean}>} Array of text segments with formatting info
+   */
+  prettifyExpression(expression) {
+    if (!this.exportSettings.prettyPrintConditions) {
+      return [{ text: expression, isVariable: false }];
+    }
+
+    // Operator mapping to Unicode symbols (based on z3-expression-evaluation.js operators)
+    const operatorMap = {
+      '>=': '≥',
+      '<=': '≤',
+      '==': '=',
+      '!=': '≠',
+      '&&': '∧',
+      '||': '∨',
+      '!': '¬',
+      '*': '×',
+      // Keep these as-is for now
+      // '+': '+',
+      // '-': '-',
+      // '/': '÷',  // Could use ÷ but / is often clearer
+    };
+
+    let prettified = expression;
+    
+    // Replace operators (order matters - longer operators first)
+    for (const [plain, pretty] of Object.entries(operatorMap)) {
+      prettified = prettified.replace(new RegExp(plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), pretty);
+    }
+
+    // Parse into segments: variables vs non-variables
+    // Variables are identified as: letter/underscore followed by letters/digits/underscores
+    // Also handle primed variables (e.g., x')
+    const segments = [];
+    const regex = /([A-Za-z_]\w*'?)|([^A-Za-z_]+)/g;
+    let match;
+    
+    while ((match = regex.exec(prettified)) !== null) {
+      if (match[1]) {
+        // This is a variable
+        segments.push({ text: match[1], isVariable: true });
+      } else if (match[2]) {
+        // This is not a variable (operators, numbers, spaces, etc.)
+        segments.push({ text: match[2], isVariable: false });
+      }
+    }
+
+    return segments.length > 0 ? segments : [{ text: prettified, isVariable: false }];
+  }
+
+  /**
+   * Draw text with mixed regular and italic segments
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   * @param {Array<{text: string, isVariable: boolean}>} segments - Text segments with formatting
+   * @param {number} x - X position (center)
+   * @param {number} y - Y position (middle)
+   * @param {string} baseFont - Base font size and family (e.g., "10px Arial")
+   */
+  drawMixedText(ctx, segments, x, y, baseFont) {
+    // Calculate total width for centering
+    let totalWidth = 0;
+    const fontParts = baseFont.split(' ');
+    const fontSize = fontParts[0];
+    const fontFamily = fontParts.slice(1).join(' ');
+
+    segments.forEach(seg => {
+      if (seg.isVariable && this.exportSettings.prettyPrintVariablesItalic) {
+        ctx.font = `italic ${fontSize} ${fontFamily}`;
+      } else {
+        ctx.font = baseFont;
+      }
+      totalWidth += ctx.measureText(seg.text).width;
+    });
+
+    // Start drawing from left edge (centered)
+    let currentX = x - totalWidth / 2;
+    
+    segments.forEach(seg => {
+      if (seg.isVariable && this.exportSettings.prettyPrintVariablesItalic) {
+        ctx.font = `italic ${fontSize} ${fontFamily}`;
+      } else {
+        ctx.font = baseFont;
+      }
+      
+      ctx.fillText(seg.text, currentX, y);
+      currentX += ctx.measureText(seg.text).width;
+    });
+  }
+
+  /**
    * Draw transition conditions (guards and updates)
    */
   drawTransitionConditions(ctx, transition) {
@@ -1379,20 +1491,21 @@ class PNGExporter {
     
     // Add precondition (guard)
     if (this.exportSettings.showDataGuards && transition.precondition) {
-      conditions.push(`[${transition.precondition}]`);
+      conditions.push({ expr: transition.precondition, prefix: '[', suffix: ']' });
     }
     
     // Add postcondition (update)
     if (this.exportSettings.showDataUpdates && transition.postcondition) {
-      conditions.push(`{${transition.postcondition}}`);
+      conditions.push({ expr: transition.postcondition, prefix: '{', suffix: '}' });
     }
 
     if (conditions.length === 0) return;
 
     // Set font and style for conditions
-    ctx.font = `${this.exportSettings.conditionFontSize}px ${this.exportSettings.fontFamily}`;
+    const baseFont = `${this.exportSettings.conditionFontSize}px ${this.exportSettings.fontFamily}`;
+    ctx.font = baseFont;
     ctx.fillStyle = this.exportSettings.conditionColor;
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left'; // Changed to left since drawMixedText handles centering
     ctx.textBaseline = 'middle';
 
     // Calculate position based on setting
@@ -1400,22 +1513,49 @@ class PNGExporter {
     
     conditions.forEach((condition, index) => {
       const x = position.x;
-      const y = position.y + (index * (this.exportSettings.conditionFontSize + 2));
+      const y = position.y + (index * (this.exportSettings.conditionFontSize + 4));
+      
+      // Prettify the expression
+      const segments = this.prettifyExpression(condition.expr);
+      
+      // Add prefix and suffix as non-variable segments
+      const fullSegments = [
+        { text: condition.prefix, isVariable: false },
+        ...segments,
+        { text: condition.suffix, isVariable: false }
+      ];
       
       // Draw background if enabled
       if (this.exportSettings.conditionBackground) {
-        const metrics = ctx.measureText(condition);
-        const textWidth = metrics.width;
+        // Calculate total width for background
+        let totalWidth = 0;
+        const fontParts = baseFont.split(' ');
+        const fontSize = fontParts[0];
+        const fontFamily = fontParts.slice(1).join(' ');
+        
+        fullSegments.forEach(seg => {
+          if (seg.isVariable && this.exportSettings.prettyPrintVariablesItalic) {
+            ctx.font = `italic ${fontSize} ${fontFamily}`;
+          } else {
+            ctx.font = baseFont;
+          }
+          totalWidth += ctx.measureText(seg.text).width;
+        });
+        
         const textHeight = this.exportSettings.conditionFontSize;
         
         ctx.fillStyle = this.exportSettings.conditionBackgroundColor;
-        ctx.fillRect(x - textWidth / 2 - 2, y - textHeight / 2 - 1, 
-                    textWidth + 4, textHeight + 2);
+        ctx.fillRect(x - totalWidth / 2 - 2, y - textHeight / 2 - 1, 
+                    totalWidth + 4, textHeight + 2);
         ctx.fillStyle = this.exportSettings.conditionColor;
       }
       
-      ctx.fillText(condition, x, y);
+      // Draw the mixed text (with potential italic variables)
+      this.drawMixedText(ctx, fullSegments, x, y, baseFont);
     });
+    
+    // Reset font to base
+    ctx.font = baseFont;
   }
 
   /**
