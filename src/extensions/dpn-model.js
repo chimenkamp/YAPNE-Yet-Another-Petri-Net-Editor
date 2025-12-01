@@ -98,9 +98,10 @@ class DataAwareTransition extends Transition {
    * @param {number} delay - Execution delay in milliseconds
    * @param {string} precondition - Guard condition as a JavaScript expression
    * @param {string} postcondition - Data manipulation as a JavaScript expression
+   * @param {boolean} silent - Whether this is a silent (tau) transition
    */
-  constructor(id, position, label = "", priority = 1, delay = 0, precondition = "", postcondition = "") {
-    super(id, position, label, priority, delay);
+  constructor(id, position, label = "", priority = 1, delay = 0, precondition = "", postcondition = "", silent = false) {
+    super(id, position, label, priority, delay, silent);
     this.precondition = precondition;
     this.postcondition = postcondition;
   }
@@ -804,25 +805,30 @@ class DataPetriNet extends PetriNet {
       const hasPrecondition = transitionData.precondition && transitionData.precondition.trim() !== "";
       const hasPostcondition = transitionData.postcondition && transitionData.postcondition.trim() !== "";
       
+      // Detect silent transition: explicit silent flag or null/empty label
+      const isSilent = transitionData.silent || !transitionData.label || transitionData.label.trim() === '';
+      
       let transition;
       if (hasPrecondition || hasPostcondition) {
         transition = new DataAwareTransition(
           transitionData.id,
           transitionData.position,
-          transitionData.label,
+          transitionData.label || '',
           transitionData.priority,
           transitionData.delay,
           transitionData.precondition || "",
-          transitionData.postcondition || ""
+          transitionData.postcondition || "",
+          isSilent
         );
       } else {
         // Create regular transition if no pre/post conditions
         transition = new Transition(
           transitionData.id,
           transitionData.position,
-          transitionData.label,
+          transitionData.label || '',
           transitionData.priority,
-          transitionData.delay
+          transitionData.delay,
+          isSilent
         );
       }
       net.transitions.set(transition.id, transition);
@@ -951,6 +957,14 @@ class DataPetriNet extends PetriNet {
           pnml += `
             <writeVariable>${this.escapeXML(varName)}</writeVariable>`;
         }
+      }
+      
+      // Add silent transition attribute in toolspecific section
+      if (transition.silent) {
+        pnml += `
+            <toolspecific tool="YAPNE" version="1.0">
+               <silent>true</silent>
+            </toolspecific>`;
       }
 
       pnml += `

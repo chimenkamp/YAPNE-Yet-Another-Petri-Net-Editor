@@ -434,7 +434,8 @@ class PNMLImporter {
                 transitionData.priority,
                 transitionData.delay,
                 transitionData.precondition,
-                transitionData.postcondition
+                transitionData.postcondition,
+                transitionData.silent || false
               );
             } else {
               transition = new Transition(
@@ -442,7 +443,8 @@ class PNMLImporter {
                 transitionData.position || { x: 100, y: 100 },
                 transitionData.label,
                 transitionData.priority,
-                transitionData.delay
+                transitionData.delay,
+                transitionData.silent || false
               );
             }
             newAPI.petriNet.transitions.set(transitionData.id, transition);
@@ -684,6 +686,11 @@ class PNMLImporter {
 
           precondition = pre || '';
           postcondition = post || '';
+          
+          // Check for silent transition (toolspecific attribute or empty label)
+          const isSilent = transition.getAttribute('silent') === 'true' ||
+                           transition.querySelector('toolspecific[tool="YAPNE"] silent')?.textContent === 'true';
+          
           const transitionData = {
             id: transition.getAttribute('id'),
             label: this.getTextContent(transition.querySelector('name text')) || transition.getAttribute('id'),
@@ -692,7 +699,8 @@ class PNMLImporter {
             delay: 0,
             precondition: precondition.replace(/'/g, ""),
             postcondition: postcondition,
-            isDataAware: isDataAware
+            isDataAware: isDataAware,
+            silent: isSilent
           };
           parsedNet.transitions.push(transitionData);
         });
@@ -1209,7 +1217,8 @@ class PNMLImporter {
               transitionData.priority,
               transitionData.delay,
               transitionData.precondition,
-              transitionData.postcondition
+              transitionData.postcondition,
+              transitionData.silent || false
             );
           } else {
             transition = new Transition(
@@ -1217,7 +1226,8 @@ class PNMLImporter {
               transitionData.position || { x: 100, y: 100 },
               transitionData.label,
               transitionData.priority,
-              transitionData.delay
+              transitionData.delay,
+              transitionData.silent || false
             );
           }
           newAPI.petriNet.transitions.set(transitionData.id, transition);

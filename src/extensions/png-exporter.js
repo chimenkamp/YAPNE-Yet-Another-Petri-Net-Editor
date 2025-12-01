@@ -1372,7 +1372,12 @@ class PNGExporter {
       
       // Choose colors based on transition type and state
       let fillColor, strokeColor;
-      if (isDataTransition) {
+      
+      // Silent transitions are always grey
+      if (transition.silent) {
+        fillColor = '#808080';
+        strokeColor = this.exportSettings.transitionStroke;
+      } else if (isDataTransition) {
         if (transition.isEnabled) {
           fillColor = this.exportSettings.enabledDataTransitionColor;
         } else {
@@ -1397,13 +1402,13 @@ class PNGExporter {
       ctx.lineWidth = this.exportSettings.lineThickness;
       ctx.stroke();
 
-      // Draw label if enabled
-      if (this.exportSettings.showLabels && transition.label) {
+      // Draw label if enabled and not a silent transition
+      if (this.exportSettings.showLabels && transition.label && !transition.silent) {
         this.drawTransitionLabel(ctx, transition);
       }
 
-      // Draw conditions if enabled and this is a data transition
-      if (isDataTransition && this.exportSettings.showConditions) {
+      // Draw conditions if enabled, this is a data transition, and not silent
+      if (isDataTransition && this.exportSettings.showConditions && !transition.silent) {
         this.drawTransitionConditions(ctx, transition);
       }
     }

@@ -618,6 +618,7 @@ initEventHandlers() {
     const transition = this.api.petriNet.transitions.get(id);
     if (!transition) return;
 
+    const isSilent = transition.silent || false;
 
     this.propertiesPanel.innerHTML = `
    <div class="form-group">
@@ -625,16 +626,23 @@ initEventHandlers() {
    <input type="text" id="transition-id" value="${id}" disabled>
    </div>
    <div class="form-group">
+   <label for="transition-silent" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+     <input type="checkbox" id="transition-silent" ${isSilent ? 'checked' : ''} style="width: auto; margin: 0;">
+     Silent Transition (τ)
+   </label>
+   <small>Silent transitions are invisible in event logs</small>
+   </div>
+   <div class="form-group" id="transition-label-group" ${isSilent ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
    <label for="transition-label">Label</label>
-   <input type="text" id="transition-label" value="${transition.label}">
+   <input type="text" id="transition-label" value="${transition.label}" ${isSilent ? 'disabled' : ''}>
    </div>
-   <div class="form-group">
+   <div class="form-group" id="transition-priority-group" ${isSilent ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
    <label for="transition-priority">Priority</label>
-   <input type="number" id="transition-priority" value="${transition.priority}" min="1">
+   <input type="number" id="transition-priority" value="${transition.priority}" min="1" ${isSilent ? 'disabled' : ''}>
    </div>
-   <div class="form-group">
+   <div class="form-group" id="transition-delay-group" ${isSilent ? 'style="opacity: 0.5; pointer-events: none;"' : ''}>
    <label for="transition-delay">Delay (ms)</label>
-   <input type="number" id="transition-delay" value="${transition.delay}" min="0">
+   <input type="number" id="transition-delay" value="${transition.delay}" min="0" ${isSilent ? 'disabled' : ''}>
    </div>
    <div class="form-group">
    <label>Status</label>
@@ -651,6 +659,16 @@ initEventHandlers() {
 
     this.updateTransitionStatus(id);
 
+    // Silent checkbox handler
+    const silentCheckbox = document.getElementById("transition-silent");
+    if (silentCheckbox) {
+      silentCheckbox.addEventListener("change", (e) => {
+        transition.silent = e.target.checked;
+        // Re-render the properties panel to update disabled state
+        this.showTransitionProperties(id);
+        this.editor.render();
+      });
+    }
 
     const labelInput = document.getElementById("transition-label");
     if (labelInput) {

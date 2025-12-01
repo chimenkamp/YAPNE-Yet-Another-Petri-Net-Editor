@@ -51,22 +51,30 @@ class DataPetriNetRenderer extends PetriNetRenderer {
       transition.width,
       transition.height
     );
-    this.ctx.fillStyle = transition.isEnabled ?
-      this.theme.enabledTransitionColor : this.theme.transitionColor;
+    
+    // Silent transitions are always grey
+    if (transition.silent) {
+      this.ctx.fillStyle = this.theme.silentTransitionColor;
+    } else {
+      this.ctx.fillStyle = transition.isEnabled ?
+        this.theme.enabledTransitionColor : this.theme.transitionColor;
+    }
     this.ctx.fill();
     this.ctx.strokeStyle = this.theme.transitionStroke;
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
 
-
-    this.ctx.fillStyle = this.theme.textColor;
-    this.ctx.font = '12px Arial';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(
-      transition.label,
-      transition.position.x,
-      transition.position.y + transition.height / 2 + 15
-    );
+    // Only draw label for non-silent transitions
+    if (!transition.silent) {
+      this.ctx.fillStyle = this.theme.textColor;
+      this.ctx.font = '12px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(
+        transition.label,
+        transition.position.x,
+        transition.position.y + transition.height / 2 + 15
+      );
+    }
   }
 
   /**
@@ -89,11 +97,12 @@ class DataPetriNetRenderer extends PetriNetRenderer {
       height
     );
     
-
-    if (transition.isEnabled) {
+    // Silent transitions are always grey
+    if (transition.silent) {
+      this.ctx.fillStyle = this.theme.silentTransitionColor;
+    } else if (transition.isEnabled) {
       this.ctx.fillStyle = this.theme.enabledDataTransitionColor;
     } else {
-
       const isTokenEnabled = this.isTransitionTokenEnabled(transition.id);
       this.ctx.fillStyle = isTokenEnabled ? 
         this.theme.disabledDataTransitionColor : // Data guard is preventing firing
@@ -105,24 +114,25 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     this.ctx.lineWidth = 2;
     this.ctx.stroke();
     
-
-    if (transition.precondition) {
-      this.drawDataGuardIndicator(x, y - height / 2, width);
+    // Only draw indicators and label for non-silent transitions
+    if (!transition.silent) {
+      if (transition.precondition) {
+        this.drawDataGuardIndicator(x, y - height / 2, width);
+      }
+      
+      if (transition.postcondition) {
+        this.drawDataUpdateIndicator(x, y + height / 2, width);
+      }
+      
+      this.ctx.fillStyle = this.theme.textColor;
+      this.ctx.font = '12px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(
+        transition.label,
+        x,
+        y + height / 2 + 15
+      );
     }
-    
-    if (transition.postcondition) {
-      this.drawDataUpdateIndicator(x, y + height / 2, width);
-    }
-    
-
-    this.ctx.fillStyle = this.theme.textColor;
-    this.ctx.font = '12px Arial';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(
-      transition.label,
-      x,
-      y + height / 2 + 15
-    );
   }
 
   /**

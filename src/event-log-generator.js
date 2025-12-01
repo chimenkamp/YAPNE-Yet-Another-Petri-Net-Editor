@@ -535,6 +535,9 @@ class EventLogGenerator {
       const transition = simulationCase.net.transitions.get(transitionId);
       const transitionName = transition.label || transitionId;
       
+      // Check if this is a silent transition - they should be fired but not logged
+      const isSilentTransition = transition.silent || false;
+      
       // Get variable state BEFORE transition firing (for DPN)
       const isDataPetriNet = simulationCase.net instanceof DataPetriNet || 
                              simulationCase.net.dataVariables instanceof Map;
@@ -544,8 +547,8 @@ class EventLogGenerator {
       if (isDataPetriNet && simulationCase.net.dataVariables) {
         variablesBefore = simulationCase.net.getDataValuation();
         
-        // Evaluate precondition for logging
-        if (transition.precondition && transition.precondition.trim() !== "") {
+        // Evaluate precondition for logging (only if not silent)
+        if (!isSilentTransition && transition.precondition && transition.precondition.trim() !== "") {
           preconditionResult = {
             expression: transition.precondition,
             satisfied: transition.evaluatePrecondition(variablesBefore)
@@ -553,23 +556,25 @@ class EventLogGenerator {
         }
       }
       
-      // Log transition start event
-      const startEventData = { transitionId };
-      if (variablesBefore) {
-        startEventData.variables_before = { ...variablesBefore };
-        if (preconditionResult) {
-          startEventData.precondition = preconditionResult;
+      // Log transition start event (skip for silent transitions)
+      if (!isSilentTransition) {
+        const startEventData = { transitionId };
+        if (variablesBefore) {
+          startEventData.variables_before = { ...variablesBefore };
+          if (preconditionResult) {
+            startEventData.precondition = preconditionResult;
+          }
         }
+        
+        this.logEvent({
+          case: simulationCase.id,
+          activity: transitionName,
+          timestamp: new Date(simulationCase.currentTime),
+          lifecycle: 'start',
+          resource: 'system',
+          data: startEventData
+        });
       }
-      
-      this.logEvent({
-        case: simulationCase.id,
-        activity: transitionName,
-        timestamp: new Date(simulationCase.currentTime),
-        lifecycle: 'start',
-        resource: 'system',
-        data: startEventData
-      });
       
       // Calculate duration
       const duration = transition.delay || this.options.defaultTransitionDuration;
@@ -591,8 +596,8 @@ class EventLogGenerator {
       if (isDataPetriNet && simulationCase.net.dataVariables) {
         variablesAfter = simulationCase.net.getDataValuation();
         
-        // Track variable changes
-        if (variablesBefore && variablesAfter) {
+        // Track variable changes (only if not silent)
+        if (!isSilentTransition && variablesBefore && variablesAfter) {
           variableChanges = {};
           for (const [varName, afterValue] of Object.entries(variablesAfter)) {
             const beforeValue = variablesBefore[varName];
@@ -605,8 +610,8 @@ class EventLogGenerator {
           }
         }
         
-        // Log postcondition information
-        if (transition.postcondition && transition.postcondition.trim() !== "") {
+        // Log postcondition information (only if not silent)
+        if (!isSilentTransition && transition.postcondition && transition.postcondition.trim() !== "") {
           postconditionResult = {
             expression: transition.postcondition,
             applied: true
@@ -618,31 +623,33 @@ class EventLogGenerator {
       const completionTime = this.calculateNextTimestamp(simulationCase.currentTime, duration);
       simulationCase.currentTime = completionTime;
       
-      // Log transition complete event
-      const completeEventData = { 
-        transitionId,
-        duration,
-        step: simulationCase.steps 
-      };
-      
-      if (variablesAfter) {
-        completeEventData.variables_after = { ...variablesAfter };
-        if (postconditionResult) {
-          completeEventData.postcondition = postconditionResult;
+      // Log transition complete event (skip for silent transitions)
+      if (!isSilentTransition) {
+        const completeEventData = { 
+          transitionId,
+          duration,
+          step: simulationCase.steps 
+        };
+        
+        if (variablesAfter) {
+          completeEventData.variables_after = { ...variablesAfter };
+          if (postconditionResult) {
+            completeEventData.postcondition = postconditionResult;
+          }
+          if (variableChanges && Object.keys(variableChanges).length > 0) {
+            completeEventData.variable_changes = variableChanges;
+          }
         }
-        if (variableChanges && Object.keys(variableChanges).length > 0) {
-          completeEventData.variable_changes = variableChanges;
-        }
+        
+        this.logEvent({
+          case: simulationCase.id,
+          activity: transitionName,
+          timestamp: new Date(completionTime),
+          lifecycle: 'complete',
+          resource: 'system',
+          data: completeEventData
+        });
       }
-      
-      this.logEvent({
-        case: simulationCase.id,
-        activity: transitionName,
-        timestamp: new Date(completionTime),
-        lifecycle: 'complete',
-        resource: 'system',
-        data: completeEventData
-      });
       
       // Check if case is complete after this step
       if (this.isCaseComplete(simulationCase)) {

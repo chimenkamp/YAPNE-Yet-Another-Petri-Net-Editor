@@ -112,16 +112,21 @@ class DataPetriNetUI {
         const buttonGroup = propertiesPanel.querySelector('.form-group button');
         const insertPoint = buttonGroup ? buttonGroup.closest('.form-group') : null;
         
+        // Check if transition is silent - disable data condition fields
+        const isSilent = transition.silent || false;
+        const disabledAttr = isSilent ? 'disabled' : '';
+        const disabledStyle = isSilent ? 'style="opacity: 0.5; pointer-events: none;"' : '';
+        
         // HTML for data conditions
         const dataConditionsHtml = `
-          <div class="form-group">
+          <div class="form-group" ${disabledStyle}>
             <label for="transition-precondition">Precondition (Guard)</label>
-            <textarea id="transition-precondition" rows="3">${transition.precondition || ''}</textarea>
+            <textarea id="transition-precondition" rows="3" ${disabledAttr}>${transition.precondition || ''}</textarea>
             <small>JavaScript expression using variable names</small>
           </div>
-          <div class="form-group">
+          <div class="form-group" ${disabledStyle}>
             <label for="transition-postcondition">Postcondition (Updates)</label>
-            <textarea id="transition-postcondition" rows="3">${transition.postcondition || ''}</textarea>
+            <textarea id="transition-postcondition" rows="3" ${disabledAttr}>${transition.postcondition || ''}</textarea>
             <small>Format: x' = expression; y' = expression;</small>
           </div>
           <div class="form-group">
@@ -138,9 +143,9 @@ class DataPetriNetUI {
           propertiesPanel.insertAdjacentHTML('beforeend', dataConditionsHtml);
         }
         
-        // Add event listeners for the inputs
+        // Add event listeners for the inputs (only if not silent)
         const preconditionInput = document.getElementById('transition-precondition');
-        if (preconditionInput) {
+        if (preconditionInput && !isSilent) {
           preconditionInput.addEventListener('input', (e) => {
             // Update precondition and handle errors
             try {
@@ -155,7 +160,7 @@ class DataPetriNetUI {
         }
         
         const postconditionInput = document.getElementById('transition-postcondition');
-        if (postconditionInput) {
+        if (postconditionInput && !isSilent) {
           postconditionInput.addEventListener('input', (e) => {
             try {
               this.app.api.setTransitionPostcondition(id, e.target.value);

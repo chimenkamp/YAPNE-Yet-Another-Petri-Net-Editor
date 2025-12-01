@@ -57,7 +57,8 @@ class Transition extends PetriNetElement {
     position,
     label = "",
     priority = 1,
-    delay = 0
+    delay = 0,
+    silent = false
   ) {
     super(id, position, label);
     this.width = 20;
@@ -65,6 +66,7 @@ class Transition extends PetriNetElement {
     this.isEnabled = false;
     this.priority = priority;
     this.delay = delay;
+    this.silent = silent;
   }
 }
 
@@ -483,12 +485,15 @@ class PetriNet {
 
 
     data.transitions.forEach((transitionData) => {
+      // Detect silent transition: explicit silent flag or null/empty label
+      const isSilent = transitionData.silent || !transitionData.label || transitionData.label.trim() === '';
       const transition = new Transition(
         transitionData.id,
         transitionData.position,
-        transitionData.label,
+        transitionData.label || '',
         transitionData.priority,
-        transitionData.delay
+        transitionData.delay,
+        isSilent
       );
       net.transitions.set(transition.id, transition);
     });
@@ -560,7 +565,17 @@ class PetriNet {
         </n>
         <graphics>
           <position x="${transition.position.x}" y="${transition.position.y}"/>
-        </graphics>
+        </graphics>`;
+      
+      // Add silent transition attribute in toolspecific section
+      if (transition.silent) {
+        pnml += `
+        <toolspecific tool="YAPNE" version="1.0">
+          <silent>true</silent>
+        </toolspecific>`;
+      }
+      
+      pnml += `
       </transition>`;
     }
 
@@ -618,6 +633,7 @@ class PetriNetRenderer {
       transitionColor: '#d3d3d3',
       transitionStroke: '#000000',
       enabledTransitionColor: '#90ee90',
+      silentTransitionColor: '#808080',
       arcColor: '#000000',
       selectedColor: '#4682b4',
       textColor: '#000000',
@@ -763,22 +779,30 @@ drawPlaces() {
         transition.width,
         transition.height
       );
-      this.ctx.fillStyle = transition.isEnabled ?
-        this.theme.enabledTransitionColor : this.theme.transitionColor;
+      
+      // Silent transitions are always grey
+      if (transition.silent) {
+        this.ctx.fillStyle = this.theme.silentTransitionColor;
+      } else {
+        this.ctx.fillStyle = transition.isEnabled ?
+          this.theme.enabledTransitionColor : this.theme.transitionColor;
+      }
       this.ctx.fill();
       this.ctx.strokeStyle = this.theme.transitionStroke;
       this.ctx.lineWidth = 2;
       this.ctx.stroke();
 
-
-      this.ctx.fillStyle = this.theme.textColor;
-      this.ctx.font = '12px Arial';
-      this.ctx.textAlign = 'center';
-      this.ctx.fillText(
-        transition.label,
-        transition.position.x,
-        transition.position.y + transition.height / 2 + 15
-      );
+      // Only draw label for non-silent transitions
+      if (!transition.silent) {
+        this.ctx.fillStyle = this.theme.textColor;
+        this.ctx.font = '12px Arial';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText(
+          transition.label,
+          transition.position.x,
+          transition.position.y + transition.height / 2 + 15
+        );
+      }
     }
   }
 
