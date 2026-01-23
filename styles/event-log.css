@@ -135,6 +135,14 @@
     min-height: 80px;
   }
   
+  .form-hint {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+    color: #81A1C1; /* nord9 */
+    font-style: italic;
+  }
+  
   /* Event Log Panel */
   .event-log-panel {
     position: fixed;

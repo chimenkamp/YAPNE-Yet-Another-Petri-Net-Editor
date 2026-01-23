@@ -34,7 +34,8 @@ class EventLogIntegration {
         endPlaces: [],
         seed: null,
         numCases: 10,
-        maxSteps: 100
+        maxSteps: 100,
+        eventLogFormat: 'lifecycle'
       };
       
       this.initialize();
@@ -89,6 +90,14 @@ class EventLogIntegration {
                     <option value="random">Random</option>
                     <option value="weighted">Weighted</option>
                   </select>
+                </div>
+                <div class="form-group">
+                  <label for="event-log-format">Event Log Format</label>
+                  <select id="event-log-format">
+                    <option value="lifecycle">Lifecycle (Start/Complete events)</option>
+                    <option value="classic">Classic (Single event with variable columns)</option>
+                  </select>
+                  <small class="form-hint">Lifecycle: XES format with start/complete events. Classic: One row per activity with variables as separate columns.</small>
                 </div>
               </div>
               
@@ -324,6 +333,7 @@ class EventLogIntegration {
       document.getElementById('max-steps').value = 100;
       document.getElementById('case-name').value = 'Case';
       document.getElementById('transition-strategy').value = 'priority';
+      document.getElementById('event-log-format').value = 'lifecycle';
       document.getElementById('time-unit').value = 'minutes';
       document.getElementById('time-scale').value = 1;
       document.getElementById('transition-duration').value = 1000;
@@ -362,6 +372,7 @@ class EventLogIntegration {
         maxSteps: parseInt(document.getElementById('max-steps').value, 10),
         caseName: document.getElementById('case-name').value,
         transitionSelectionStrategy: document.getElementById('transition-strategy').value,
+        eventLogFormat: document.getElementById('event-log-format').value,
         timeUnit: document.getElementById('time-unit').value,
         timeScale: parseFloat(document.getElementById('time-scale').value),
         defaultTransitionDuration: parseInt(document.getElementById('transition-duration').value, 10),
@@ -500,58 +511,118 @@ class EventLogIntegration {
 
       this.displayStatistics();
       
-
+      // Determine the format and set up table headers accordingly
+      const isClassicFormat = this.simulationOptions.eventLogFormat === 'classic';
+      
+      // Get table header and body
+      const tableHead = document.querySelector('#event-log-table thead tr');
       const tableBody = document.getElementById('event-log-table-body');
+      
+      // Clear existing content
       tableBody.innerHTML = '';
       
-
-      const eventsToShow = this.eventLog.slice(0, 250);
-      
-
-      eventsToShow.forEach(event => {
-        const row = document.createElement('tr');
+      if (isClassicFormat) {
+        // For classic format, dynamically create columns based on all keys in the log
+        const allKeys = new Set();
+        this.eventLog.forEach(event => {
+          Object.keys(event).forEach(key => allKeys.add(key));
+        });
         
-
-        const caseId = event['case:concept:name'] || '';
-        const activity = event['concept:name'] || '';
-        const timestamp = event['time:timestamp'] || '';
-        const lifecycle = event['lifecycle:transition'] || '';
-        const resource = event['org:resource'] || '';
+        // Order: case:concept:name, concept:name, time:timestamp, then variables alphabetically
+        const standardKeys = ['case:concept:name', 'concept:name', 'time:timestamp'];
+        const variableKeys = Array.from(allKeys).filter(k => !standardKeys.includes(k)).sort();
+        const orderedKeys = [...standardKeys, ...variableKeys];
         
-
-        const dataFields = {};
-        for (const [key, value] of Object.entries(event)) {
-          if (!['case:concept:name', 'concept:name', 'time:timestamp', 'lifecycle:transition', 'org:resource'].includes(key)) {
-            dataFields[key] = value;
-          }
-        }
+        // Update table header
+        tableHead.innerHTML = orderedKeys.map(key => {
+          // Make headers more readable
+          let displayName = key;
+          if (key === 'case:concept:name') displayName = 'Case';
+          else if (key === 'concept:name') displayName = 'Activity';
+          else if (key === 'time:timestamp') displayName = 'Timestamp';
+          return `<th>${displayName}</th>`;
+        }).join('');
         
-
-        let formattedTimestamp = timestamp;
-        try {
-          const date = new Date(timestamp);
-          formattedTimestamp = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
-        } catch (e) {
-
-        }
-        
-
-        row.innerHTML = `
-          <td>${caseId}</td>
-          <td>${activity}</td>
-          <td>${formattedTimestamp}</td>
-          <td>${lifecycle}</td>
-          <td>${resource}</td>
-          <td>${Object.keys(dataFields).length > 0 ? JSON.stringify(dataFields) : ''}</td>
+        // Add rows (limit to 250)
+        const eventsToShow = this.eventLog.slice(0, 250);
+        eventsToShow.forEach(event => {
+          const row = document.createElement('tr');
+          row.innerHTML = orderedKeys.map(key => {
+            let value = event[key];
+            
+            // Format timestamp
+            if (key === 'time:timestamp' && value) {
+              try {
+                const date = new Date(value);
+                value = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+              } catch (e) { /* keep original */ }
+            }
+            
+            // Handle undefined/null/empty
+            if (value === undefined || value === null || value === '') {
+              return '<td></td>';
+            }
+            
+            return `<td>${value}</td>`;
+          }).join('');
+          tableBody.appendChild(row);
+        });
+      } else {
+        // Lifecycle format - use original column structure
+        tableHead.innerHTML = `
+          <th>Case</th>
+          <th>Activity</th>
+          <th>Timestamp</th>
+          <th>Lifecycle</th>
+          <th>Resource</th>
+          <th>Data</th>
         `;
         
-        tableBody.appendChild(row);
-      });
+        // Add rows (limit to 250)
+        const eventsToShow = this.eventLog.slice(0, 250);
+        eventsToShow.forEach(event => {
+          const row = document.createElement('tr');
+          
+          const caseId = event['case:concept:name'] || '';
+          const activity = event['concept:name'] || '';
+          const timestamp = event['time:timestamp'] || '';
+          const lifecycle = event['lifecycle:transition'] || '';
+          const resource = event['org:resource'] || '';
+          
+          // Collect data fields
+          const dataFields = {};
+          for (const [key, value] of Object.entries(event)) {
+            if (!['case:concept:name', 'concept:name', 'time:timestamp', 'lifecycle:transition', 'org:resource'].includes(key)) {
+              dataFields[key] = value;
+            }
+          }
+          
+          // Format timestamp
+          let formattedTimestamp = timestamp;
+          try {
+            const date = new Date(timestamp);
+            formattedTimestamp = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+          } catch (e) { /* keep original */ }
+          
+          row.innerHTML = `
+            <td>${caseId}</td>
+            <td>${activity}</td>
+            <td>${formattedTimestamp}</td>
+            <td>${lifecycle}</td>
+            <td>${resource}</td>
+            <td>${Object.keys(dataFields).length > 0 ? JSON.stringify(dataFields) : ''}</td>
+          `;
+          
+          tableBody.appendChild(row);
+        });
+      }
       
-
+      // Show message if truncated
       if (this.eventLog.length > 250) {
         const message = document.createElement('tr');
-        message.innerHTML = `<td colspan="6" class="message">Showing 250 of ${this.eventLog.length} events. Export to see all events.</td>`;
+        const colspan = isClassicFormat ? 
+          document.querySelectorAll('#event-log-table thead th').length : 6;
+        message.innerHTML = `<td colspan="${colspan}" class="message">Showing 250 of ${this.eventLog.length} events. Export to see all events.</td>`;
         tableBody.appendChild(message);
       }
     }

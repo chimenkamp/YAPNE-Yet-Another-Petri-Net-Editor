@@ -25,6 +25,7 @@ class EventLogGenerator {
      * @param {Array<string>} [options.startPlaces=[]] - Places that mark the beginning of a case
      * @param {Array<string>} [options.endPlaces=[]] - Places that mark the end of a case
      * @param {number} [options.seed=null] - Random seed for reproducible simulations
+     * @param {string} [options.eventLogFormat='lifecycle'] - Event log format ('lifecycle' for start/complete events, 'classic' for single event per activity with variable columns)
      */
     constructor(petriNet, options = {}) {
       this.petriNet = petriNet;
@@ -44,8 +45,12 @@ class EventLogGenerator {
         initialMarking: options.initialMarking || null,
         startPlaces: options.startPlaces || [],
         endPlaces: options.endPlaces || [],
-        seed: options.seed || null
+        seed: options.seed || null,
+        eventLogFormat: options.eventLogFormat || 'lifecycle'
       };
+      
+      // Track previous variable values for classic format (per case)
+      this.previousVariableValues = {};
 
 
       if (typeof this.options.startTimestamp === 'string') {
@@ -174,20 +179,27 @@ class EventLogGenerator {
         events: []
       };
       
-      // Log case start with initial variables
-      const startData = { startPlaces: this.options.startPlaces };
-      if (initialVariables) {
-        startData.initial_variables = { ...initialVariables };
+      // Log case start with initial variables (skip for classic format)
+      if (this.options.eventLogFormat !== 'classic') {
+        const startData = { startPlaces: this.options.startPlaces };
+        if (initialVariables) {
+          startData.initial_variables = { ...initialVariables };
+        }
+        
+        this.logEvent({
+          case: caseId,
+          activity: 'Case_Start',
+          timestamp: timestamp,
+          lifecycle: 'complete',
+          resource: 'system',
+          data: startData
+        });
+      } else {
+        // Initialize variable tracking for classic format with initial values
+        if (initialVariables) {
+          this.previousVariableValues[caseId] = { ...initialVariables };
+        }
       }
-      
-      this.logEvent({
-        case: caseId,
-        activity: 'Case_Start',
-        timestamp: timestamp,
-        lifecycle: 'complete',
-        resource: 'system',
-        data: startData
-      });
       
       return newCase;
     }
@@ -343,6 +355,54 @@ class EventLogGenerator {
         if (activeCase) {
           activeCase.events.push({...logEntry});
         }
+      }
+    }
+    
+    /**
+     * Logs an event in classic format (single event per activity with separate variable columns)
+     * Only includes variable values that have changed since the last event for this case
+     * @param {Object} event - The event to log
+     * @private
+     */
+    logClassicEvent(event) {
+      const caseId = event.case;
+      
+      // Initialize previous values tracking for this case if not exists
+      if (!this.previousVariableValues[caseId]) {
+        this.previousVariableValues[caseId] = {};
+      }
+      
+      // Create base log entry with standard XES attributes
+      const logEntry = {
+        'case:concept:name': caseId,
+        'concept:name': event.activity,
+        'time:timestamp': event.timestamp.toISOString()
+      };
+      
+      // Add variable columns - only include values that changed
+      if (event.variablesAfter) {
+        for (const [varName, currentValue] of Object.entries(event.variablesAfter)) {
+          const previousValue = this.previousVariableValues[caseId][varName];
+          
+          // Only add the value if it changed (or if it's the first time we see this variable)
+          if (previousValue !== currentValue) {
+            logEntry[varName] = currentValue;
+            // Update the previous value for next comparison
+            this.previousVariableValues[caseId][varName] = currentValue;
+          } else {
+            // Leave empty if unchanged (don't add the key at all, or set to empty string)
+            logEntry[varName] = '';
+          }
+        }
+      }
+      
+      // Add to main event log
+      this.eventLog.push(logEntry);
+      
+      // Add to case-specific events
+      const activeCase = this.activeCases.find(c => c.id === caseId);
+      if (activeCase) {
+        activeCase.events.push({...logEntry});
       }
     }
     
@@ -556,8 +616,8 @@ class EventLogGenerator {
         }
       }
       
-      // Log transition start event (skip for silent transitions)
-      if (!isSilentTransition) {
+      // Log transition start event (skip for silent transitions and classic format)
+      if (!isSilentTransition && this.options.eventLogFormat === 'lifecycle') {
         const startEventData = { transitionId };
         if (variablesBefore) {
           startEventData.variables_before = { ...variablesBefore };
@@ -625,30 +685,43 @@ class EventLogGenerator {
       
       // Log transition complete event (skip for silent transitions)
       if (!isSilentTransition) {
-        const completeEventData = { 
-          transitionId,
-          duration,
-          step: simulationCase.steps 
-        };
-        
-        if (variablesAfter) {
-          completeEventData.variables_after = { ...variablesAfter };
-          if (postconditionResult) {
-            completeEventData.postcondition = postconditionResult;
+        if (this.options.eventLogFormat === 'classic') {
+          // Classic format: single event with separate variable columns (only changed values)
+          this.logClassicEvent({
+            case: simulationCase.id,
+            activity: transitionName,
+            timestamp: new Date(completionTime),
+            resource: 'system',
+            variablesBefore: variablesBefore,
+            variablesAfter: variablesAfter
+          });
+        } else {
+          // Lifecycle format: start/complete events with nested data
+          const completeEventData = { 
+            transitionId,
+            duration,
+            step: simulationCase.steps 
+          };
+          
+          if (variablesAfter) {
+            completeEventData.variables_after = { ...variablesAfter };
+            if (postconditionResult) {
+              completeEventData.postcondition = postconditionResult;
+            }
+            if (variableChanges && Object.keys(variableChanges).length > 0) {
+              completeEventData.variable_changes = variableChanges;
+            }
           }
-          if (variableChanges && Object.keys(variableChanges).length > 0) {
-            completeEventData.variable_changes = variableChanges;
-          }
+          
+          this.logEvent({
+            case: simulationCase.id,
+            activity: transitionName,
+            timestamp: new Date(completionTime),
+            lifecycle: 'complete',
+            resource: 'system',
+            data: completeEventData
+          });
         }
-        
-        this.logEvent({
-          case: simulationCase.id,
-          activity: transitionName,
-          timestamp: new Date(completionTime),
-          lifecycle: 'complete',
-          resource: 'system',
-          data: completeEventData
-        });
       }
       
       // Check if case is complete after this step
@@ -678,24 +751,29 @@ class EventLogGenerator {
         finalVariables = simulationCase.net.getDataValuation();
       }
       
-      // Log case end with final variables
-      const endData = { 
-        duration: simulationCase.endTime - simulationCase.startTime,
-        steps: simulationCase.steps
-      };
-      
-      if (finalVariables) {
-        endData.final_variables = { ...finalVariables };
+      // Log case end with final variables (skip for classic format)
+      if (this.options.eventLogFormat !== 'classic') {
+        const endData = { 
+          duration: simulationCase.endTime - simulationCase.startTime,
+          steps: simulationCase.steps
+        };
+        
+        if (finalVariables) {
+          endData.final_variables = { ...finalVariables };
+        }
+        
+        this.logEvent({
+          case: simulationCase.id,
+          activity: 'Case_End',
+          timestamp: simulationCase.endTime,
+          lifecycle: 'complete',
+          resource: 'system',
+          data: endData
+        });
+      } else {
+        // Clean up variable tracking for this case
+        delete this.previousVariableValues[simulationCase.id];
       }
-      
-      this.logEvent({
-        case: simulationCase.id,
-        activity: 'Case_End',
-        timestamp: simulationCase.endTime,
-        lifecycle: 'complete',
-        resource: 'system',
-        data: endData
-      });
       
       // Move case from active to completed
       const index = this.activeCases.findIndex(c => c.id === simulationCase.id);
@@ -718,6 +796,7 @@ class EventLogGenerator {
       this.eventLog = [];
       this.caseCounter = 1;
       this.currentTimestamp = new Date(this.options.startTimestamp);
+      this.previousVariableValues = {}; // Reset variable tracking for classic format
       
       // Create the first case
       const firstCase = this.createCase();
@@ -796,20 +875,34 @@ class EventLogGenerator {
         return '';
       }
       
-
+      // Collect all headers
       const headers = new Set();
       this.eventLog.forEach(event => {
         Object.keys(event).forEach(key => headers.add(key));
       });
       
-      const headerRow = Array.from(headers).join(',');
+      // For classic format, order headers properly: case:concept:name, concept:name, time:timestamp, then variables
+      let orderedHeaders;
+      if (this.options.eventLogFormat === 'classic') {
+        const standardHeaders = ['case:concept:name', 'concept:name', 'time:timestamp'];
+        const variableHeaders = Array.from(headers).filter(h => !standardHeaders.includes(h)).sort();
+        orderedHeaders = [...standardHeaders, ...variableHeaders];
+      } else {
+        orderedHeaders = Array.from(headers);
+      }
+      
+      const headerRow = orderedHeaders.join(',');
       const rows = [headerRow];
       
-
+      // Add rows
       this.eventLog.forEach(event => {
-        const row = Array.from(headers).map(header => {
-          const value = event[header] || '';
-
+        const row = orderedHeaders.map(header => {
+          const value = event[header];
+          // Handle undefined/null as empty string
+          if (value === undefined || value === null) {
+            return '';
+          }
+          // Escape values containing commas or quotes
           if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
             return `"${value.replace(/"/g, '""')}"`;
           }

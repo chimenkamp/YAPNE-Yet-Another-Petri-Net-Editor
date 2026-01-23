@@ -103,5 +103,16 @@
         "name": "DPN: Pretty Print Showcase",
         "description": "Showcase of pretty-printing features",
         "path": "examples/pretty-print-showcase.json"
+    },
+    {
+        "name": "=== Other Examples ===",
+        "description": "Comprehensive test cases for Suvorov-Lomazova soundness verification",
+        "path": ""
+    },
+    {
+        "name": "DPN: Fibonacci Sequence",
+        "description": "Example modeling Fibonacci sequence calculation",
+        "path": "public/examples/DPN-Fibonacci(n).json "
     }
+
 ]
