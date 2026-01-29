@@ -56,7 +56,8 @@
       "label": "P_Done",
       "tokens": 0,
       "capacity": null,
-      "radius": 20
+      "radius": 20,
+      "finalMarking": 1
     }
   ],
   "transitions": [
