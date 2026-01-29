@@ -500,7 +500,12 @@ checkDeadTransitions(dpn, lts) {
               const p = parent.get(current);
               if (!p || p.via === null) break;
               const edge = lts.edges.get(p.via);
-              path.push({ transitionId: edge ? edge.transition : "?" });
+              const sourceNode = lts.nodes.get(p.prev);
+              path.push({ 
+                transitionId: edge ? edge.transition : "?",
+                formula: sourceNode ? sourceNode.formula : "",
+                marking: sourceNode ? sourceNode.marking : {}
+              });
               current = p.prev;
           }
           witnessPath = path.reverse();
@@ -550,7 +555,12 @@ checkDeadTransitions(dpn, lts) {
         const p = parent.get(current);
         if (!p || p.via === null) break;
         const edge = lts.edges.get(p.via);
-        path.push({ transitionId: edge ? edge.transition : "?" });
+        const sourceNode = lts.nodes.get(p.prev);
+        path.push({ 
+          transitionId: edge ? edge.transition : "?",
+          formula: sourceNode ? sourceNode.formula : "",
+          marking: sourceNode ? sourceNode.marking : {}
+        });
         current = p.prev;
     }
     const trace = path.reverse();

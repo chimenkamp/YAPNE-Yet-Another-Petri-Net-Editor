@@ -705,6 +705,8 @@ class SuvorovLomazovaTraceVisualizationRenderer {
         violationType,
         data: step,
         vars: step.vars || {},
+        formula: step.formula || '',
+        marking: step.marking || {},
       });
     });
   }
@@ -758,7 +760,36 @@ class SuvorovLomazovaTraceVisualizationRenderer {
       html += '</div>';
     }
 
+    // Add formula (data constraint) if present
+    if (overlayData.formula && overlayData.formula !== 'true' && overlayData.formula.trim()) {
+      html += `
+        <div class="sl-data-values" style="border-top-color: #5E81AC;">
+          <strong style="color: #88C0D0;">Data Constraint:</strong>
+          <div style="font-family: monospace; font-size: 10px; color: #8FBCBB; word-break: break-all; margin-top: 4px;">
+            ${this.formatFormulaForOverlay(overlayData.formula)}
+          </div>
+        </div>
+      `;
+    }
+
     return html;
+  }
+
+  /**
+   * Format formula for overlay display (truncate if too long)
+   */
+  formatFormulaForOverlay(formula) {
+    if (!formula) return '';
+    // Escape HTML and truncate if too long
+    const escaped = formula
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    
+    if (escaped.length > 150) {
+      return escaped.substring(0, 150) + '...';
+    }
+    return escaped;
   }
 
   /**
