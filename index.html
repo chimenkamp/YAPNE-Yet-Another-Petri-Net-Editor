@@ -17,9 +17,9 @@
     <link rel="stylesheet" href="styles/random-generator.css">
     <link rel="stylesheet" href="styles/png-exporter.css">
 
-    <!-- Polyfills for Z3 and Node.js compatibility -->
+    <!-- Polyfills for Z3 and Node.js compatibility (used by Soundness Verification) -->
     <script>
-      // Provide global polyfills for Z3 compatibility
+      // Provide global polyfills for Z3 compatibility (required by soundness-verification/suvorov-lomazova)
       window.global = window;
       window.process = window.process || { 
         env: {}, 
@@ -209,7 +209,7 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(46, 52, 64, 0.6);
+    background-color: rgba(46, 52, 64, 0.8);
     z-index: 10000;
     backdrop-filter: blur(3px);
 }
@@ -219,9 +219,10 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background: #ECEFF4;
-    border-radius: 12px;
-    box-shadow: 0 10px 30px rgba(46, 52, 64, 0.4);
+    background: #3B4252;
+    border: 1px solid #4C566A;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(46, 52, 64, 0.6);
     max-width: 600px;
     max-height: 80vh;
     width: 90%;
@@ -229,30 +230,32 @@
 }
 
 .help-dialog-header {
-    background: linear-gradient(135deg, #88C0D0, #81A1C1);
+    background: #434C5E;
     color: #ECEFF4;
     padding: 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border-bottom: 1px solid #4C566A;
 }
 
 .help-dialog-header h2 {
     margin: 0;
     font-size: 24px;
     font-weight: 600;
+    color: #E5E9F0;
 }
 
 .help-dialog-close {
     background: none;
     border: none;
-    color: #ECEFF4;
+    color: #D8DEE9;
     font-size: 24px;
     cursor: pointer;
     padding: 0;
     width: 30px;
     height: 30px;
-    border-radius: 50%;
+    border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -260,13 +263,15 @@
 }
 
 .help-dialog-close:hover {
-    background-color: rgba(236, 239, 244, 0.2);
+    background-color: #4C566A;
+    color: #ECEFF4;
 }
 
 .help-dialog-content {
     padding: 20px;
     overflow-y: auto;
     max-height: calc(80vh - 80px);
+    background: #3B4252;
 }
 
 .help-section {
@@ -274,10 +279,10 @@
 }
 
 .help-section h3 {
-    color: #5E81AC;
+    color: #88C0D0;
     font-size: 18px;
     margin-bottom: 10px;
-    border-bottom: 2px solid #D8DEE9;
+    border-bottom: 2px solid #4C566A;
     padding-bottom: 5px;
 }
 
@@ -289,31 +294,31 @@
 }
 
 .help-key {
-    background-color: #D8DEE9;
-    border: 1px solid #BFC7D5;
+    background-color: #434C5E;
+    border: 1px solid #4C566A;
     border-radius: 4px;
     padding: 4px 8px;
     font-family: 'Courier New', Courier, monospace;
     font-size: 12px;
     font-weight: bold;
-    color: #2E3440;
+    color: #E5E9F0;
     min-width: 60px;
     text-align: center;
-    box-shadow: 0 1px 2px rgba(46, 52, 64, 0.1);
+    box-shadow: 0 1px 2px rgba(46, 52, 64, 0.3);
 }
 
 .help-description {
-    color: #434C5E;
+    color: #D8DEE9;
     line-height: 1.4;
 }
 
 .help-tip {
-    background: #E5E9F0;
+    background: #434C5E;
     border-left: 4px solid #8FBCBB;
     padding: 10px 15px;
     margin: 15px 0;
     border-radius: 0 6px 6px 0;
-    color:#2E3440;
+    color: #E5E9F0;
 }
 
 .help-tip-icon {
@@ -336,7 +341,7 @@
 }
 
 .help-button:hover {
-    background: #5E81AC;
+    background: #88C0D0;
 }
     </style>
 </head> 
@@ -562,6 +567,7 @@
                             </div>
                             <div class="section-content">
                                <button id="btn-event-log" style="width: 100%;">Generate Event Log</button>
+                               <button id="btn-view-webppl" style="width: 100%; margin-top: 8px;">📜 View WebPPL Code</button>
                             </div>
                         </div>
                     </div>
@@ -650,7 +656,19 @@
             </div>
             <div class="help-dialog-content">
                 <div class="help-section">
-                    <h3>🔧 Editor Tools</h3>
+                    <h3>� Quick Start - Ghost Mode</h3>
+                    <div class="help-tip">
+                        <span class="help-tip-icon">💡</span>
+                        <strong>Ghost Mode:</strong> Select any place or transition, hold <kbd>Shift</kbd>, and move your mouse to quickly create connected elements. Click to place the new element with an automatic connection.
+                        <div class="help-gif-container" style="margin-top: 10px;">
+                            <img src="public/static/tutorial-ghost-elements.gif" alt="Ghost Mode demonstration" style="max-width: 100%; border: 1px solid #ccc; border-radius: 4px;">
+                            <p style="font-style: italic; font-size: 0.9em; text-align: center; margin: 5px 0 0 0; color: #666;">Select an element and press shift</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <h3>�🔧 Editor Tools</h3>
                     <div class="help-controls-grid">
                         <span class="help-key">Click ✓</span>
                         <span class="help-description">Select and move elements</span>
@@ -670,7 +688,7 @@
                 <div class="help-section">
                     <h3>⌨️ Keyboard Shortcuts</h3>
                     <div class="help-controls-grid">
-                        <span class="help-key">C</span>
+                        <span class="help-key">Space</span>
                         <span class="help-description">Hold to enter connection mode, release to return to select mode</span>
                         <span class="help-key">Shift + Move</span>
                         <span class="help-description">Ghost mode: Create connected elements quickly</span>
@@ -699,10 +717,6 @@
 
                 <div class="help-section">
                     <h3>⚡ Advanced Features</h3>
-                    <div class="help-tip">
-                        <span class="help-tip-icon">💡</span>
-                        <strong>Ghost Mode:</strong> Select any place or transition, hold <kbd>Shift</kbd>, and move your mouse to quickly create connected elements. Click to place the new element with an automatic connection.
-                    </div>
                     <div class="help-tip">
                         <span class="help-tip-icon">🔗</span>
                         <strong>Quick Connect:</strong> Press <kbd>C</kbd> to instantly switch to connection mode. Release <kbd>C</kbd> to return to your previous tool.
@@ -735,9 +749,6 @@
         
         </div>
     </footer>
-
-    
-    <script type="module" src="/src/extensions/z3-expression-evaluation.js"></script>
 
     <script type="module" src="src/petri-net-simulator.js"></script>
     <script type="module" src="src/extensions/dpn-expression-validation.js"></script>

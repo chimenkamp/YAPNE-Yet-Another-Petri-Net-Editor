@@ -801,3 +801,558 @@
 .sl-lts-text::-webkit-scrollbar-thumb:hover {
   background-color: #5E81AC; /* nord10 */
 }
+
+/* ============================================
+   Expression Editor Dialog Styles
+   ============================================ */
+
+/* Expression Editor Modal - Wider container for two columns */
+.expr-editor-modal {
+  max-width: 950px;
+  width: 95%;
+}
+
+.expr-editor-body {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
+/* Two Column Layout */
+.expr-two-column-layout {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-height: 400px;
+}
+
+/* Left Column - Fixed */
+.expr-left-column {
+  flex: 0 0 380px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 1px solid #434C5E;
+  background-color: #3B4252;
+  overflow: hidden;
+}
+
+/* Right Column - Scrollable */
+.expr-right-column {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  background-color: #2E3440;
+}
+
+/* Scrollbar styling for right column */
+.expr-right-column::-webkit-scrollbar {
+  width: 8px;
+}
+
+.expr-right-column::-webkit-scrollbar-track {
+  background-color: #2E3440;
+}
+
+.expr-right-column::-webkit-scrollbar-thumb {
+  background-color: #4C566A;
+  border-radius: 4px;
+}
+
+.expr-right-column::-webkit-scrollbar-thumb:hover {
+  background-color: #5E81AC;
+}
+
+/* Help Section */
+.expr-help-section {
+  border-bottom: 1px solid #434C5E;
+  padding-bottom: 10px;
+}
+
+.expr-help-btn {
+  background-color: #5E81AC;
+  color: #ECEFF4;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.expr-help-btn:hover {
+  background-color: #81A1C1;
+}
+
+.expr-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: #ECEFF4;
+  color: #5E81AC;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.expr-help-content {
+  margin-top: 10px;
+  padding: 12px;
+  background-color: #2E3440;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.expr-help-content p {
+  margin: 5px 0;
+}
+
+.expr-help-content ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.expr-help-content li {
+  margin: 4px 0;
+}
+
+.expr-help-content code {
+  background-color: #4C566A;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  color: #8FBCBB;
+}
+
+/* Expression Input Section */
+.expr-input-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.expr-input-section label {
+  font-weight: 600;
+  color: #ECEFF4;
+}
+
+.expr-textarea {
+  width: 100%;
+  flex: 1;
+  min-height: 150px;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  background-color: #2E3440;
+  color: #ECEFF4;
+  border: 2px solid #4C566A;
+  border-radius: 6px;
+  resize: none;
+  transition: border-color 0.2s;
+}
+
+.expr-textarea:focus {
+  outline: none;
+  border-color: #88C0D0;
+}
+
+.expr-textarea::placeholder {
+  color: #4C566A;
+}
+
+/* Validation Display */
+.expr-validation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.expr-validation-status {
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.expr-validation-status.valid {
+  background-color: rgba(163, 190, 140, 0.2);
+  color: #A3BE8C;
+}
+
+.expr-validation-status.invalid {
+  background-color: rgba(191, 97, 106, 0.2);
+  color: #BF616A;
+}
+
+.expr-validation-message {
+  color: #BF616A;
+  font-size: 12px;
+}
+
+/* Variables Section */
+.expr-variables-section {
+  background-color: #2E3440;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.expr-section-header h4 {
+  margin: 0 0 10px 0;
+  color: #88C0D0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.expr-variables-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.expr-var-column label {
+  display: block;
+  font-size: 12px;
+  color: #D8DEE9;
+  margin-bottom: 8px;
+}
+
+.expr-variable-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.expr-variable-btn {
+  background-color: #434C5E;
+  color: #ECEFF4;
+  border: 1px solid #4C566A;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+}
+
+.expr-variable-btn:hover {
+  background-color: #5E81AC;
+  border-color: #81A1C1;
+}
+
+.expr-variable-buttons.primed .expr-variable-btn {
+  background-color: #5E3A5E;
+  border-color: #7E4A7E;
+}
+
+.expr-variable-buttons.primed .expr-variable-btn:hover {
+  background-color: #7E4A7E;
+  border-color: #9E5A9E;
+}
+
+.expr-var-type {
+  font-size: 10px;
+  padding: 2px 4px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  color: #D8DEE9;
+}
+
+.expr-no-vars {
+  color: #D8DEE9;
+  font-style: italic;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Operators Section */
+.expr-operators-section {
+  background-color: #2E3440;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.expr-operators-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.expr-operator-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.expr-operator-section label {
+  font-size: 12px;
+  color: #D8DEE9;
+}
+
+.expr-operator-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.expr-operator-btn {
+  background-color: #434C5E;
+  color: #ECEFF4;
+  border: 1px solid #4C566A;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  min-width: 36px;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.expr-operator-btn:hover {
+  background-color: #88C0D0;
+  color: #2E3440;
+  border-color: #88C0D0;
+}
+
+/* Operator category colors */
+.expr-operator-buttons.comparison .expr-operator-btn:hover {
+  background-color: #88C0D0;
+}
+
+.expr-operator-buttons.arithmetic .expr-operator-btn:hover {
+  background-color: #A3BE8C;
+}
+
+.expr-operator-buttons.logical .expr-operator-btn:hover {
+  background-color: #EBCB8B;
+  color: #2E3440;
+}
+
+.expr-operator-buttons.assignment .expr-operator-btn:hover {
+  background-color: #B48EAD;
+}
+
+.expr-operator-buttons.grouping .expr-operator-btn:hover {
+  background-color: #81A1C1;
+}
+
+.expr-operator-buttons.values .expr-operator-btn:hover {
+  background-color: #8FBCBB;
+  color: #2E3440;
+}
+
+/* Templates Section */
+.expr-templates-section {
+  background-color: #2E3440;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.expr-template-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.expr-template-btn {
+  background-color: #3B4252;
+  color: #D8DEE9;
+  border: 1px dashed #4C566A;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.expr-template-btn:hover {
+  background-color: #434C5E;
+  border-style: solid;
+  color: #ECEFF4;
+}
+
+/* Modal Footer */
+.expr-editor-modal .modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.expr-footer-right {
+  display: flex;
+  gap: 10px;
+}
+
+.expr-btn-primary {
+  background-color: #A3BE8C;
+  color: #2E3440;
+  font-weight: 600;
+}
+
+.expr-btn-primary:hover {
+  background-color: #8FBCBB;
+}
+
+.expr-btn-primary:disabled {
+  background-color: #4C566A;
+  color: #D8DEE9;
+  cursor: not-allowed;
+}
+
+.expr-btn-secondary {
+  background-color: #434C5E;
+  color: #D8DEE9;
+}
+
+.expr-btn-secondary:hover {
+  background-color: #4C566A;
+}
+
+/* Expression Display in Properties Panel */
+.expr-field-group {
+  margin-bottom: 12px;
+}
+
+.expr-display-container {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.expr-display {
+  flex: 1;
+  background-color: #2E3440;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  padding: 8px 10px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.expr-preview {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: #8FBCBB;
+  background: none;
+  padding: 0;
+  word-break: break-all;
+}
+
+.expr-empty {
+  color: #4C566A;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.expr-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.expr-edit-btn {
+  background-color: #5E81AC;
+  color: #ECEFF4;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.expr-edit-btn:hover {
+  background-color: #81A1C1;
+}
+
+.expr-edit-btn:disabled {
+  background-color: #4C566A;
+  cursor: not-allowed;
+}
+
+.expr-clear-btn {
+  background-color: #BF616A;
+  color: #ECEFF4;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.2s;
+}
+
+.expr-clear-btn:hover {
+  background-color: #D08770;
+}
+
+.expr-clear-btn:disabled {
+  background-color: #4C566A;
+  cursor: not-allowed;
+}
+
+/* Responsive adjustments */
+@media (max-width: 800px) {
+  .expr-editor-modal {
+    width: 100%;
+    max-width: none;
+    margin: 10px;
+    max-height: 95vh;
+  }
+  
+  .expr-two-column-layout {
+    flex-direction: column;
+    min-height: auto;
+  }
+  
+  .expr-left-column {
+    flex: 0 0 auto;
+    border-right: none;
+    border-bottom: 1px solid #434C5E;
+  }
+  
+  .expr-right-column {
+    max-height: 300px;
+  }
+  
+  .expr-textarea {
+    min-height: 100px;
+  }
+  
+  .expr-variables-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .expr-display-container {
+    flex-direction: column;
+  }
+  
+  .expr-display {
+    width: 100%;
+  }
+  
+  .expr-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

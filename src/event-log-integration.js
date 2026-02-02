@@ -1,12 +1,18 @@
-import { EventLogGenerator } from './event-log-generator.js';
 import { PetriNet } from './petri-net-simulator.js';
 import { DataPetriNet } from './extensions/dpn-model.js';
+import { ProbabilisticEventLogGenerator } from './extensions/probabilistic-event-log-generator.js';
 
 /**
  * Event Log Generator Integration
- * This module integrates the EventLogGenerator class with the Petri Net Editor
- * It adds UI elements for configuring and running simulations
- * Now supports Data Petri Nets with variable tracking
+ * 
+ * Implements probabilistic event log generation using the approach from
+ * "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024)
+ * https://doi.org/10.1007/978-3-031-70396-6_2
+ * 
+ * Key Paper References:
+ * - [Definition 3] Scheduler S with uniform ST for transition selection
+ * - [Section 5.1] Goal states G via finalMarking
+ * - [Figure 5] Csim structure for simulation
  */
 
 class EventLogIntegration {
@@ -18,24 +24,15 @@ class EventLogIntegration {
       this.eventLogGenerator = null;
       
 
+      // [Definition 3] Simulation options for probabilistic event log generation
       this.simulationOptions = {
         startTimestamp: new Date(),
         defaultTransitionDuration: 1000,
-        timeUnit: 'minutes',
-        timeScale: 1,
-        caseArrivalRate: 10,
-        arrivalDistribution: 'exponential',
-        arrivalParams: {},
-        transitionSelectionStrategy: 'priority',
-        transitionWeights: {},
-        caseName: 'Case',
-        initialMarking: null,
-        startPlaces: [],
-        endPlaces: [],
+        caseName: 'case',
         seed: null,
         numCases: 10,
         maxSteps: 100,
-        eventLogFormat: 'lifecycle'
+        eventLogFormat: 'classic'
       };
       
       this.initialize();
@@ -66,58 +63,40 @@ class EventLogIntegration {
               <div class="form-tabs">
                 <button class="form-tab active" data-tab="basic">Basic</button>
                 <button class="form-tab" data-tab="timing">Timing</button>
-                <button class="form-tab" data-tab="cases">Cases</button>
-                <button class="form-tab" data-tab="advanced">Advanced</button>
+                <button class="form-tab" data-tab="cases">Seed</button>
               </div>
               
               <div class="form-tab-content active" data-tab="basic">
+                <div class="form-group">
+                  <small class="form-hint">Uses probabilistic approach from "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024). Requires finalMarking to be defined on goal places.</small>
+                </div>
                 <div class="form-group">
                   <label for="num-cases">Number of Cases</label>
                   <input type="number" id="num-cases" min="1" max="1000" value="10">
                 </div>
                 <div class="form-group">
                   <label for="max-steps">Max Steps per Case</label>
-                  <input type="number" id="max-steps" min="1" max="1000" value="100">
+                  <input type="number" id="max-steps" min="1" max="10000" value="100">
                 </div>
                 <div class="form-group">
                   <label for="case-name">Case Name Prefix</label>
-                  <input type="text" id="case-name" value="Case">
-                </div>
-                <div class="form-group">
-                  <label for="transition-strategy">Transition Selection Strategy</label>
-                  <select id="transition-strategy">
-                    <option value="priority">Priority</option>
-                    <option value="random">Random</option>
-                    <option value="weighted">Weighted</option>
-                  </select>
+                  <input type="text" id="case-name" value="case">
                 </div>
                 <div class="form-group">
                   <label for="event-log-format">Event Log Format</label>
                   <select id="event-log-format">
-                    <option value="lifecycle">Lifecycle (Start/Complete events)</option>
                     <option value="classic">Classic (Single event with variable columns)</option>
+                    <option value="lifecycle">Lifecycle (Start/Complete events)</option>
                   </select>
-                  <small class="form-hint">Lifecycle: XES format with start/complete events. Classic: One row per activity with variables as separate columns.</small>
+                  <small class="form-hint">Classic: One row per activity with variables as columns. Lifecycle: XES format with start/complete events.</small>
                 </div>
               </div>
               
               <div class="form-tab-content" data-tab="timing">
                 <div class="form-group">
-                  <label for="time-unit">Time Unit</label>
-                  <select id="time-unit">
-                    <option value="seconds">Seconds</option>
-                    <option value="minutes" selected>Minutes</option>
-                    <option value="hours">Hours</option>
-                    <option value="days">Days</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label for="time-scale">Time Scale Factor</label>
-                  <input type="number" id="time-scale" min="0.1" step="0.1" value="1">
-                </div>
-                <div class="form-group">
-                  <label for="transition-duration">Default Transition Duration (ms)</label>
-                  <input type="number" id="transition-duration" min="1" value="1000">
+                  <label for="transition-duration">Average Transition Duration (ms)</label>
+                  <input type="number" id="transition-duration" min="1" value="60000">
+                  <small class="form-hint">Average time between events in milliseconds (default: 60000 = 1 minute)</small>
                 </div>
                 <div class="form-group">
                   <label for="start-timestamp">Start Timestamp</label>
@@ -127,45 +106,15 @@ class EventLogIntegration {
               
               <div class="form-tab-content" data-tab="cases">
                 <div class="form-group">
-                  <label for="case-arrival-rate">Case Arrival Rate</label>
-                  <input type="number" id="case-arrival-rate" min="0.1" step="0.1" value="10">
-                </div>
-                <div class="form-group">
-                  <label for="arrival-distribution">Arrival Distribution</label>
-                  <select id="arrival-distribution">
-                    <option value="fixed">Fixed</option>
-                    <option value="exponential" selected>Exponential</option>
-                    <option value="normal">Normal</option>
-                  </select>
-                </div>
-                <div class="form-group normal-params hidden">
-                  <label for="stddev">Standard Deviation</label>
-                  <input type="number" id="stddev" min="0.1" step="0.1" value="3">
-                </div>
-                <div class="form-group">
                   <label for="random-seed">Random Seed (leave empty for random)</label>
                   <input type="number" id="random-seed" min="1" step="1" placeholder="Random">
-                </div>
-              </div>
-              
-              <div class="form-tab-content" data-tab="advanced">
-                <div class="form-group">
-                  <label for="start-places">Start Places (comma-separated IDs, leave empty for auto-detect)</label>
-                  <input type="text" id="start-places" placeholder="Auto-detect">
-                </div>
-                <div class="form-group">
-                  <label for="end-places">End Places (comma-separated IDs, leave empty for auto-detect)</label>
-                  <input type="text" id="end-places" placeholder="Auto-detect">
-                </div>
-                <div class="form-group">
-                  <label for="initial-marking">Initial Marking (JSON, leave empty for current marking)</label>
-                  <textarea id="initial-marking" rows="4" placeholder='{"place1": 1, "place2": 0}'></textarea>
+                  <small class="form-hint">Set a seed for reproducible simulations</small>
                 </div>
               </div>
             </div>
           </div>
           <div class="modal-footer">
-            <button class="btn" id="event-log-run">Run Simulation</button>
+            <button class="btn" id="event-log-run">Generate Event Log</button>
             <button class="btn" id="event-log-reset">Reset Options</button>
           </div>
         </div>
@@ -272,17 +221,6 @@ class EventLogIntegration {
       });
       
 
-      const arrivalDistribution = document.getElementById('arrival-distribution');
-      if (arrivalDistribution) {
-        arrivalDistribution.addEventListener('change', (e) => {
-          const normalParams = document.querySelector('.normal-params');
-          if (normalParams) {
-            normalParams.classList.toggle('hidden', e.target.value !== 'normal');
-          }
-        });
-      }
-      
-
       const exportCsvButton = document.getElementById('export-csv');
       if (exportCsvButton) {
         exportCsvButton.addEventListener('click', () => this.exportLog('csv'));
@@ -328,29 +266,13 @@ class EventLogIntegration {
     }
     
     resetOptions() {
-
+      // Reset to default PP options
       document.getElementById('num-cases').value = 10;
       document.getElementById('max-steps').value = 100;
-      document.getElementById('case-name').value = 'Case';
-      document.getElementById('transition-strategy').value = 'priority';
-      document.getElementById('event-log-format').value = 'lifecycle';
-      document.getElementById('time-unit').value = 'minutes';
-      document.getElementById('time-scale').value = 1;
-      document.getElementById('transition-duration').value = 1000;
-      document.getElementById('case-arrival-rate').value = 10;
-      document.getElementById('arrival-distribution').value = 'exponential';
-      document.getElementById('stddev').value = 3;
+      document.getElementById('case-name').value = 'case';
+      document.getElementById('event-log-format').value = 'classic';
+      document.getElementById('transition-duration').value = 60000;
       document.getElementById('random-seed').value = '';
-      document.getElementById('start-places').value = '';
-      document.getElementById('end-places').value = '';
-      document.getElementById('initial-marking').value = '';
-      
-
-      const normalParams = document.querySelector('.normal-params');
-      if (normalParams) {
-        normalParams.classList.add('hidden');
-      }
-      
 
       const startTimestampInput = document.getElementById('start-timestamp');
       if (startTimestampInput) {
@@ -366,61 +288,22 @@ class EventLogIntegration {
     }
     
     collectOptions() {
-
+      // [Definition 3] Collect options for probabilistic event log generation
       const options = {
         numCases: parseInt(document.getElementById('num-cases').value, 10),
         maxSteps: parseInt(document.getElementById('max-steps').value, 10),
         caseName: document.getElementById('case-name').value,
-        transitionSelectionStrategy: document.getElementById('transition-strategy').value,
         eventLogFormat: document.getElementById('event-log-format').value,
-        timeUnit: document.getElementById('time-unit').value,
-        timeScale: parseFloat(document.getElementById('time-scale').value),
         defaultTransitionDuration: parseInt(document.getElementById('transition-duration').value, 10),
-        startTimestamp: new Date(document.getElementById('start-timestamp').value),
-        caseArrivalRate: parseFloat(document.getElementById('case-arrival-rate').value),
-        arrivalDistribution: document.getElementById('arrival-distribution').value,
-        arrivalParams: {}
+        startTimestamp: new Date(document.getElementById('start-timestamp').value)
       };
       
-
-      if (options.arrivalDistribution === 'normal') {
-        options.arrivalParams.stddev = parseFloat(document.getElementById('stddev').value);
-      }
-      
-
+      // Get seed for reproducibility
       const seedInput = document.getElementById('random-seed').value;
       if (seedInput.trim() !== '') {
         options.seed = parseInt(seedInput, 10);
       } else {
         options.seed = null;
-      }
-      
-
-      const startPlacesInput = document.getElementById('start-places').value;
-      if (startPlacesInput.trim() !== '') {
-        options.startPlaces = startPlacesInput.split(',').map(id => id.trim());
-      } else {
-        options.startPlaces = [];
-      }
-      
-      const endPlacesInput = document.getElementById('end-places').value;
-      if (endPlacesInput.trim() !== '') {
-        options.endPlaces = endPlacesInput.split(',').map(id => id.trim());
-      } else {
-        options.endPlaces = [];
-      }
-      
-
-      const initialMarkingInput = document.getElementById('initial-marking').value;
-      if (initialMarkingInput.trim() !== '') {
-        try {
-          options.initialMarking = JSON.parse(initialMarkingInput);
-        } catch (error) {
-          alert('Invalid JSON for initial marking. Using current marking instead.');
-          options.initialMarking = null;
-        }
-      } else {
-        options.initialMarking = null;
       }
       
       return options;
@@ -456,12 +339,29 @@ class EventLogIntegration {
           throw new Error(res.error);
         }
 
-        this.eventLogGenerator = new EventLogGenerator(petriNet, this.simulationOptions);
+        // Choose generator based on mode
+        // [Definition 3] Uses uniform scheduler ST from paper
+        // Implements "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024)
+        console.log('[Event Log] Using probabilistic generator (Paper: BPM 2024)');
         
-        // Run simulation (now async for DPN support)
-        this.eventLog = await this.eventLogGenerator.simulateCases(
+        this.eventLogGenerator = new ProbabilisticEventLogGenerator(petriNet, {
+          startTimestamp: this.simulationOptions.startTimestamp,
+          seed: this.simulationOptions.seed ?? Date.now(),
+          maxStepsPerCase: this.simulationOptions.maxSteps,
+          avgTransitionDuration: this.simulationOptions.defaultTransitionDuration,
+          caseName: this.simulationOptions.caseName,
+          eventLogFormat: this.simulationOptions.eventLogFormat,
+          includeVariables: true,
+          validateGoal: true  // Will throw if finalMarking not defined
+        });
+        
+        // Run probabilistic simulation
+        this.eventLog = await this.eventLogGenerator.generateCases(
           this.simulationOptions.numCases,
-          this.simulationOptions.maxSteps
+          {
+            onCaseStart: (caseNum) => console.log(`[PP] Starting case ${caseNum}`),
+            onCaseEnd: (caseNum, result) => console.log(`[PP] Case ${caseNum}: ${result.status}, ${result.traceLength} steps`)
+          }
         );
         
         // Close dialog
@@ -474,26 +374,29 @@ class EventLogIntegration {
         alert('An error occurred while running the simulation: ' + error.message);
       }
     }
-        /**
-     * Validates the Petri net to ensure it's suitable for simulation
+    /**
+     * Validates the Petri net to ensure it's suitable for probabilistic simulation
      * @private
-     * @returns {Object} error - Error message if validation fails
-    */
+     * @param {Object} petriNet - The Petri net to validate
+     * @returns {Object} Validation result with error property
+     */
     validatePetriNet(petriNet) {
-
+      // [Section 5.1] Validation is handled by ProbabilisticEventLogGenerator
+      // which will throw if finalMarking is not defined on goal places
       if (petriNet.places.size === 0 || petriNet.transitions.size === 0) {
         return { error: 'Petri net must have at least one place and one transition' };
       }
 
-      let has_atleast_one_marking =  false;
+      // Check for at least one token somewhere
+      let hasAtLeastOneToken = false;
       petriNet.places.forEach(place => {
         if (place.tokens > 0) {
-          has_atleast_one_marking = true;
+          hasAtLeastOneToken = true;
         }
       });
 
-      if (this.simulationOptions.initialMarking === null && !has_atleast_one_marking ) {
-        return { error: 'Petri net must have at least one place with initial tokens or an initial marking' };
+      if (!hasAtLeastOneToken) {
+        return { error: 'Petri net must have at least one place with initial tokens' };
       }
 
       return { error: null };
