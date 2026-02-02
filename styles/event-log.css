@@ -560,3 +560,198 @@
     background-color: #4C566A;
     cursor: not-allowed;
   }
+
+  /* ===== Variable Distribution Charts ===== */
+  .variable-distributions-section {
+    margin-top: 25px;
+    border-top: 1px solid #434C5E;
+    padding-top: 20px;
+  }
+
+  .variable-distributions-section h4 {
+    margin: 0 0 15px 0;
+    color: #88C0D0; /* nord8 */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .variable-distributions-section h4::before {
+    content: '📊';
+  }
+
+  .distributions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+  }
+
+  .distribution-card {
+    background-color: #434C5E; /* nord2 */
+    border-radius: 6px;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .distribution-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #4C566A;
+  }
+
+  .distribution-card-header h5 {
+    margin: 0;
+    color: #ECEFF4; /* nord6 */
+    font-size: 14px;
+    font-family: 'Consolas', 'Monaco', monospace;
+  }
+
+  .distribution-card-header .var-type {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .distribution-card-header .var-type.int {
+    background-color: #5E81AC; /* nord10 */
+    color: #ECEFF4;
+  }
+
+  .distribution-card-header .var-type.float {
+    background-color: #A3BE8C; /* nord14 */
+    color: #2E3440;
+  }
+
+  .distribution-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 11px;
+  }
+
+  .distribution-stat {
+    text-align: center;
+  }
+
+  .distribution-stat-label {
+    color: #81A1C1; /* nord9 */
+    margin-bottom: 2px;
+  }
+
+  .distribution-stat-value {
+    color: #ECEFF4;
+    font-weight: 600;
+    font-family: 'Consolas', 'Monaco', monospace;
+  }
+
+  .histogram-container {
+    flex-grow: 1;
+    min-height: 100px;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 10px 5px 5px 5px;
+    background-color: #2E3440; /* nord0 */
+    border-radius: 4px;
+    position: relative;
+  }
+
+  .histogram-container::before {
+    content: '';
+    position: absolute;
+    left: 5px;
+    right: 5px;
+    bottom: 20px;
+    border-bottom: 1px dashed #4C566A;
+  }
+
+  .histogram-bar {
+    flex: 1;
+    background: linear-gradient(to top, #5E81AC, #88C0D0);
+    border-radius: 2px 2px 0 0;
+    min-width: 8px;
+    max-width: 30px;
+    transition: opacity 0.2s;
+    position: relative;
+    cursor: pointer;
+  }
+
+  .histogram-bar:hover {
+    opacity: 0.8;
+  }
+
+  .histogram-bar::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #2E3440;
+    color: #ECEFF4;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 10;
+    border: 1px solid #4C566A;
+  }
+
+  .histogram-bar:hover::after {
+    opacity: 1;
+  }
+
+  .histogram-labels {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 5px 0 5px;
+    font-size: 10px;
+    color: #81A1C1;
+  }
+
+  .no-variables-message {
+    text-align: center;
+    color: #81A1C1;
+    font-style: italic;
+    padding: 20px;
+    background-color: #434C5E;
+    border-radius: 6px;
+  }
+
+  /* Boolean variable display */
+  .boolean-distribution {
+    display: flex;
+    height: 24px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 10px;
+  }
+
+  .boolean-true {
+    background-color: #A3BE8C; /* nord14 - green */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #2E3440;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .boolean-false {
+    background-color: #BF616A; /* nord11 - red */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ECEFF4;
+    font-size: 11px;
+    font-weight: 600;
+  }

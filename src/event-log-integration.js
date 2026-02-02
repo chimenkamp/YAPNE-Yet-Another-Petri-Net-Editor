@@ -882,7 +882,285 @@ class EventLogIntegration {
         </div>
       `;
       
+      // Add variable distributions section
+      html += this.generateVariableDistributionsHTML();
+      
       statsContainer.innerHTML = html;
+    }
+    
+    /**
+     * Analyze and generate HTML for variable distributions
+     * Supports int, float, and boolean variables
+     */
+    generateVariableDistributionsHTML() {
+      // Extract variable data from event log
+      const variableData = this.extractVariableData();
+      
+      if (Object.keys(variableData).length === 0) {
+        return ''; // No variables to display
+      }
+      
+      let html = `
+        <div class="variable-distributions-section">
+          <h4>Variable Distributions</h4>
+          <div class="distributions-grid">
+      `;
+      
+      for (const [varName, data] of Object.entries(variableData)) {
+        if (data.type === 'boolean') {
+          html += this.generateBooleanDistributionCard(varName, data);
+        } else {
+          html += this.generateNumericDistributionCard(varName, data);
+        }
+      }
+      
+      html += `
+          </div>
+        </div>
+      `;
+      
+      return html;
+    }
+    
+    /**
+     * Extract variable data from event log for analysis
+     */
+    extractVariableData() {
+      const variableData = {};
+      
+      // Standard XES keys to exclude
+      const excludeKeys = new Set([
+        'case:concept:name', 'concept:name', 'time:timestamp',
+        'lifecycle:transition', 'org:resource', 'status'
+      ]);
+      
+      // Collect all variable values from events
+      this.eventLog.forEach(event => {
+        for (const [key, value] of Object.entries(event)) {
+          if (excludeKeys.has(key)) continue;
+          if (value === '' || value === undefined || value === null) continue;
+          
+          if (!variableData[key]) {
+            variableData[key] = {
+              values: [],
+              type: null
+            };
+          }
+          
+          // Determine type and collect value
+          if (typeof value === 'boolean') {
+            variableData[key].type = 'boolean';
+            variableData[key].values.push(value);
+          } else if (typeof value === 'number') {
+            if (Number.isInteger(value)) {
+              if (variableData[key].type !== 'float') {
+                variableData[key].type = 'int';
+              }
+            } else {
+              variableData[key].type = 'float';
+            }
+            variableData[key].values.push(value);
+          } else if (typeof value === 'string') {
+            // Try to parse as number
+            const num = parseFloat(value);
+            if (!isNaN(num)) {
+              if (Number.isInteger(num) && variableData[key].type !== 'float') {
+                variableData[key].type = 'int';
+              } else {
+                variableData[key].type = 'float';
+              }
+              variableData[key].values.push(num);
+            } else if (value === 'true' || value === 'false') {
+              variableData[key].type = 'boolean';
+              variableData[key].values.push(value === 'true');
+            }
+            // Skip non-numeric strings
+          }
+        }
+      });
+      
+      // Filter out variables with no numeric/boolean data
+      for (const key of Object.keys(variableData)) {
+        if (variableData[key].values.length === 0 || variableData[key].type === null) {
+          delete variableData[key];
+        }
+      }
+      
+      // Calculate statistics for each variable
+      for (const [key, data] of Object.entries(variableData)) {
+        if (data.type === 'boolean') {
+          const trueCount = data.values.filter(v => v === true).length;
+          const falseCount = data.values.length - trueCount;
+          data.stats = {
+            trueCount,
+            falseCount,
+            truePercent: (trueCount / data.values.length * 100).toFixed(1),
+            falsePercent: (falseCount / data.values.length * 100).toFixed(1)
+          };
+        } else {
+          const sorted = [...data.values].sort((a, b) => a - b);
+          const sum = data.values.reduce((a, b) => a + b, 0);
+          const mean = sum / data.values.length;
+          const variance = data.values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / data.values.length;
+          
+          data.stats = {
+            min: sorted[0],
+            max: sorted[sorted.length - 1],
+            mean: mean,
+            median: sorted.length % 2 === 0 
+              ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+              : sorted[Math.floor(sorted.length / 2)],
+            stdDev: Math.sqrt(variance),
+            count: data.values.length
+          };
+          
+          // Generate histogram bins
+          data.histogram = this.generateHistogram(data.values, data.type === 'int');
+        }
+      }
+      
+      return variableData;
+    }
+    
+    /**
+     * Generate histogram bins for numeric data
+     */
+    generateHistogram(values, isInteger) {
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const range = max - min;
+      
+      // Determine number of bins (Sturges' rule, max 20)
+      let numBins = Math.min(20, Math.ceil(Math.log2(values.length) + 1));
+      
+      // For integers with small range, use exact values
+      if (isInteger && range <= 20) {
+        numBins = range + 1;
+        const bins = [];
+        for (let i = min; i <= max; i++) {
+          bins.push({
+            start: i,
+            end: i,
+            count: values.filter(v => v === i).length,
+            label: String(i)
+          });
+        }
+        return bins;
+      }
+      
+      // Create bins
+      const binWidth = range / numBins || 1;
+      const bins = [];
+      
+      for (let i = 0; i < numBins; i++) {
+        const start = min + i * binWidth;
+        const end = min + (i + 1) * binWidth;
+        const count = values.filter(v => {
+          if (i === numBins - 1) {
+            return v >= start && v <= end;
+          }
+          return v >= start && v < end;
+        }).length;
+        
+        bins.push({
+          start,
+          end,
+          count,
+          label: isInteger 
+            ? `${Math.round(start)}-${Math.round(end)}`
+            : `${start.toFixed(1)}-${end.toFixed(1)}`
+        });
+      }
+      
+      return bins;
+    }
+    
+    /**
+     * Generate HTML for a numeric variable distribution card
+     */
+    generateNumericDistributionCard(varName, data) {
+      const { stats, histogram, type } = data;
+      const maxCount = Math.max(...histogram.map(b => b.count));
+      
+      // Format numbers based on type
+      const formatNum = (n) => type === 'int' ? Math.round(n) : n.toFixed(2);
+      
+      let barsHTML = histogram.map(bin => {
+        const height = maxCount > 0 ? (bin.count / maxCount * 80) : 0;
+        return `<div class="histogram-bar" style="height: ${Math.max(height, 2)}px" data-tooltip="${bin.label}: ${bin.count}"></div>`;
+      }).join('');
+      
+      return `
+        <div class="distribution-card">
+          <div class="distribution-card-header">
+            <h5>${varName}</h5>
+            <span class="var-type ${type}">${type}</span>
+          </div>
+          <div class="distribution-stats">
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">Min</div>
+              <div class="distribution-stat-value">${formatNum(stats.min)}</div>
+            </div>
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">Max</div>
+              <div class="distribution-stat-value">${formatNum(stats.max)}</div>
+            </div>
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">Mean</div>
+              <div class="distribution-stat-value">${formatNum(stats.mean)}</div>
+            </div>
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">Std Dev</div>
+              <div class="distribution-stat-value">${formatNum(stats.stdDev)}</div>
+            </div>
+          </div>
+          <div class="histogram-container">
+            ${barsHTML}
+          </div>
+          <div class="histogram-labels">
+            <span>${formatNum(stats.min)}</span>
+            <span>${formatNum(stats.max)}</span>
+          </div>
+        </div>
+      `;
+    }
+    
+    /**
+     * Generate HTML for a boolean variable distribution card
+     */
+    generateBooleanDistributionCard(varName, data) {
+      const { stats } = data;
+      
+      return `
+        <div class="distribution-card">
+          <div class="distribution-card-header">
+            <h5>${varName}</h5>
+            <span class="var-type int">bool</span>
+          </div>
+          <div class="distribution-stats">
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">True</div>
+              <div class="distribution-stat-value">${stats.trueCount}</div>
+            </div>
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">False</div>
+              <div class="distribution-stat-value">${stats.falseCount}</div>
+            </div>
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">True %</div>
+              <div class="distribution-stat-value">${stats.truePercent}%</div>
+            </div>
+            <div class="distribution-stat">
+              <div class="distribution-stat-label">Total</div>
+              <div class="distribution-stat-value">${data.values.length}</div>
+            </div>
+          </div>
+          <div class="boolean-distribution">
+            <div class="boolean-true" style="width: ${stats.truePercent}%">${stats.truePercent > 10 ? 'true' : ''}</div>
+            <div class="boolean-false" style="width: ${stats.falsePercent}%">${stats.falsePercent > 10 ? 'false' : ''}</div>
+          </div>
+        </div>
+      `;
     }
     
     exportLog(format) {
