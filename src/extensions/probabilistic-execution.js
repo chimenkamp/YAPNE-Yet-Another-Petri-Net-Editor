@@ -141,24 +141,53 @@ class ProbabilisticExecutionEngine {
     }
 
     /**
-     * Get the WebPPL module (lazy load).
+     * Get the WebPPL module.
      * 
-     * @returns {Promise<Object>} WebPPL module
+     * [BPM 2024 Paper Implementation]
+     * WebPPL is required for true probabilistic inference with Infer().
+     * The browser bundle is created by `npm run bundle:webppl` and loaded
+     * in index.html, exposing `window.webppl`.
+     * 
+     * @returns {Promise<Object|null>} WebPPL module or null if unavailable
      */
     async getWebPPL() {
         if (this._webppl) {
             return this._webppl;
         }
         
+        // Check for browser bundle (loaded via script tag in index.html)
+        if (typeof window !== 'undefined' && window.webppl) {
+            this._webppl = window.webppl;
+            return this._webppl;
+        }
+        
+        // Check global scope (for Node.js or other environments)
+        if (typeof global !== 'undefined' && global.webppl) {
+            this._webppl = global.webppl;
+            return this._webppl;
+        }
+        
+        // Fallback: Try dynamic import (works in Node.js)
         try {
-            // Dynamic import for browser compatibility
             const webppl = await import('webppl');
             this._webppl = webppl.default || webppl;
             return this._webppl;
         } catch (error) {
-            console.warn('[PP Engine] WebPPL not available, falling back to native mode:', error.message);
             return null;
         }
+    }
+
+    /**
+     * Check if WebPPL is available for execution.
+     * 
+     * @returns {boolean} True if WebPPL is available
+     */
+    isWebPPLAvailable() {
+        return !!(
+            this._webppl ||
+            (typeof window !== 'undefined' && window.webppl) ||
+            (typeof global !== 'undefined' && global.webppl)
+        );
     }
 
     /**
@@ -787,20 +816,36 @@ class WebPPLConstraintSolver {
     }
 
     /**
-     * Get the WebPPL module (lazy load).
-     * @returns {Promise<Object>} WebPPL module
+     * Get the WebPPL module.
+     * 
+     * [BPM 2024 Paper Implementation]
+     * Uses the browser bundle loaded via script tag in index.html.
+     * 
+     * @returns {Promise<Object|null>} WebPPL module or null if unavailable
      */
     async getWebPPL() {
         if (this._webppl) {
             return this._webppl;
         }
         
+        // Check for browser bundle (loaded via script tag in index.html)
+        if (typeof window !== 'undefined' && window.webppl) {
+            this._webppl = window.webppl;
+            return this._webppl;
+        }
+        
+        // Check global scope (for Node.js or other environments)
+        if (typeof global !== 'undefined' && global.webppl) {
+            this._webppl = global.webppl;
+            return this._webppl;
+        }
+        
+        // Fallback: Try dynamic import (works in Node.js only)
         try {
             const webppl = await import('webppl');
             this._webppl = webppl.default || webppl;
             return this._webppl;
         } catch (error) {
-            console.warn('[WebPPL Solver] WebPPL not available:', error.message);
             return null;
         }
     }
@@ -821,15 +866,11 @@ class WebPPLConstraintSolver {
      */
     async solveConstraint(constraintExpression, currentValues, options = {}) {
         const mode = options.mode ?? 'auto';
-        
-        console.log('[WebPPL Solver] Solving constraint:', constraintExpression);
-        console.log('[WebPPL Solver] Current values:', currentValues);
 
         // Parse the constraint to identify primed variables
         const primedVars = this.extractPrimedVariables(constraintExpression);
         
         if (primedVars.length === 0) {
-            console.warn('[WebPPL Solver] No primed variables found in constraint');
             return { success: false, newValues: {} };
         }
 
@@ -852,12 +893,11 @@ class WebPPLConstraintSolver {
                     return result;
                 }
             } catch (error) {
-                console.warn('[WebPPL Solver] WebPPL execution failed:', error.message);
+                // WebPPL execution failed, will fallback to native
             }
         }
 
         // Fallback to rejection sampling in JavaScript
-        console.log('[WebPPL Solver] Falling back to native rejection sampling');
         return this.solveWithRejectionSampling(constraintExpression, currentValues, primedVars, varBounds, mode);
     }
 
@@ -968,18 +1008,21 @@ class WebPPLConstraintSolver {
         // Generate WebPPL code
         const code = this.generateWebPPLSolverCode(constraintExpression, currentValues, primedVars, varBounds, mode);
         
-        console.log('[WebPPL Solver] Generated code:\n', code);
-        
         return new Promise((resolve, reject) => {
             try {
-                webppl.run(code, (err, result) => {
-                    if (err) {
-                        console.error('[WebPPL Solver] Execution error:', err);
+                webppl.run(code, function(err, result) {
+                    // Check if err is a real error (has message or stack) or just empty object
+                    const isRealError = err && (
+                        err.message || 
+                        err.stack || 
+                        (typeof err === 'string' && err.length > 0) ||
+                        (typeof err === 'object' && Object.keys(err).length > 0 && err.constructor === Error)
+                    );
+                    
+                    if (isRealError) {
                         resolve({ success: false, newValues: {} });
                         return;
                     }
-                    
-                    console.log('[WebPPL Solver] Result:', result);
                     
                     if (result && typeof result === 'object') {
                         // Convert result to newValues format
@@ -991,7 +1034,7 @@ class WebPPLConstraintSolver {
                                     : result[varName];
                             }
                         }
-                        resolve({ success: true, newValues });
+                        resolve({ success: Object.keys(newValues).length > 0, newValues });
                     } else {
                         resolve({ success: false, newValues: {} });
                     }
@@ -1061,8 +1104,9 @@ var solveFn = function() {
     return {${resultObj}};
 };
 
-// Use rejection sampling (enumerate for small domains)
-Infer({method: 'rejection', samples: 1}, solveFn)
+// Use rejection sampling and return a single sample
+var dist = Infer({method: 'rejection', samples: 100}, solveFn);
+sample(dist)
 `;
         
         return code;
@@ -1076,8 +1120,6 @@ Infer({method: 'rejection', samples: 1}, solveFn)
      * @private
      */
     solveWithRejectionSampling(constraintExpression, currentValues, primedVars, varBounds, mode) {
-        console.log('[WebPPL Solver] Native rejection sampling for:', constraintExpression);
-        
         for (let attempt = 0; attempt < this.maxRetries; attempt++) {
             // Sample values for primed variables (SV scheduler)
             const sampledValues = {};
@@ -1095,12 +1137,9 @@ Infer({method: 'rejection', samples: 1}, solveFn)
             
             // Check if sampled values satisfy constraint (observe)
             if (this.checkConstraint(constraintExpression, currentValues, sampledValues)) {
-                console.log('[WebPPL Solver] Found satisfying values after', attempt + 1, 'attempts:', sampledValues);
                 return { success: true, newValues: sampledValues };
             }
         }
-        
-        console.warn('[WebPPL Solver] Failed to find satisfying values after', this.maxRetries, 'attempts');
         return { success: false, newValues: {} };
     }
 
@@ -1133,7 +1172,6 @@ Infer({method: 'rejection', samples: 1}, solveFn)
             const result = eval(evalExpr);
             return Boolean(result);
         } catch (error) {
-            console.error('[WebPPL Solver] Constraint evaluation error:', error);
             return false;
         }
     }

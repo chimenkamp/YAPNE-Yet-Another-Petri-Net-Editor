@@ -17,6 +17,16 @@
     <link rel="stylesheet" href="styles/random-generator.css">
     <link rel="stylesheet" href="styles/png-exporter.css">
 
+    <!-- 
+      WebPPL Bundle for Probabilistic Programming
+      Required for true inference as per "Data Petri Nets Meet Probabilistic Programming"
+      (Kuhn et al., BPM 2024, https://doi.org/10.1007/978-3-031-70396-6_2)
+      
+      Build with: npm run bundle:webppl
+      Exposes: window.webppl.run(code, callback)
+    -->
+    <script src="/webppl/webppl-bundle.js" onerror="console.warn('WebPPL bundle not found. Run: npm run bundle:webppl')"></script>
+
     <!-- Polyfills for Z3 and Node.js compatibility (used by Soundness Verification) -->
     <script>
       // Provide global polyfills for Z3 compatibility (required by soundness-verification/suvorov-lomazova)
@@ -751,7 +761,8 @@
     </footer>
 
     <script type="module" src="src/petri-net-simulator.js"></script>
-    <script type="module" src="src/extensions/dpn-expression-validation.js"></script>
+    <!-- Note: dpn-expression-validation.js is pending implementation -->
+    <!-- <script type="module" src="src/extensions/dpn-expression-validation.js"></script> -->
     <script type="module" src="src/extensions/dpn-model.js"></script>
     <script type="module" src="src/extensions/dpn-api.js"></script>
     <script type="module" src="src/extensions/dpn-renderer.js"></script>

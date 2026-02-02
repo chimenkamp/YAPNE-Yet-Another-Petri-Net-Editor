@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "npm run bundle:webppl && vite build",
+    "preview": "vite preview",
+    "bundle:webppl": "node scripts/bundle-webppl.js",
+    "postinstall": "npm run bundle:webppl || echo 'WebPPL bundling skipped'"
   },
   "devDependencies": {
+    "brfs": "^2.0.2",
+    "browserify": "^17.0.1",
     "rollup-plugin-polyfill-node": "^0.13.0",
     "vite": "^6.3.5",
     "vite-plugin-cross-origin-isolation": "^0.1.6",

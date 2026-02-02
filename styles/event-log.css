@@ -321,3 +321,242 @@
   button.blue:hover {
     background-color: #81A1C1; /* nord9 */
   }
+
+  /* ===== Generation Progress Panel ===== */
+  .generation-progress-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1100;
+  }
+
+  .generation-progress-container {
+    background-color: #3B4252; /* nord1 */
+    width: 90%;
+    max-width: 700px;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden;
+  }
+
+  .generation-progress-header {
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #434C5E; /* nord2 */
+  }
+
+  .generation-progress-header h3 {
+    margin: 0;
+    color: #88C0D0; /* nord8 */
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .generation-progress-header .spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid #434C5E;
+    border-top-color: #88C0D0;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .generation-progress-body {
+    padding: 20px;
+  }
+
+  .progress-status {
+    margin-bottom: 20px;
+  }
+
+  .progress-status-text {
+    color: #E5E9F0; /* nord5 */
+    font-size: 14px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .progress-bar-container {
+    background-color: #2E3440; /* nord0 */
+    border-radius: 4px;
+    height: 24px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #5E81AC, #88C0D0);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    position: relative;
+  }
+
+  .progress-bar-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.1),
+      transparent
+    );
+    animation: shimmer 2s infinite;
+  }
+
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  .progress-bar-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ECEFF4;
+    font-size: 12px;
+    font-weight: 600;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+
+  .progress-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 15px;
+    margin-bottom: 20px;
+  }
+
+  .progress-detail-item {
+    background-color: #434C5E; /* nord2 */
+    padding: 10px 15px;
+    border-radius: 4px;
+  }
+
+  .progress-detail-label {
+    font-size: 11px;
+    color: #81A1C1; /* nord9 */
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  .progress-detail-value {
+    font-size: 14px;
+    color: #ECEFF4; /* nord6 */
+    font-family: 'Consolas', 'Monaco', monospace;
+  }
+
+  .webppl-code-preview {
+    background-color: #2E3440; /* nord0 */
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .webppl-code-preview-header {
+    background-color: #434C5E; /* nord2 */
+    padding: 8px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .webppl-code-preview-header span {
+    color: #81A1C1; /* nord9 */
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .webppl-code-preview-header .badge {
+    background-color: #A3BE8C; /* nord14 - green */
+    color: #2E3440;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .webppl-code-preview pre {
+    margin: 0;
+    padding: 15px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #D8DEE9; /* nord4 */
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  .webppl-code-preview pre .comment {
+    color: #616E88; /* nord3 lighter */
+  }
+
+  .webppl-code-preview pre .keyword {
+    color: #81A1C1; /* nord9 */
+  }
+
+  .webppl-code-preview pre .function {
+    color: #88C0D0; /* nord8 */
+  }
+
+  .webppl-code-preview pre .string {
+    color: #A3BE8C; /* nord14 */
+  }
+
+  .webppl-code-preview pre .number {
+    color: #B48EAD; /* nord15 */
+  }
+
+  .generation-progress-footer {
+    padding: 15px 20px;
+    border-top: 1px solid #434C5E;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .generation-progress-footer .elapsed-time {
+    color: #D8DEE9;
+    font-size: 13px;
+  }
+
+  .generation-progress-footer button {
+    background-color: #BF616A; /* nord11 - red */
+    color: #ECEFF4;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.2s;
+  }
+
+  .generation-progress-footer button:hover {
+    background-color: #d08770; /* nord12 */
+  }
+
+  .generation-progress-footer button:disabled {
+    background-color: #4C566A;
+    cursor: not-allowed;
+  }

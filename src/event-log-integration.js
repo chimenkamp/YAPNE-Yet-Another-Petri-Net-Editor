@@ -22,6 +22,9 @@ class EventLogIntegration {
       this.dialog = null;
       this.table = null;
       this.eventLogGenerator = null;
+      this.progressPanel = null;
+      this.isCancelled = false;
+      this.generationStartTime = null;
       
 
       // [Definition 3] Simulation options for probabilistic event log generation
@@ -163,6 +166,9 @@ class EventLogIntegration {
       this.eventLogPanel.innerHTML = eventLogPanelContent;
       document.body.appendChild(this.eventLogPanel);
       
+      // Create progress panel for WebPPL generation
+      this.createProgressPanel();
+      
 
       const fileOperationsDiv = document.querySelector('.file-operations');
       if (fileOperationsDiv) {
@@ -184,6 +190,176 @@ class EventLogIntegration {
         
         startTimestampInput.value = `${year}-${month}-${day}T${hours}:${minutes}`;
       }
+    }
+    
+    /**
+     * Create the progress panel for WebPPL-based event log generation
+     * Shows progress bar, current case, WebPPL code preview, and elapsed time
+     */
+    createProgressPanel() {
+      this.progressPanel = document.createElement('div');
+      this.progressPanel.className = 'generation-progress-overlay hidden';
+      this.progressPanel.id = 'generation-progress-panel';
+      
+      const progressContent = `
+        <div class="generation-progress-container">
+          <div class="generation-progress-header">
+            <h3><div class="spinner"></div> Generating Event Log</h3>
+          </div>
+          <div class="generation-progress-body">
+            <div class="progress-status">
+              <div class="progress-status-text">
+                <span id="progress-case-text">Initializing...</span>
+                <span id="progress-percent">0%</span>
+              </div>
+              <div class="progress-bar-container">
+                <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
+                <span class="progress-bar-text" id="progress-bar-text">0 / 0 cases</span>
+              </div>
+            </div>
+            
+            <div class="progress-details">
+              <div class="progress-detail-item">
+                <div class="progress-detail-label">Current Case</div>
+                <div class="progress-detail-value" id="progress-current-case">-</div>
+              </div>
+              <div class="progress-detail-item">
+                <div class="progress-detail-label">Steps in Case</div>
+                <div class="progress-detail-value" id="progress-steps">0</div>
+              </div>
+              <div class="progress-detail-item">
+                <div class="progress-detail-label">Total Events</div>
+                <div class="progress-detail-value" id="progress-total-events">0</div>
+              </div>
+              <div class="progress-detail-item">
+                <div class="progress-detail-label">WebPPL Calls</div>
+                <div class="progress-detail-value" id="progress-webppl-calls">0</div>
+              </div>
+            </div>
+            
+            <div class="webppl-code-preview">
+              <div class="webppl-code-preview-header">
+                <span>WebPPL Constraint Solver Code</span>
+                <span class="badge" id="webppl-status-badge">Active</span>
+              </div>
+              <pre id="webppl-code-display">// Waiting for first constraint solve...</pre>
+            </div>
+          </div>
+          <div class="generation-progress-footer">
+            <span class="elapsed-time">Elapsed: <span id="progress-elapsed-time">0:00</span></span>
+            <button id="cancel-generation">Cancel</button>
+          </div>
+        </div>
+      `;
+      
+      this.progressPanel.innerHTML = progressContent;
+      document.body.appendChild(this.progressPanel);
+      
+      // Add cancel button listener
+      const cancelBtn = document.getElementById('cancel-generation');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => this.cancelGeneration());
+      }
+    }
+    
+    /**
+     * Show the progress panel
+     */
+    showProgressPanel() {
+      this.isCancelled = false;
+      this.generationStartTime = Date.now();
+      this.progressPanel.classList.remove('hidden');
+      this.startElapsedTimeUpdater();
+      
+      // Reset all fields
+      document.getElementById('progress-case-text').textContent = 'Initializing...';
+      document.getElementById('progress-percent').textContent = '0%';
+      document.getElementById('progress-bar-fill').style.width = '0%';
+      document.getElementById('progress-bar-text').textContent = '0 / 0 cases';
+      document.getElementById('progress-current-case').textContent = '-';
+      document.getElementById('progress-steps').textContent = '0';
+      document.getElementById('progress-total-events').textContent = '0';
+      document.getElementById('progress-webppl-calls').textContent = '0';
+      document.getElementById('webppl-code-display').textContent = '// Waiting for first constraint solve...';
+      document.getElementById('webppl-status-badge').textContent = 'Initializing';
+    }
+    
+    /**
+     * Hide the progress panel
+     */
+    hideProgressPanel() {
+      this.progressPanel.classList.add('hidden');
+      this.stopElapsedTimeUpdater();
+    }
+    
+    /**
+     * Update progress display
+     */
+    updateProgress(data) {
+      const { currentCase, totalCases, steps, totalEvents, webpplCalls, webpplCode, status } = data;
+      
+      const percent = Math.round((currentCase / totalCases) * 100);
+      
+      document.getElementById('progress-case-text').textContent = `Processing case ${currentCase} of ${totalCases}`;
+      document.getElementById('progress-percent').textContent = `${percent}%`;
+      document.getElementById('progress-bar-fill').style.width = `${percent}%`;
+      document.getElementById('progress-bar-text').textContent = `${currentCase} / ${totalCases} cases`;
+      document.getElementById('progress-current-case').textContent = `case_${currentCase}`;
+      document.getElementById('progress-steps').textContent = steps || '0';
+      document.getElementById('progress-total-events').textContent = totalEvents || '0';
+      document.getElementById('progress-webppl-calls').textContent = webpplCalls || '0';
+      
+      if (webpplCode) {
+        document.getElementById('webppl-code-display').textContent = this.truncateWebPPLCode(webpplCode);
+        document.getElementById('webppl-status-badge').textContent = 'Solving';
+      }
+      
+      if (status) {
+        document.getElementById('webppl-status-badge').textContent = status;
+      }
+    }
+    
+    /**
+     * Truncate WebPPL code for display (show first ~15 lines)
+     */
+    truncateWebPPLCode(code) {
+      const lines = code.split('\n');
+      if (lines.length > 15) {
+        return lines.slice(0, 15).join('\n') + '\n// ... (truncated)';
+      }
+      return code;
+    }
+    
+    /**
+     * Start elapsed time updater
+     */
+    startElapsedTimeUpdater() {
+      this.elapsedTimeInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - this.generationStartTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        document.getElementById('progress-elapsed-time').textContent = 
+          `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      }, 1000);
+    }
+    
+    /**
+     * Stop elapsed time updater
+     */
+    stopElapsedTimeUpdater() {
+      if (this.elapsedTimeInterval) {
+        clearInterval(this.elapsedTimeInterval);
+        this.elapsedTimeInterval = null;
+      }
+    }
+    
+    /**
+     * Cancel the generation process
+     */
+    cancelGeneration() {
+      this.isCancelled = true;
+      document.getElementById('webppl-status-badge').textContent = 'Cancelled';
+      document.getElementById('cancel-generation').disabled = true;
     }
     
     setupEventListeners() {
@@ -339,10 +515,20 @@ class EventLogIntegration {
           throw new Error(res.error);
         }
 
+        // Close dialog and show progress panel
+        this.closeDialog();
+        this.showProgressPanel();
+        
+        // Track WebPPL calls and code
+        let webpplCallCount = 0;
+        let lastWebPPLCode = '';
+        let totalEvents = 0;
+        let currentSteps = 0;
+        const numCases = this.simulationOptions.numCases;
+
         // Choose generator based on mode
         // [Definition 3] Uses uniform scheduler ST from paper
         // Implements "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024)
-        console.log('[Event Log] Using probabilistic generator (Paper: BPM 2024)');
         
         this.eventLogGenerator = new ProbabilisticEventLogGenerator(petriNet, {
           startTimestamp: this.simulationOptions.startTimestamp,
@@ -355,21 +541,104 @@ class EventLogIntegration {
           validateGoal: true  // Will throw if finalMarking not defined
         });
         
-        // Run probabilistic simulation
+        // Generate sample WebPPL code to display (the full simulation code)
+        try {
+          const sampleCode = this.eventLogGenerator.generateWebPPLCode({ includeComments: true });
+          lastWebPPLCode = sampleCode;
+          document.getElementById('webppl-code-display').textContent = this.truncateWebPPLCode(sampleCode);
+        } catch (e) {
+          // If code generation fails, show a placeholder
+          lastWebPPLCode = '// WebPPL code generation unavailable for this net type';
+        }
+        
+        // Hook into the engine's constraint solver to capture WebPPL code
+        const engine = this.eventLogGenerator.engine;
+        if (engine && engine.constraintSolver) {
+          const originalSolve = engine.constraintSolver.solveConstraint.bind(engine.constraintSolver);
+          engine.constraintSolver.solveConstraint = async (...args) => {
+            webpplCallCount++;
+            // Generate sample WebPPL code for display
+            const [expression, currentValues, primedVars, varBounds, mode] = args;
+            if (engine.constraintSolver.generateWebPPLSolverCode) {
+              lastWebPPLCode = engine.constraintSolver.generateWebPPLSolverCode(
+                expression, currentValues, primedVars, varBounds, mode
+              );
+            }
+            return originalSolve(...args);
+          };
+        }
+        
+        // Run probabilistic simulation with progress callbacks
         this.eventLog = await this.eventLogGenerator.generateCases(
-          this.simulationOptions.numCases,
+          numCases,
           {
-            onCaseStart: (caseNum) => console.log(`[PP] Starting case ${caseNum}`),
-            onCaseEnd: (caseNum, result) => console.log(`[PP] Case ${caseNum}: ${result.status}, ${result.traceLength} steps`)
+            onCaseStart: (caseNum) => {
+              if (this.isCancelled) {
+                throw new Error('Generation cancelled by user');
+              }
+              currentSteps = 0;
+              this.updateProgress({
+                currentCase: caseNum,
+                totalCases: numCases,
+                steps: 0,
+                totalEvents: totalEvents,
+                webpplCalls: webpplCallCount,
+                webpplCode: lastWebPPLCode,
+                status: 'Running'
+              });
+            },
+            onCaseEnd: (caseNum, result) => {
+              totalEvents = this.eventLogGenerator.eventLog.length;
+              this.updateProgress({
+                currentCase: caseNum,
+                totalCases: numCases,
+                steps: result.traceLength,
+                totalEvents: totalEvents,
+                webpplCalls: webpplCallCount,
+                webpplCode: lastWebPPLCode,
+                status: result.status === 'goal' ? 'Goal reached' : result.status
+              });
+            },
+            onStep: (caseNum, stepNum, transitionId) => {
+              currentSteps = stepNum;
+              // Update less frequently to avoid UI lag
+              if (stepNum % 5 === 0) {
+                this.updateProgress({
+                  currentCase: caseNum,
+                  totalCases: numCases,
+                  steps: currentSteps,
+                  totalEvents: this.eventLogGenerator.eventLog.length,
+                  webpplCalls: webpplCallCount,
+                  webpplCode: lastWebPPLCode,
+                  status: 'Simulating'
+                });
+              }
+            }
           }
         );
         
-        // Close dialog
-        this.closeDialog();
+        // Hide progress panel
+        this.hideProgressPanel();
+        document.getElementById('cancel-generation').disabled = false;
         
         // Display results
         this.displayEventLog();
       } catch (error) {
+        this.hideProgressPanel();
+        document.getElementById('cancel-generation').disabled = false;
+        
+        if (error.message === 'Generation cancelled by user') {
+          // Show partial results if any
+          if (this.eventLogGenerator && this.eventLogGenerator.eventLog.length > 0) {
+            this.eventLog = this.eventLogGenerator.eventLog;
+            this.displayEventLog();
+            alert('Generation cancelled. Showing partial results.');
+          } else {
+            alert('Generation cancelled.');
+          }
+          return;
+        }
+        
         console.error('Error running simulation:', error);
         alert('An error occurred while running the simulation: ' + error.message);
       }

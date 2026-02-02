@@ -410,8 +410,11 @@ ${transitions.map(t => `    if (isTransitionEnabled(state, '${t.id}')) { enabled
      * 1. Token removal from preset: ∀p∈•t: M'(p) = M(p) - l(p,t)
      * 2. Token addition to postset: ∀p∈t•: M'(p) = M(p) + l(t,p)
      * 3. Variable sampling: v' := SV(v') for each v ∈ V'(post(t))
-     * 4. Postcondition observation: observe post(t)
+     * 4. Postcondition observation: observe post(t) [using condition()]
      * 5. Valuation update: α'(v) = v' for modified variables
+     * 
+     * [Section 5.2] "The command 'log step(t)' outputs t, effectively logging
+     * each transition fired during a simulation."
      * 
      * @private
      */
@@ -433,6 +436,7 @@ ${transitions.map(t => `    if (isTransitionEnabled(state, '${t.id}')) { enabled
  * 3. Sample new variable values from scheduler SV: v' := SV(v')
  * 4. Condition on postcondition: condition(post(t))
  * 5. Update valuation: α' with new variable values
+ * 6. Log step: "log step(t)" records the fired transition
  */\n`;
         }
         
@@ -491,9 +495,11 @@ ${transitions.map(t => `    if (isTransitionEnabled(state, '${t.id}')) { enabled
             
             if (constraintUpdates.length > 0) {
                 // Generate var declarations with _prime suffix (aligned with internal execution)
+                // Convert internal distribution syntax to proper WebPPL syntax
                 const samplingStatements = constraintUpdates.map(u => {
-                    const distName = this.variableDistributions[u.variable] || 'uniform(0, 1000)';
-                    return `    var ${u.variable}_prime = sample(${distName});`;
+                    const internalDist = this.variableDistributions[u.variable] || 'uniform(0, 1000)';
+                    const webpplDist = this.toWebPPLDistribution(internalDist);
+                    return `    var ${u.variable}_prime = sample(${webpplDist});`;
                 });
                 samplingCode = `\n${samplingStatements.join('\n')}\n`;
                 
@@ -584,6 +590,9 @@ var selectTransition = function(enabledTransitions) {
      * [Figure 5] Main simulation loop - Cloop:
      *   do ¬isGoal → (Benabled(t1) → Cfire(t1) [] ... [] Benabled(tn) → Cfire(tn)) od
      * 
+     * [Section 5.2] "The command 'log step(t)' outputs t, effectively logging
+     * each transition fired during a simulation."
+     * 
      * [Theorem 1] (Correctness):
      * "For every initial net state (M,α), executing the main loop of Csim
      * on s(M,α) produces the same distribution over runs as the encoded net N
@@ -600,10 +609,13 @@ var selectTransition = function(enabledTransitions) {
  * 
  * Structure: do ¬isGoal → (Benabled(t1) → Cfire(t1) [] ... ) od
  * 
+ * [Section 5.2] "log step(t)" logs each transition fired during simulation.
+ * 
  * [Theorem 1] (Correctness): Produces same distribution as DPN under scheduler S.
  */\n`;
         }
         
+        // Core simulation step function with log step(t) per Section 5.2
         code += `var simulationStep = function(state, trace, stepCount) {
     if (isGoalState(state)) {
         return { state: state, trace: trace, status: 'goal', steps: stepCount };
@@ -619,8 +631,13 @@ var selectTransition = function(enabledTransitions) {
         return { state: state, trace: trace, status: 'deadlock', steps: stepCount };
     }
     
+    // [Definition 3] Select transition using scheduler ST
     var chosenTransition = selectTransition(enabledTransitions);
+    
+    // [Section 5.2] Cfire(t) - Fire the selected transition
     var newState = fireTransition(state, chosenTransition);
+    
+    // [Section 5.2] "log step(t)" - Record the fired transition
     var newTrace = trace.concat([chosenTransition]);
     
     return simulationStep(newState, newTrace, stepCount + 1);
@@ -628,9 +645,34 @@ var selectTransition = function(enabledTransitions) {
 
 var simulateDPN = function() {
     return simulationStep(initialState, [], 0);
-};
+};`;
 
+        // Add inference wrapper based on mode
+        if (mode === 'inference') {
+            // [Section 5] Inference mode: Use Infer() for proper probabilistic inference
+            code += `
+
+/**
+ * [Theorem 1] Probabilistic Inference Mode
+ * 
+ * Uses WebPPL's Infer to compute the posterior distribution over runs.
+ * The distribution semantics (Definition 5, 6) are captured by this inference.
+ */
+var inferenceResult = Infer({
+    method: 'rejection',
+    samples: 1000,
+    maxScore: 0
+}, simulateDPN);
+
+// Return sampled result from the inferred distribution
+sample(inferenceResult)`;
+        } else {
+            // Simulation mode: Direct execution (single sample)
+            code += `
+
+// [Figure 5] Direct simulation - single run
 simulateDPN()`;
+        }
         
         return code;
     }
@@ -770,6 +812,65 @@ simulateDPN()`;
         }
         
         return updates;
+    }
+
+    /**
+     * Convert internal distribution syntax to proper WebPPL syntax.
+     * 
+     * Internal syntax (used by application): uniform(min, max), gaussian(mean, std), etc.
+     * WebPPL syntax: Uniform({a: min, b: max}), Gaussian({mu: mean, sigma: std}), etc.
+     * 
+     * @private
+     */
+    toWebPPLDistribution(distSpec) {
+        if (!distSpec || typeof distSpec !== 'string') {
+            return 'Uniform({a: 0, b: 1000})';
+        }
+        
+        // Match patterns like: uniform(min, max), gaussian(mean, std), etc.
+        const uniformMatch = distSpec.match(/^uniform\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
+        if (uniformMatch) {
+            return `Uniform({a: ${uniformMatch[1].trim()}, b: ${uniformMatch[2].trim()}})`;
+        }
+        
+        const gaussianMatch = distSpec.match(/^(gaussian|normal)\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
+        if (gaussianMatch) {
+            return `Gaussian({mu: ${gaussianMatch[2].trim()}, sigma: ${gaussianMatch[3].trim()}})`;
+        }
+        
+        const betaMatch = distSpec.match(/^beta\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
+        if (betaMatch) {
+            return `Beta({a: ${betaMatch[1].trim()}, b: ${betaMatch[2].trim()}})`;
+        }
+        
+        const gammaMatch = distSpec.match(/^gamma\s*\(\s*([^,]+)\s*,\s*([^)]+)\s*\)$/i);
+        if (gammaMatch) {
+            return `Gamma({shape: ${gammaMatch[1].trim()}, scale: ${gammaMatch[2].trim()}})`;
+        }
+        
+        const exponentialMatch = distSpec.match(/^(exponential|exp)\s*\(\s*([^)]+)\s*\)$/i);
+        if (exponentialMatch) {
+            return `Exponential({a: ${exponentialMatch[2].trim()}})`;
+        }
+        
+        const poissonMatch = distSpec.match(/^poisson\s*\(\s*([^)]+)\s*\)$/i);
+        if (poissonMatch) {
+            return `Poisson({mu: ${poissonMatch[1].trim()}})`;
+        }
+        
+        const bernoulliMatch = distSpec.match(/^bernoulli\s*\(\s*([^)]+)\s*\)$/i);
+        if (bernoulliMatch) {
+            return `Bernoulli({p: ${bernoulliMatch[1].trim()}})`;
+        }
+        
+        // If already in WebPPL format (starts with capital letter), return as-is
+        if (/^[A-Z]/.test(distSpec)) {
+            return distSpec;
+        }
+        
+        // Default: return as-is and hope it's valid WebPPL
+        console.warn(`[WebPPL Generator] Unknown distribution syntax: ${distSpec}, using default`);
+        return 'Uniform({a: 0, b: 1000})';
     }
 
     /**

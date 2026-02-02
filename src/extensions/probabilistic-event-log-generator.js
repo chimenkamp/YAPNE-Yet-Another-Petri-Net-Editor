@@ -322,8 +322,14 @@ class ProbabilisticEventLogGenerator {
         // Reseed engine for reproducibility
         this.engine.reseed(this.options.seed);
         
+        // Helper to yield to UI thread periodically
+        const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
+        
         // Generate each case
         for (let caseNum = 1; caseNum <= numCases; caseNum++) {
+            // Yield to UI at start of each case to keep UI responsive
+            await yieldToUI();
+            
             if (callbacks.onCaseStart) {
                 callbacks.onCaseStart(caseNum);
             }
