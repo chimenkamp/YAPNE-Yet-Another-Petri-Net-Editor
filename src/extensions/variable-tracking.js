@@ -3,6 +3,11 @@
  * 
  * This script extends the simulation functionality to properly update
  * the data variables display during simulation.
+ * 
+ * Works with the Probabilistic Execution Integration (probabilistic-integration.js)
+ * which calls the exposed functions:
+ * - window.updateVariableHistoryForPP(label)
+ * - window.updateDataValuesDisplayForPP()
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -18,41 +23,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /**
  * Extends the simulation functionality to update variable display
+ * 
+ * Note: The PP integration (probabilistic-integration.js) now handles
+ * calling variable tracking functions directly via:
+ * - window.updateVariableHistoryForPP(label)
+ * - window.updateDataValuesDisplayForPP()
+ * 
+ * This extension only sets up the tracking UI and exposes the functions.
  */
 function extendSimulationFunctionality() {
   const app = window.petriApp;
   
   if (!app) return;
   
-  // Override stepSimulation to update variable display after each step (ASYNC)
-  const originalStepSimulation = app.stepSimulation;
-  app.stepSimulation = async function() {
-    // Call original method (now async)
-    await originalStepSimulation.call(this);
-    
-    // Update data values display
-    updateDataValuesDisplay();
-    
-    // Add to variable history
-    updateVariableHistory();
-  };
+  // Note: We no longer override stepSimulation or startAutoRun here
+  // The PP integration handles calling variable tracking functions directly
+  // This prevents conflicts between the two modules
   
-  // Override fireTransition to update variable display after firing (ASYNC)
-  const originalFireTransition = app.fireTransition;
-  app.fireTransition = async function(id) {
-    // Call original method (now async)
-    const result = await originalFireTransition.call(this, id);
-    
-    // Update data values display
-    updateDataValuesDisplay();
-    
-    // Add to variable history
-    updateVariableHistory();
-    
-    return result;
-  };
-  
-  // Override API-level fireTransition (ASYNC)
+  // Override API-level fireTransition for direct transition firing (ASYNC)
+  // This is used when user clicks on a transition directly
   if (app.api && app.api.fireTransition) {
     const originalAPIFireTransition = app.api.fireTransition;
     app.api.fireTransition = async function(id) {
@@ -71,44 +60,18 @@ function extendSimulationFunctionality() {
     };
   }
   
-  // Override startAutoRun to update variable display during autorun (ASYNC)
-  const originalStartAutoRun = app.startAutoRun;
-  app.startAutoRun = function() {
-    // Call original method
-    const result = originalStartAutoRun.call(this);
-    
-    // Override the autorun interval to update variable display
-    const originalInterval = this.autoRunInterval;
-    if (originalInterval) {
-      clearInterval(originalInterval);
-      
-      this.autoRunInterval = setInterval(async () => {
-        const enabledTransitions = this.api.getEnabledTransitions();
-        if (enabledTransitions.length === 0) {
-          this.stopAutoRun();
-          alert('Auto-run stopped: no more enabled transitions.');
-          const autoRunButton = document.getElementById('btn-auto-run');
-          if (autoRunButton) {
-            autoRunButton.textContent = 'Auto Run';
-          }
-          return;
-        }
-        
-        // Use async stepSimulation
-        await this.stepSimulation();
-        // Variable display updates are handled in stepSimulation
-      }, this.autoRunDelay);
-    }
-    
-    return result;
-  };
-  
   // Setup the history tracking buttons
   setupHistoryTracking();
   
   // Add styles for highlighting changes
   addVariableHistoryStyles();
   
+  // Expose functions globally for PP integration to call
+  window.updateVariableHistoryForPP = updateVariableHistory;
+  window.updateDataValuesDisplayForPP = updateDataValuesDisplay;
+  
+  console.log("[Variable Tracking] Extended simulation with variable tracking");
+  console.log("[Variable Tracking] PP integration hooks registered");
 }
 
 /**

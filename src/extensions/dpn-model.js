@@ -1,4 +1,5 @@
 import { Transition, PetriNet, Place, Arc } from '../petri-net-simulator.js';
+import { solveExpressionWithWebPPL } from './probabilistic-execution.js';
 
 /**
  * Represents a data variable in a Data Petri Net
@@ -289,8 +290,10 @@ class DataAwareTransition extends Transition {
  */
 async findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
   const currentValue = originalValuation[variableName];
-  console.log("Finding value for constraints", variableName, constraintStatements);
+  console.log("[DPN] Finding value for constraints", variableName, constraintStatements);
 
+  // [Section 5.2] For boolean variables, use direct constraint checking
+  // since sampling doesn't make sense for binary domains
   if (typeof currentValue === 'boolean') {
     if (this.checkValueAgainstConstraints(true, variableName, constraintStatements, originalValuation, currentValuation)) {
       return true;
@@ -301,73 +304,76 @@ async findValueSatisfyingConstraints(variableName, constraintStatements, origina
     return currentValue; // Fallback to current value
   }
 
+  // [Section 5.2] Use WebPPL-based probabilistic approach for numeric constraints
+  // Following paper: "ui := SV(ui)" followed by "observe post(t)"
   if (typeof currentValue === 'number') {
     try {
-      // Use 'auto' mode to let Z3 auto-detect types based on actual values
-      // This is more robust than trying to manually determine types
-      console.log('Combined constraints:', constraintStatements.join(' && '));
-      console.log('Using auto type detection');
+      const combinedConstraint = constraintStatements.join(' && ');
+      console.log('[DPN] Combined constraints:', combinedConstraint);
+      console.log('[DPN] Using WebPPL-based probabilistic solver (paper Section 5.2)');
       
-      // Call the async solveExpression function with auto type detection
-      const result = await window.solveExpression(
-        constraintStatements.join(' && '), 
-        currentValuation, 
-        'auto'  // Use auto mode for robust type detection
-      );
-      console.log('Z3 solver result:', result);
-      if (result && result.newValues && result.newValues[variableName] !== undefined) {
-        console.log(`Z3 solver found value for ${variableName}: ${result.newValues[variableName]}`);
-        
-        // Get the actual variable type from the data petri net for proper conversion
-        let variableType = 'int'; // default fallback
-        
-        if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
-          for (const [id, variable] of window.petriApp.api.petriNet.dataVariables) {
-            if (variable.name === variableName) {
-              variableType = variable.type;
-              // Handle legacy 'number' type
-              if (variableType === 'number') {
-                variableType = 'int';
-              }
-              break;
+      // Determine variable type for proper handling
+      let variableType = 'int'; // default fallback
+      
+      if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
+        for (const [id, variable] of window.petriApp.api.petriNet.dataVariables) {
+          if (variable.name === variableName) {
+            variableType = variable.type;
+            // Handle legacy 'number' type
+            if (variableType === 'number') {
+              variableType = 'int';
             }
+            break;
           }
         }
+      }
+      
+      // [Section 5.2] Call WebPPL-based solver implementing sample+observe pattern
+      const result = await solveExpressionWithWebPPL(
+        combinedConstraint, 
+        currentValuation, 
+        variableType === 'float' ? 'float' : 'int'
+      );
+      
+      console.log('[DPN] WebPPL solver result:', result);
+      
+      if (result && result.success && result.newValues && result.newValues[variableName] !== undefined) {
+        console.log(`[DPN] WebPPL solver found value for ${variableName}: ${result.newValues[variableName]}`);
         
         // Ensure the result matches the expected type
         if (variableType === 'int') {
           return Math.floor(Number(result.newValues[variableName]));
         } else if (variableType === 'float') {
           return Number(result.newValues[variableName]);
-        } else if (variableType === 'boolean') {
-          return Boolean(result.newValues[variableName]);
         } else {
-          // For other types, return as-is
           return result.newValues[variableName];
         }
       }
     } catch (error) {
-      console.error('Error using Z3 solver:', error);
+      console.error('[DPN] Error using WebPPL solver:', error);
     }
     
-    // Fallback to current value if Z3 solver fails
+    // Fallback to current value if solver fails
+    console.warn(`[DPN] Solver failed for ${variableName}, keeping current value:`, currentValue);
     return currentValue;
-  } else if (typeof currentValue === 'string') {
-    // For string variables, try using Z3 with auto detection
+  } 
+  
+  // [Section 5.2] For string variables, use WebPPL with auto detection
+  if (typeof currentValue === 'string') {
     try {
-      console.log('String variable, using Z3 with auto detection');
-      const result = await window.solveExpression(
+      console.log('[DPN] String variable, using WebPPL solver');
+      const result = await solveExpressionWithWebPPL(
         constraintStatements.join(' && '), 
         currentValuation, 
         'auto'
       );
       
-      if (result && result.newValues && result.newValues[variableName] !== undefined) {
-        console.log(`Z3 solver found value for string ${variableName}: ${result.newValues[variableName]}`);
+      if (result && result.success && result.newValues && result.newValues[variableName] !== undefined) {
+        console.log(`[DPN] WebPPL solver found value for string ${variableName}: ${result.newValues[variableName]}`);
         return String(result.newValues[variableName]);
       }
     } catch (error) {
-      console.error('Error using Z3 solver for string:', error);
+      console.error('[DPN] Error using WebPPL solver for string:', error);
     }
     
     // Fallback for strings - return current value
