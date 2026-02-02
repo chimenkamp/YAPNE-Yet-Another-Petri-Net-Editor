@@ -1,11 +1,16 @@
 /**
  * Example: Data Petri Net Event Log Generation
  * 
- * This example demonstrates how to use the enhanced Event Log Generator
- * with Data Petri Nets, including variable tracking, preconditions, and postconditions.
+ * This example demonstrates how to use the Probabilistic Event Log Generator
+ * with Data Petri Nets, implementing the "Data Petri Nets Meet Probabilistic Programming"
+ * approach (Kuhn et al., BPM 2024).
+ * 
+ * Key features:
+ * - [Definition 3] Uniform scheduler ST for transition selection
+ * - [Section 5.1] Goal states G defined via finalMarking attribute
  */
 
-import { EventLogGenerator } from '../src/event-log-generator.js';
+import { ProbabilisticEventLogGenerator } from '../src/extensions/probabilistic-event-log-generator.js';
 import { DataPetriNet, DataAwareTransition, DataVariable } from '../src/extensions/dpn-model.js';
 import { Place, Arc } from '../src/petri-net-simulator.js';
 
@@ -84,22 +89,23 @@ async function createOrderProcessingExample() {
   dpn.arcs.set('a5', new Arc('a5', p3.id, t3.id, 1, 'regular', [], ''));
   dpn.arcs.set('a6', new Arc('a6', t3.id, p4.id, 1, 'regular', [], ''));
   
-  // Create event log generator
-  const generator = new EventLogGenerator(dpn, {
+  // [Section 5.1] Define goal state via finalMarking attribute on end place
+  p4.finalMarking = 1; // p4 is the goal state
+  
+  // Create probabilistic event log generator (implements Kuhn et al., BPM 2024)
+  const generator = new ProbabilisticEventLogGenerator(dpn, {
     startTimestamp: new Date('2025-10-23T10:00:00Z'),
-    defaultTransitionDuration: 1000,
-    timeUnit: 'minutes',
-    timeScale: 1,
-    caseArrivalRate: 5,
-    arrivalDistribution: 'exponential',
-    transitionSelectionStrategy: 'priority',
+    avgTransitionDuration: 1000,
     caseName: 'Order',
-    seed: 42 // For reproducible results
+    seed: 42, // For reproducible results
+    maxStepsPerCase: 50,
+    includeVariables: true,
+    validateGoal: true
   });
   
-  // Run simulation
-  console.log('Running simulation for 5 cases...');
-  const eventLog = await generator.simulateCases(5, 50);
+  // Run probabilistic simulation
+  console.log('Running PP simulation for 5 cases...');
+  const eventLog = await generator.generateCases(5);
   
   console.log(`Generated ${eventLog.length} events\n`);
   
@@ -199,19 +205,23 @@ async function createCounterExample() {
   dpn.arcs.set('a4', new Arc('a4', p2.id, t2.id, 1, 'regular', [], ''));
   dpn.arcs.set('a5', new Arc('a5', t2.id, p3.id, 1, 'regular', [], ''));
   
-  // Create event log generator
-  const generator = new EventLogGenerator(dpn, {
+  // [Section 5.1] Define goal state via finalMarking attribute
+  p3.finalMarking = 1; // p3 (Done) is the goal state
+  
+  // Create probabilistic event log generator
+  const generator = new ProbabilisticEventLogGenerator(dpn, {
     startTimestamp: new Date('2025-10-23T12:00:00Z'),
-    defaultTransitionDuration: 100,
-    timeUnit: 'seconds',
-    caseArrivalRate: 1,
+    avgTransitionDuration: 100,
     caseName: 'Counter',
-    seed: 123
+    seed: 123,
+    maxStepsPerCase: 20,
+    includeVariables: true,
+    validateGoal: true
   });
   
-  // Run simulation
-  console.log('Running counter simulation for 3 cases...');
-  const eventLog = await generator.simulateCases(3, 20);
+  // Run PP simulation
+  console.log('Running counter PP simulation for 3 cases...');
+  const eventLog = await generator.generateCases(3);
   
   console.log(`Generated ${eventLog.length} events\n`);
   

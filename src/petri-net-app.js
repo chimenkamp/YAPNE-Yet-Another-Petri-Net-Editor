@@ -531,13 +531,6 @@ initEventHandlers() {
           place.finalMarking !== null ? place.finalMarking : ''
         }" min="0" placeholder="Leave empty for no final marking">
       </div>
-      <div class="info-section">
-        <h4>💡 Quick Tip</h4>
-        <p><strong>Final Marking:</strong> Set the expected number of tokens this place should have when the process completes.</p>
-        <p><strong>Visual Indicators:</strong> Places with final markings show a colored outer ring - green when reached, yellow when not.</p>
-        <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected transitions!</p>
-        <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode instantly!</p>
-      </div>
     `;
 
     // Keep existing event listeners and add new one for final marking
@@ -649,11 +642,6 @@ initEventHandlers() {
    <div id="transition-status-container"></div>
    </div>
    <div class="form-group" id="fire-button-container"></div>
-   <div class="info-section">
-     <h4>💡 Quick Tip</h4>
-     <p><strong>Ghost Element:</strong> Hold <kbd>Shift</kbd> and move your mouse to quickly create connected places!</p>
-     <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode instantly!</p>
-   </div>
   `;
 
 
@@ -816,7 +804,7 @@ initEventHandlers() {
           <option value="inhibitor" ${arc.type === "inhibitor" ? "selected" : ""}>Inhibitor</option>
           <option value="reset" ${arc.type === "reset" ? "selected" : ""}>Reset</option>
           <option value="read" ${arc.type === "read" ? "selected" : ""}>Read</option>
-          <option value="modifier" ${arc.type === "modifier" ? "selected" : ""}>Modifier</option>
+          <!-- <option value="modifier" ${arc.type === "modifier" ? "selected" : ""}>Modifier</option> -->
         </select>
       </div>
       <div class="form-group">
@@ -824,10 +812,6 @@ initEventHandlers() {
         <input type="text" id="arc-label" value="${
           arc.label !== arc.weight.toString() ? arc.label : ""
         }">
-      </div>
-      <div class="info-section">
-        <h4>💡 Quick Tip</h4>
-        <p><strong>Quick Connect:</strong> Hold <kbd>SPACE</kbd> to enter connection mode for creating more arcs!</p>
       </div>
     `;
 

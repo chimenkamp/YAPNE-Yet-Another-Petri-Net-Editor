@@ -1,4 +1,5 @@
 import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
+import { initializeProbabilisticExecution } from "./src/extensions/probabilistic-integration.js";
 
 const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
 
@@ -66,6 +67,24 @@ document.addEventListener('DOMContentLoaded', () => {
             helpDialogOverlay.style.display = 'none';
             document.body.style.overflow = ''; // Restore scrolling
         }
+
+        // Check if this is the first time the user is using the tool
+        function checkFirstTimeUser() {
+            if (window.localStorage) {
+                const hasSeenHelp = localStorage.getItem('hasSeenHelpDialog');
+                if (!hasSeenHelp) {
+                    // Show help dialog on first use
+                    setTimeout(() => {
+                        openHelpDialog();
+                        // Mark that user has seen the help dialog
+                        localStorage.setItem('hasSeenHelpDialog', 'true');
+                    }, 1000); // Small delay to let the page load completely
+                }
+            }
+        }
+
+        // Initialize first-time user check
+        checkFirstTimeUser();
 
         // Open help dialog
         if (openHelpButton) {
@@ -223,6 +242,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const initTimer = setInterval(() => {
             if (window.petriApp) {
                 window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
+                
+                // Initialize Probabilistic Execution Integration
+                // Implements "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024)
+                // This adds probabilistic step/playout capabilities using the paper's approach
+                window.probabilisticIntegration = initializeProbabilisticExecution(window.petriApp);
+                
                 clearInterval(initTimer);
             }
         }, 100);

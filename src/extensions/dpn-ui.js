@@ -1,4 +1,437 @@
 import { DataAwareTransition } from './dpn-model.js';
+
+/**
+ * Expression Editor Dialog - A sophisticated dialog for creating/editing pre and postconditions
+ * with button-based insertion of operators, variables, and primed variables.
+ */
+class ExpressionEditorDialog {
+  /**
+   * Create an expression editor dialog
+   * @param {Object} options - Configuration options
+   * @param {string} options.type - 'precondition' or 'postcondition'
+   * @param {string} options.currentExpression - Current expression value
+   * @param {Array<{name: string, type: string}>} options.variables - Available variables
+   * @param {Function} options.onSave - Callback when expression is saved
+   * @param {Function} options.onValidate - Validation function
+   */
+  constructor(options) {
+    this.type = options.type || 'precondition';
+    this.currentExpression = options.currentExpression || '';
+    this.variables = options.variables || [];
+    this.onSave = options.onSave || (() => {});
+    this.onValidate = options.onValidate || (() => ({ valid: true }));
+    this.dialog = null;
+    this.textarea = null;
+  }
+
+  /**
+   * Get operators for the expression type
+   */
+  getOperators() {
+    if (this.type === 'precondition') {
+      return {
+        comparison: [
+          { label: '>', value: ' > ', description: 'Greater than' },
+          { label: '<', value: ' < ', description: 'Less than' },
+          { label: '>=', value: ' >= ', description: 'Greater or equal' },
+          { label: '<=', value: ' <= ', description: 'Less or equal' },
+          { label: '===', value: ' === ', description: 'Strict equal' },
+          { label: '!==', value: ' !== ', description: 'Strict not equal' },
+          { label: '==', value: ' == ', description: 'Equal' },
+          { label: '!=', value: ' != ', description: 'Not equal' }
+        ],
+        logical: [
+          { label: '&&', value: ' && ', description: 'Logical AND' },
+          { label: '||', value: ' || ', description: 'Logical OR' },
+          { label: '!', value: '!', description: 'Logical NOT' }
+        ],
+        arithmetic: [
+          { label: '+', value: ' + ', description: 'Add' },
+          { label: '-', value: ' - ', description: 'Subtract' },
+          { label: '*', value: ' * ', description: 'Multiply' },
+          { label: '/', value: ' / ', description: 'Divide' },
+          { label: '%', value: ' % ', description: 'Modulo' }
+        ],
+        grouping: [
+          { label: '( )', value: '()', description: 'Parentheses', cursorOffset: -1 }
+        ],
+        values: [
+          { label: 'true', value: 'true', description: 'Boolean true' },
+          { label: 'false', value: 'false', description: 'Boolean false' }
+        ]
+      };
+    } else {
+      // Postcondition operators
+      return {
+        assignment: [
+          { label: "=' =", value: "' = ", description: 'Assignment (primed)', insertPrimed: true },
+          { label: ';', value: '; ', description: 'Statement separator' }
+        ],
+        comparison: [
+          { label: '>', value: ' > ', description: 'Greater than (constraint)' },
+          { label: '<', value: ' < ', description: 'Less than (constraint)' },
+          { label: '>=', value: ' >= ', description: 'Greater or equal (constraint)' },
+          { label: '<=', value: ' <= ', description: 'Less or equal (constraint)' },
+          { label: '==', value: ' == ', description: 'Equal (constraint)' }
+        ],
+        arithmetic: [
+          { label: '+', value: ' + ', description: 'Add' },
+          { label: '-', value: ' - ', description: 'Subtract' },
+          { label: '*', value: ' * ', description: 'Multiply' },
+          { label: '/', value: ' / ', description: 'Divide' },
+          { label: '%', value: ' % ', description: 'Modulo' }
+        ],
+        logical: [
+          { label: '&&', value: ' && ', description: 'Logical AND (for constraints)' },
+          { label: '||', value: ' || ', description: 'Logical OR (for constraints)' }
+        ],
+        grouping: [
+          { label: '( )', value: '()', description: 'Parentheses', cursorOffset: -1 }
+        ]
+      };
+    }
+  }
+
+  /**
+   * Insert text at cursor position in textarea
+   */
+  insertAtCursor(text, cursorOffset = 0) {
+    if (!this.textarea) return;
+    
+    const start = this.textarea.selectionStart;
+    const end = this.textarea.selectionEnd;
+    const value = this.textarea.value;
+    
+    this.textarea.value = value.substring(0, start) + text + value.substring(end);
+    
+    // Set cursor position
+    const newPos = start + text.length + cursorOffset;
+    this.textarea.setSelectionRange(newPos, newPos);
+    this.textarea.focus();
+    
+    // Trigger validation
+    this.validateExpression();
+  }
+
+  /**
+   * Validate the current expression
+   */
+  validateExpression() {
+    const expression = this.textarea.value;
+    const validationResult = this.onValidate(expression);
+    
+    const validationStatus = this.dialog.querySelector('#expr-validation-status');
+    const validationMessage = this.dialog.querySelector('#expr-validation-message');
+    
+    if (validationResult.valid) {
+      validationStatus.className = 'expr-validation-status valid';
+      validationStatus.textContent = '✓ Valid';
+      validationMessage.textContent = '';
+      this.dialog.querySelector('#btn-save-expression').disabled = false;
+    } else {
+      validationStatus.className = 'expr-validation-status invalid';
+      validationStatus.textContent = '✗ Invalid';
+      validationMessage.textContent = validationResult.error || 'Invalid expression';
+      this.dialog.querySelector('#btn-save-expression').disabled = true;
+    }
+  }
+
+  /**
+   * Create the dialog HTML
+   */
+  createDialogHTML() {
+    const operators = this.getOperators();
+    const isPrecondition = this.type === 'precondition';
+    
+    // Generate operator buttons HTML
+    const generateOperatorSection = (title, ops, className) => {
+      if (!ops || ops.length === 0) return '';
+      return `
+        <div class="expr-operator-section">
+          <label>${title}</label>
+          <div class="expr-operator-buttons ${className}">
+            ${ops.map(op => `
+              <button type="button" class="expr-operator-btn" 
+                      data-value="${this.escapeHtml(op.value)}" 
+                      data-offset="${op.cursorOffset || 0}"
+                      title="${this.escapeHtml(op.description)}">
+                ${this.escapeHtml(op.label)}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    };
+
+    // Generate variable buttons HTML
+    const generateVariableButtons = (primed = false) => {
+      if (this.variables.length === 0) {
+        return '<p class="expr-no-vars">No variables defined</p>';
+      }
+      return this.variables.map(v => `
+        <button type="button" class="expr-variable-btn" 
+                data-value="${primed ? v.name + "'" : v.name}"
+                title="${v.type}: ${v.name}${primed ? "' (new value)" : ' (current value)'}">
+          ${primed ? v.name + "'" : v.name}
+          <span class="expr-var-type">${v.type}</span>
+        </button>
+      `).join('');
+    };
+
+    return `
+      <div class="modal-container expr-editor-modal">
+        <div class="modal-header">
+          <h2>${isPrecondition ? 'Edit Precondition (Guard)' : 'Edit Postcondition (Updates)'}</h2>
+          <button class="close-btn">&times;</button>
+        </div>
+        <div class="modal-body expr-editor-body">
+          <!-- Two Column Layout -->
+          <div class="expr-two-column-layout">
+            <!-- Left Column: Fixed Expression Input -->
+            <div class="expr-left-column">
+              <!-- Help Section -->
+              <div class="expr-help-section">
+                <div class="expr-help-toggle">
+                  <button type="button" id="btn-toggle-help" class="expr-help-btn">
+                    <span class="expr-help-icon">?</span> Quick Help
+                  </button>
+                </div>
+                <div class="expr-help-content" id="expr-help-content" style="display: none;">
+                  ${isPrecondition ? `
+                    <p><strong>Precondition (Guard):</strong> A boolean expression that must be <code>true</code> for the transition to be enabled.</p>
+                    <p><strong>Examples:</strong></p>
+                    <ul>
+                      <li><code>counter > 0</code> - Enable when counter is positive</li>
+                      <li><code>x >= 5 && y < 10</code> - Enable when x ≥ 5 AND y < 10</li>
+                      <li><code>status === "ready"</code> - Enable when status equals "ready"</li>
+                    </ul>
+                  ` : `
+                    <p><strong>Postcondition (Updates):</strong> Defines how variables change when the transition fires.</p>
+                    <p><strong>Direct Assignment:</strong> Use <code>variable' = expression;</code></p>
+                    <p><strong>Constraint-based:</strong> Use <code>variable' > expr; variable' < expr;</code> (solver finds valid value)</p>
+                    <p><strong>Examples:</strong></p>
+                    <ul>
+                      <li><code>counter' = counter + 1;</code> - Increment counter</li>
+                      <li><code>x' = x * 2; y' = y - 1;</code> - Double x and decrement y</li>
+                      <li><code>n' > n; n' < n + 10;</code> - n increases by 1-9 (random)</li>
+                    </ul>
+                  `}
+                </div>
+              </div>
+
+              <!-- Expression Input -->
+              <div class="expr-input-section">
+                <label for="expr-textarea">Expression</label>
+                <textarea id="expr-textarea" class="expr-textarea" rows="8" 
+                          placeholder="${isPrecondition ? 'e.g., counter > 0 && status === \"ready\"' : 'e.g., counter\' = counter + 1;'}">${this.escapeHtml(this.currentExpression)}</textarea>
+                <div class="expr-validation">
+                  <span id="expr-validation-status" class="expr-validation-status"></span>
+                  <span id="expr-validation-message" class="expr-validation-message"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Column: Scrollable Buttons -->
+            <div class="expr-right-column">
+              <!-- Variables Section -->
+              <div class="expr-variables-section">
+                <div class="expr-section-header">
+                  <h4>Variables</h4>
+                </div>
+                <div class="expr-variables-grid">
+                  <div class="expr-var-column">
+                    <label>Current Values</label>
+                    <div class="expr-variable-buttons">
+                      ${generateVariableButtons(false)}
+                    </div>
+                  </div>
+                  ${!isPrecondition ? `
+                    <div class="expr-var-column">
+                      <label>New Values (Primed)</label>
+                      <div class="expr-variable-buttons primed">
+                        ${generateVariableButtons(true)}
+                      </div>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+
+              <!-- Operators Section -->
+              <div class="expr-operators-section">
+                <div class="expr-section-header">
+                  <h4>Operators</h4>
+                </div>
+                <div class="expr-operators-grid">
+                  ${!isPrecondition ? generateOperatorSection('Assignment', operators.assignment, 'assignment') : ''}
+                  ${generateOperatorSection('Comparison', operators.comparison, 'comparison')}
+                  ${generateOperatorSection('Arithmetic', operators.arithmetic, 'arithmetic')}
+                  ${generateOperatorSection('Logical', operators.logical, 'logical')}
+                  ${generateOperatorSection('Grouping', operators.grouping, 'grouping')}
+                  ${isPrecondition ? generateOperatorSection('Values', operators.values, 'values') : ''}
+                </div>
+              </div>
+
+              <!-- Quick Templates -->
+              <div class="expr-templates-section">
+                <div class="expr-section-header">
+                  <h4>Quick Templates</h4>
+                </div>
+                <div class="expr-template-buttons">
+                  ${isPrecondition ? `
+                    <button type="button" class="expr-template-btn" data-template="var > 0">var > 0</button>
+                    <button type="button" class="expr-template-btn" data-template="var === value">var === value</button>
+                    <button type="button" class="expr-template-btn" data-template="var1 > var2">var1 > var2</button>
+                    <button type="button" class="expr-template-btn" data-template="cond1 && cond2">cond1 && cond2</button>
+                    <button type="button" class="expr-template-btn" data-template="cond1 || cond2">cond1 || cond2</button>
+                  ` : `
+                    <button type="button" class="expr-template-btn" data-template="var' = var + 1;">var' = var + 1;</button>
+                    <button type="button" class="expr-template-btn" data-template="var' = var - 1;">var' = var - 1;</button>
+                    <button type="button" class="expr-template-btn" data-template="var' = 0;">var' = 0;</button>
+                    <button type="button" class="expr-template-btn" data-template="var' > var; var' < var + 10;">var' ∈ (var, var+10)</button>
+                    <button type="button" class="expr-template-btn" data-template="var' >= 0; var' <= 100;">var' ∈ [0, 100]</button>
+                  `}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-clear-expression" type="button" class="expr-btn-secondary">Clear</button>
+          <div class="expr-footer-right">
+            <button id="btn-cancel-expression" type="button">Cancel</button>
+            <button id="btn-save-expression" type="button" class="expr-btn-primary">Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  /**
+   * Show the dialog
+   */
+  show() {
+    // Create dialog element
+    this.dialog = document.createElement('div');
+    this.dialog.className = 'modal-overlay expr-editor-overlay';
+    this.dialog.id = 'expression-editor-dialog';
+    this.dialog.innerHTML = this.createDialogHTML();
+    
+    document.body.appendChild(this.dialog);
+    
+    // Get textarea reference
+    this.textarea = this.dialog.querySelector('#expr-textarea');
+    
+    // Set up event listeners
+    this.setupEventListeners();
+    
+    // Initial validation
+    this.validateExpression();
+    
+    // Focus the textarea
+    this.textarea.focus();
+  }
+
+  /**
+   * Set up event listeners for the dialog
+   */
+  setupEventListeners() {
+    // Close button
+    this.dialog.querySelector('.close-btn').addEventListener('click', () => this.close());
+    
+    // Cancel button
+    this.dialog.querySelector('#btn-cancel-expression').addEventListener('click', () => this.close());
+    
+    // Save button
+    this.dialog.querySelector('#btn-save-expression').addEventListener('click', () => {
+      this.onSave(this.textarea.value);
+      this.close();
+    });
+    
+    // Clear button
+    this.dialog.querySelector('#btn-clear-expression').addEventListener('click', () => {
+      this.textarea.value = '';
+      this.textarea.focus();
+      this.validateExpression();
+    });
+    
+    // Help toggle
+    this.dialog.querySelector('#btn-toggle-help').addEventListener('click', () => {
+      const helpContent = this.dialog.querySelector('#expr-help-content');
+      const isVisible = helpContent.style.display !== 'none';
+      helpContent.style.display = isVisible ? 'none' : 'block';
+    });
+    
+    // Textarea input for validation
+    this.textarea.addEventListener('input', () => this.validateExpression());
+    
+    // Operator buttons
+    this.dialog.querySelectorAll('.expr-operator-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const value = btn.getAttribute('data-value');
+        const offset = parseInt(btn.getAttribute('data-offset') || '0', 10);
+        this.insertAtCursor(value, offset);
+      });
+    });
+    
+    // Variable buttons
+    this.dialog.querySelectorAll('.expr-variable-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const value = btn.getAttribute('data-value');
+        this.insertAtCursor(value);
+      });
+    });
+    
+    // Template buttons
+    this.dialog.querySelectorAll('.expr-template-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const template = btn.getAttribute('data-template');
+        this.insertAtCursor(template);
+      });
+    });
+    
+    // Click outside to close
+    this.dialog.addEventListener('click', (e) => {
+      if (e.target === this.dialog) {
+        this.close();
+      }
+    });
+    
+    // Keyboard shortcuts
+    this.dialog.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.close();
+      } else if (e.key === 'Enter' && e.ctrlKey) {
+        // Ctrl+Enter to save
+        const saveBtn = this.dialog.querySelector('#btn-save-expression');
+        if (!saveBtn.disabled) {
+          this.onSave(this.textarea.value);
+          this.close();
+        }
+      }
+    });
+  }
+
+  /**
+   * Close the dialog
+   */
+  close() {
+    if (this.dialog && this.dialog.parentNode) {
+      document.body.removeChild(this.dialog);
+    }
+    this.dialog = null;
+    this.textarea = null;
+  }
+}
+
 class DataPetriNetUI {
   /**
    * Initialize the Data Petri Net UI extensions
@@ -108,90 +541,184 @@ class DataPetriNetUI {
       
       // Extend the panel for data-aware transitions
       if (isDataAware) {
-        // Find insertion point for data conditions
-        const buttonGroup = propertiesPanel.querySelector('.form-group button');
-        const insertPoint = buttonGroup ? buttonGroup.closest('.form-group') : null;
-        
         // Check if transition is silent - disable data condition fields
         const isSilent = transition.silent || false;
-        const disabledAttr = isSilent ? 'disabled' : '';
-        const disabledStyle = isSilent ? 'style="opacity: 0.5; pointer-events: none;"' : '';
         
-        // HTML for data conditions
-        const dataConditionsHtml = `
-          <div class="form-group" ${disabledStyle}>
-            <label for="transition-precondition">Precondition (Guard)</label>
-            <textarea id="transition-precondition" rows="3" ${disabledAttr}>${transition.precondition || ''}</textarea>
-            <small>JavaScript expression using variable names</small>
-          </div>
-          <div class="form-group" ${disabledStyle}>
-            <label for="transition-postcondition">Postcondition (Updates)</label>
-            <textarea id="transition-postcondition" rows="3" ${disabledAttr}>${transition.postcondition || ''}</textarea>
-            <small>Format: x' = expression; y' = expression;</small>
-          </div>
-          <div class="form-group">
-            <button id="btn-help-data-expressions" type="button">Help with Expressions</button>
-          </div>
-        `;
-        
-        // Add the data conditions HTML
-        if (insertPoint) {
-          // Insert before a specific element
-          insertPoint.insertAdjacentHTML('beforebegin', dataConditionsHtml);
-        } else {
-          // Append to the end
-          propertiesPanel.insertAdjacentHTML('beforeend', dataConditionsHtml);
+        // Check if data condition fields already exist to prevent duplication
+        if (!propertiesPanel.querySelector('#precondition-display')) {
+          // Find insertion point for data conditions
+          const buttonGroup = propertiesPanel.querySelector('.form-group button');
+          const insertPoint = buttonGroup ? buttonGroup.closest('.form-group') : null;
+          
+          const disabledAttr = isSilent ? 'disabled' : '';
+          const disabledStyle = isSilent ? 'style="opacity: 0.5; pointer-events: none;"' : '';
+          
+          // Format the display of expressions (truncate if too long)
+          const formatExpression = (expr) => {
+            if (!expr || expr.trim() === '') return '<span class="expr-empty">Not set</span>';
+            const truncated = expr.length > 50 ? expr.substring(0, 47) + '...' : expr;
+            return `<code class="expr-preview">${this.escapeHtml(truncated)}</code>`;
+          };
+          
+          // HTML for data conditions with expression editor buttons
+          const dataConditionsHtml = `
+            <div class="form-group expr-field-group" ${disabledStyle}>
+              <label>Precondition (Guard)</label>
+              <div class="expr-display-container">
+                <div class="expr-display" id="precondition-display">
+                  ${formatExpression(transition.precondition)}
+                </div>
+                <div class="expr-actions">
+                  <button id="btn-edit-precondition" type="button" class="expr-edit-btn" ${disabledAttr} title="Edit with Expression Editor">
+                    ✏️ Edit
+                  </button>
+                  ${transition.precondition ? `<button id="btn-clear-precondition" type="button" class="expr-clear-btn" ${disabledAttr} title="Clear expression">✕</button>` : ''}
+                </div>
+              </div>
+              <small>Boolean expression that must be true for the transition to be enabled</small>
+            </div>
+            <div class="form-group expr-field-group" ${disabledStyle}>
+              <label>Postcondition (Updates)</label>
+              <div class="expr-display-container">
+                <div class="expr-display" id="postcondition-display">
+                  ${formatExpression(transition.postcondition)}
+                </div>
+                <div class="expr-actions">
+                  <button id="btn-edit-postcondition" type="button" class="expr-edit-btn" ${disabledAttr} title="Edit with Expression Editor">
+                    ✏️ Edit
+                  </button>
+                  ${transition.postcondition ? `<button id="btn-clear-postcondition" type="button" class="expr-clear-btn" ${disabledAttr} title="Clear expression">✕</button>` : ''}
+                </div>
+              </div>
+              <small>Format: variable' = expression; (use ' for new values)</small>
+            </div>
+          `;
+          
+          // Add the data conditions HTML
+          if (insertPoint) {
+            // Insert before a specific element
+            insertPoint.insertAdjacentHTML('beforebegin', dataConditionsHtml);
+          } else {
+            // Append to the end
+            propertiesPanel.insertAdjacentHTML('beforeend', dataConditionsHtml);
+          }
         }
         
-        // Add event listeners for the inputs (only if not silent)
-        const preconditionInput = document.getElementById('transition-precondition');
-        if (preconditionInput && !isSilent) {
-          preconditionInput.addEventListener('input', (e) => {
-            // Update precondition and handle errors
-            try {
-              this.app.api.setTransitionPrecondition(id, e.target.value);
-            } catch (error) {
-              preconditionInput.style.borderColor = 'red';
-            }
-            
-            // Update transition status display
+        // Get variable names for the expression editor
+        const getVariables = () => {
+          return Array.from(this.app.api.petriNet.dataVariables.values())
+            .map(v => ({ name: v.name, type: v.type }));
+        };
+        
+        // Add event listener for precondition edit button
+        const editPreconditionBtn = document.getElementById('btn-edit-precondition');
+        if (editPreconditionBtn && !isSilent) {
+          editPreconditionBtn.addEventListener('click', () => {
+            this.showExpressionEditor({
+              type: 'precondition',
+              currentExpression: transition.precondition || '',
+              transitionId: id
+            });
+          });
+        }
+        
+        // Add event listener for postcondition edit button
+        const editPostconditionBtn = document.getElementById('btn-edit-postcondition');
+        if (editPostconditionBtn && !isSilent) {
+          editPostconditionBtn.addEventListener('click', () => {
+            this.showExpressionEditor({
+              type: 'postcondition',
+              currentExpression: transition.postcondition || '',
+              transitionId: id
+            });
+          });
+        }
+        
+        // Add event listeners for clear buttons
+        const clearPreconditionBtn = document.getElementById('btn-clear-precondition');
+        if (clearPreconditionBtn && !isSilent) {
+          clearPreconditionBtn.addEventListener('click', () => {
+            this.app.api.setTransitionPrecondition(id, '');
+            this.app.showTransitionProperties(id);
             this.app.updateTransitionStatus(id);
           });
         }
         
-        const postconditionInput = document.getElementById('transition-postcondition');
-        if (postconditionInput && !isSilent) {
-          postconditionInput.addEventListener('input', (e) => {
-            try {
-              this.app.api.setTransitionPostcondition(id, e.target.value);
-            } catch (error) {
-              postconditionInput.style.borderColor = 'red';
-            }
+        const clearPostconditionBtn = document.getElementById('btn-clear-postcondition');
+        if (clearPostconditionBtn && !isSilent) {
+          clearPostconditionBtn.addEventListener('click', () => {
+            this.app.api.setTransitionPostcondition(id, '');
+            this.app.showTransitionProperties(id);
             this.app.updateTransitionStatus(id);
           });
-        }
-        
-        // Add help button event listener
-        const helpButton = document.getElementById('btn-help-data-expressions');
-        if (helpButton) {
-          helpButton.addEventListener('click', () => this.showDataExpressionHelp());
         }
       } else {
         // For non-data transitions, add a button to convert them
-        const convertButtonHTML = `
-          <div class="form-group">
-            <button id="btn-convert-to-data-transition" type="button">Convert to Data Transition</button>
-          </div>
-        `;
-        propertiesPanel.insertAdjacentHTML('beforeend', convertButtonHTML);
-        
-        // Add event listener for the convert button
-        const convertButton = document.getElementById('btn-convert-to-data-transition');
-        if (convertButton) {
-          convertButton.addEventListener('click', () => this.convertToDataTransition(id));
+        // Check if convert button already exists to prevent duplication
+        if (!propertiesPanel.querySelector('#btn-convert-to-data-transition')) {
+          const convertButtonHTML = `
+            <div class="form-group">
+              <button id="btn-convert-to-data-transition" type="button">Convert to Data Transition</button>
+            </div>
+          `;
+          propertiesPanel.insertAdjacentHTML('beforeend', convertButtonHTML);
+          
+          // Add event listener for the convert button
+          const convertButton = document.getElementById('btn-convert-to-data-transition');
+          if (convertButton) {
+            convertButton.addEventListener('click', () => this.convertToDataTransition(id));
+          }
         }
       }
     };
+  }
+
+  /**
+   * Show the expression editor dialog
+   * @param {Object} options - Options for the editor
+   * @param {string} options.type - 'precondition' or 'postcondition'
+   * @param {string} options.currentExpression - Current expression value
+   * @param {string} options.transitionId - ID of the transition being edited
+   */
+  showExpressionEditor(options) {
+    const variables = Array.from(this.app.api.petriNet.dataVariables.values())
+      .map(v => ({ name: v.name, type: v.type }));
+    
+    const variableNames = variables.map(v => v.name);
+    
+    const editor = new ExpressionEditorDialog({
+      type: options.type,
+      currentExpression: options.currentExpression,
+      variables: variables,
+      onValidate: (expression) => {
+        if (options.type === 'precondition') {
+          return this.app.api.validatePrecondition(expression, variableNames);
+        } else {
+          return this.app.api.validatePostcondition(expression, variableNames);
+        }
+      },
+      onSave: (expression) => {
+        if (options.type === 'precondition') {
+          this.app.api.setTransitionPrecondition(options.transitionId, expression);
+        } else {
+          this.app.api.setTransitionPostcondition(options.transitionId, expression);
+        }
+        // Refresh the properties panel
+        this.app.showTransitionProperties(options.transitionId);
+        this.app.updateTransitionStatus(options.transitionId);
+      }
+    });
+    
+    editor.show();
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   /**
@@ -996,4 +1523,4 @@ showAddVariableDialog() {
   }
 }
 
-export { DataPetriNetUI };
+export { DataPetriNetUI, ExpressionEditorDialog };

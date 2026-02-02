@@ -11,6 +11,11 @@ export default defineConfig({
     commonjsOptions: {
       transformMixedEsModules: true,
       include: [/z3-solver/, /node_modules/]
+    },
+    rollupOptions: {
+      plugins: [
+        nodePolyfills()
+      ]
     }
   },
   define: { 
@@ -19,6 +24,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ['z3-solver', 'mathjs'],
+    exclude: ['webppl'],
     esbuildOptions: {
       define: {
         global: 'globalThis'
@@ -28,19 +34,17 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      util: 'rollup-plugin-node-polyfills/polyfills/util',
-      buffer: 'rollup-plugin-node-polyfills/polyfills/buffer-es6'
+      // Node polyfills handled by rollup-plugin-polyfill-node
     }
   },
   plugins: [
     nodePolyfills({
-      include: ['util', 'buffer', 'process', 'path'],
+      include: ['util', 'buffer', 'process', 'path', 'stream', 'events', 'assert'],
       globals: {
         Buffer: true,
         global: true,
         process: true,
       },
-      protocolImports: true,
     }),
     topLevelAwait(),
     crossOriginIsolation(),

@@ -630,6 +630,273 @@ class SuvorovLomazovaVerificationUI {
         padding-top: 20px;
         border-top: 1px solid #434C5E;
       }
+
+      /* Counterexample Trace Panel Styles */
+      .sl-counterexample-trace-panel {
+        background: rgba(46, 52, 64, 0.8);
+        border: 1px solid #4C566A;
+        border-radius: 8px;
+        margin-top: 15px;
+        overflow: hidden;
+      }
+
+      .sl-trace-panel-header {
+        background: linear-gradient(135deg, #BF616A, #D08770);
+        color: #ECEFF4;
+        padding: 12px 16px;
+        font-weight: 600;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      .sl-trace-panel-header:hover {
+        background: linear-gradient(135deg, #D08770, #EBCB8B);
+      }
+
+      .sl-trace-panel-header .sl-expand-icon {
+        transition: transform 0.3s ease;
+      }
+
+      .sl-trace-panel-header.expanded .sl-expand-icon {
+        transform: rotate(90deg);
+      }
+
+      .sl-trace-panel-content {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease;
+      }
+
+      .sl-trace-panel-content.expanded {
+        max-height: 500px;
+        overflow-y: auto;
+      }
+
+      .sl-trace-steps-container {
+        padding: 15px;
+      }
+
+      .sl-trace-step-item {
+        background: rgba(67, 76, 94, 0.6);
+        border: 1px solid #4C566A;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        transition: all 0.2s ease;
+      }
+
+      .sl-trace-step-item:hover {
+        border-color: #88C0D0;
+        transform: translateX(3px);
+      }
+
+      .sl-trace-step-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .sl-trace-step-header {
+        background: rgba(94, 129, 172, 0.3);
+        padding: 10px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #4C566A;
+      }
+
+      .sl-trace-step-number {
+        background: linear-gradient(135deg, #5E81AC, #81A1C1);
+        color: #ECEFF4;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .sl-trace-step-transition {
+        color: #88C0D0;
+        font-weight: 600;
+        font-size: 13px;
+      }
+
+      .sl-trace-step-body {
+        padding: 12px 14px;
+      }
+
+      .sl-trace-step-conditions {
+        margin-bottom: 10px;
+      }
+
+      .sl-trace-condition-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 12px;
+      }
+
+      .sl-trace-condition-label {
+        color: #81A1C1;
+        font-weight: 500;
+        min-width: 80px;
+        flex-shrink: 0;
+      }
+
+      .sl-trace-condition-value {
+        color: #A3BE8C;
+        font-family: 'Courier New', monospace;
+        background: rgba(46, 52, 64, 0.5);
+        padding: 2px 6px;
+        border-radius: 3px;
+        word-break: break-all;
+      }
+
+      .sl-trace-variables-section {
+        border-top: 1px solid #4C566A;
+        padding-top: 10px;
+        margin-top: 10px;
+      }
+
+      .sl-trace-variables-title {
+        color: #D8DEE9;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sl-trace-variable-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 8px;
+      }
+
+      .sl-trace-variable-item {
+        background: rgba(46, 52, 64, 0.6);
+        border: 1px solid #434C5E;
+        border-radius: 4px;
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .sl-trace-variable-name {
+        color: #8FBCBB;
+        font-size: 11px;
+        font-family: 'Courier New', monospace;
+      }
+
+      .sl-trace-variable-value {
+        color: #A3BE8C;
+        font-size: 13px;
+        font-weight: 600;
+        font-family: 'Courier New', monospace;
+      }
+
+      .sl-trace-variable-changed {
+        border-color: #EBCB8B;
+        background: rgba(235, 203, 139, 0.1);
+      }
+
+      .sl-trace-variable-changed .sl-trace-variable-value {
+        color: #EBCB8B;
+      }
+
+      .sl-trace-state-section {
+        background: rgba(191, 97, 106, 0.1);
+        border: 1px solid #BF616A;
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 15px;
+      }
+
+      .sl-trace-state-title {
+        color: #BF616A;
+        font-weight: 600;
+        font-size: 13px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sl-trace-marking-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 8px;
+      }
+
+      .sl-trace-marking-item {
+        background: rgba(46, 52, 64, 0.6);
+        border: 1px solid #434C5E;
+        border-radius: 4px;
+        padding: 6px 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .sl-trace-marking-place {
+        color: #D8DEE9;
+        font-size: 12px;
+      }
+
+      .sl-trace-marking-tokens {
+        background: #BF616A;
+        color: #ECEFF4;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .sl-trace-empty {
+        text-align: center;
+        color: #81A1C1;
+        padding: 20px;
+        font-style: italic;
+      }
+
+      .sl-trace-arrow {
+        text-align: center;
+        color: #5E81AC;
+        font-size: 20px;
+        margin: 8px 0;
+      }
+
+      .sl-dead-transition-info {
+        background: rgba(191, 97, 106, 0.1);
+        border: 1px solid #BF616A;
+        border-radius: 6px;
+        padding: 12px;
+        margin-top: 10px;
+      }
+
+      .sl-dead-transition-reason {
+        color: #D8DEE9;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .sl-formula-display {
+        background: rgba(46, 52, 64, 0.8);
+        border: 1px solid #4C566A;
+        border-radius: 4px;
+        padding: 8px 12px;
+        margin-top: 8px;
+        font-family: 'Courier New', monospace;
+        font-size: 11px;
+        color: #88C0D0;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -984,20 +1251,23 @@ class SuvorovLomazovaVerificationUI {
       (check.trace ||
         check.deadTransitions ||
         check.overfinalNodes ||
-        check.violatingNodes);
+        check.violatingNodes ||
+        check.offendingState);
 
+    // Generate detailed counterexample section
     const counterexampleSection = hasCounterexample
       ? `
       <div class="sl-counterexample-section">
         <div class="sl-counterexample-header">
-          <h4 class="sl-counterexample-title">Counterexample</h4>
+          <h4 class="sl-counterexample-title">⚠️ Counterexample Found</h4>
           <button class="sl-visualize-btn" data-check-index="${index}">
-            Visualize
+            🔍 Visualize on Net
           </button>
         </div>
         <div class="sl-trace-info">
           ${this.getCounterexampleDescription(check)}
         </div>
+        ${this.createCounterexampleTracePanel(check, index)}
       </div>
     `
       : "";
@@ -1015,6 +1285,420 @@ class SuvorovLomazovaVerificationUI {
         ${counterexampleSection}
       </div>
     `;
+  }
+
+  /**
+   * Create the detailed counterexample trace panel
+   */
+  createCounterexampleTracePanel(check, index) {
+    let content = '';
+
+    // Handle trace-based counterexamples (P1 deadlock, boundedness)
+    if (check.trace && check.trace.length > 0) {
+      content += this.createTraceStepsSection(check.trace, check);
+    }
+
+    // Handle dead transitions (P3)
+    if (check.deadTransitions && check.deadTransitions.length > 0) {
+      content += this.createDeadTransitionsSection(check.deadTransitions);
+    }
+
+    // Handle overfinal markings (P2)
+    if (check.overfinalNodes && check.overfinalNodes.length > 0) {
+      content += this.createOverfinalNodesSection(check.overfinalNodes);
+    }
+
+    // Handle offending state (deadlock state)
+    if (check.offendingState) {
+      content += this.createOffendingStateSection(check.offendingState);
+    }
+
+    if (!content) {
+      return '<div class="sl-trace-empty">No detailed trace information available.</div>';
+    }
+
+    return `
+      <div class="sl-counterexample-trace-panel">
+        <div class="sl-trace-panel-header" data-panel-index="${index}" onclick="window.suvorovLomazovaUI?.toggleTracePanel(${index})">
+          <span class="sl-expand-icon">▶</span>
+          <span>📋 Detailed Trace & Variable Values</span>
+        </div>
+        <div class="sl-trace-panel-content" id="sl-trace-panel-content-${index}">
+          <div class="sl-trace-steps-container">
+            ${content}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Create trace steps section with variable values
+   */
+  createTraceStepsSection(trace, check) {
+    if (!trace || trace.length === 0) {
+      return '';
+    }
+
+    // Get initial data variables for reference
+    const dataVars = this.app?.api?.petriNet?.dataVariables;
+    const initialVars = {};
+    if (dataVars) {
+      const varsArray = dataVars instanceof Map ? Array.from(dataVars.values()) : (Array.isArray(dataVars) ? dataVars : []);
+      for (const v of varsArray) {
+        initialVars[v.name || v.id] = v.currentValue;
+      }
+    }
+
+    let html = `
+      <div class="sl-trace-section-title" style="color: #88C0D0; font-weight: 600; margin-bottom: 12px; font-size: 14px;">
+        🔄 Execution Trace Leading to Violation
+      </div>
+    `;
+
+    // Show initial state variables if available
+    if (Object.keys(initialVars).length > 0) {
+      html += `
+        <div class="sl-trace-step-item" style="border-color: #A3BE8C;">
+          <div class="sl-trace-step-header" style="background: rgba(163, 190, 140, 0.3);">
+            <span class="sl-trace-step-number" style="background: #A3BE8C;">Initial</span>
+            <span class="sl-trace-step-transition" style="color: #A3BE8C;">📍 Initial State</span>
+          </div>
+          <div class="sl-trace-step-body">
+            ${this.createInitialVariablesSection(initialVars)}
+          </div>
+        </div>
+        <div class="sl-trace-arrow">↓</div>
+      `;
+    }
+
+    trace.forEach((step, stepIndex) => {
+      const transitionId = step.transitionId || 'Unknown';
+      const transitionLabel = this.getTransitionLabel(transitionId);
+      const vars = step.vars || {};
+      const hasVars = Object.keys(vars).length > 0;
+      const formula = step.formula || '';
+
+      html += `
+        <div class="sl-trace-step-item">
+          <div class="sl-trace-step-header">
+            <span class="sl-trace-step-number">Step ${stepIndex + 1}</span>
+            <span class="sl-trace-step-transition">🔄 Fire: ${this.escapeHtml(transitionLabel)}</span>
+          </div>
+          <div class="sl-trace-step-body">
+            ${this.createTransitionConditions(transitionId)}
+            ${hasVars ? this.createVariablesSection(vars, stepIndex > 0 ? trace[stepIndex - 1]?.vars : initialVars) : ''}
+            ${formula && formula !== 'true' ? `
+              <div style="margin-top: 10px;">
+                <span style="color: #81A1C1; font-size: 12px; font-weight: 500;">Data constraint after this step:</span>
+                <div class="sl-formula-display">${this.escapeHtml(this.formatFormula(formula))}</div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+
+      if (stepIndex < trace.length - 1) {
+        html += '<div class="sl-trace-arrow">↓</div>';
+      }
+    });
+
+    return html;
+  }
+
+  /**
+   * Create initial variables section
+   */
+  createInitialVariablesSection(initialVars) {
+    const entries = Object.entries(initialVars);
+    if (entries.length === 0) return '';
+
+    return `
+      <div class="sl-trace-variables-section" style="border-top: none; padding-top: 0; margin-top: 0;">
+        <div class="sl-trace-variables-title">
+          <span>📊</span>
+          <span>Initial Variable Values</span>
+        </div>
+        <div class="sl-trace-variable-grid">
+          ${entries.map(([varName, value]) => `
+            <div class="sl-trace-variable-item">
+              <span class="sl-trace-variable-name">${this.escapeHtml(varName)}</span>
+              <span class="sl-trace-variable-value">${this.formatVariableValue(value)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Format SMT formula for display (make it more readable)
+   */
+  formatFormula(formula) {
+    if (!formula || formula === 'true') return 'true';
+    
+    // Simple formatting to make SMT formulas more readable
+    let formatted = formula;
+    
+    // Remove excessive whitespace
+    formatted = formatted.replace(/\s+/g, ' ').trim();
+    
+    // Add line breaks for better readability of nested expressions
+    if (formatted.length > 80) {
+      formatted = formatted
+        .replace(/\(and /g, '\n  (and ')
+        .replace(/\(or /g, '\n  (or ')
+        .replace(/\(not /g, '(not ')
+        .replace(/\(=> /g, '\n  (=> ')
+        .replace(/\(= /g, '(= ')
+        .replace(/\(<= /g, '(<= ')
+        .replace(/\(>= /g, '(>= ')
+        .replace(/\(< /g, '(< ')
+        .replace(/\(> /g, '(> ');
+    }
+    
+    return formatted;
+  }
+
+  /**
+   * Create transition conditions display (precondition/postcondition)
+   */
+  createTransitionConditions(transitionId) {
+    const transition = this.app?.api?.petriNet?.transitions?.get(transitionId);
+    if (!transition) return '';
+
+    const pre = transition.precondition || '';
+    const post = transition.postcondition || '';
+
+    if (!pre && !post) return '';
+
+    let html = '<div class="sl-trace-step-conditions">';
+    
+    if (pre) {
+      html += `
+        <div class="sl-trace-condition-row">
+          <span class="sl-trace-condition-label">Precondition:</span>
+          <span class="sl-trace-condition-value">${this.escapeHtml(pre)}</span>
+        </div>
+      `;
+    }
+    
+    if (post) {
+      html += `
+        <div class="sl-trace-condition-row">
+          <span class="sl-trace-condition-label">Postcondition:</span>
+          <span class="sl-trace-condition-value">${this.escapeHtml(post)}</span>
+        </div>
+      `;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Create variables section showing values at this step
+   */
+  createVariablesSection(vars, prevVars) {
+    const varEntries = Object.entries(vars);
+    if (varEntries.length === 0) return '';
+
+    let html = `
+      <div class="sl-trace-variables-section">
+        <div class="sl-trace-variables-title">
+          <span>📊</span>
+          <span>Variable Values After This Step</span>
+        </div>
+        <div class="sl-trace-variable-grid">
+    `;
+
+    for (const [varName, value] of varEntries) {
+      const prevValue = prevVars?.[varName];
+      const hasChanged = prevVars && prevValue !== undefined && prevValue !== value;
+      
+      html += `
+        <div class="sl-trace-variable-item ${hasChanged ? 'sl-trace-variable-changed' : ''}">
+          <span class="sl-trace-variable-name">${this.escapeHtml(varName)}</span>
+          <span class="sl-trace-variable-value">${this.formatVariableValue(value)}</span>
+          ${hasChanged ? `<span style="color: #81A1C1; font-size: 10px;">was: ${this.formatVariableValue(prevValue)}</span>` : ''}
+        </div>
+      `;
+    }
+
+    html += '</div></div>';
+    return html;
+  }
+
+  /**
+   * Create dead transitions section
+   */
+  createDeadTransitionsSection(deadTransitions) {
+    let html = '<div class="sl-trace-section-title" style="color: #BF616A; font-weight: 600; margin-bottom: 12px; font-size: 14px;">🚫 Dead Transitions (Never Enabled)</div>';
+
+    deadTransitions.forEach((dt, index) => {
+      const transitionId = dt.transitionId;
+      const transitionLabel = dt.transitionLabel || this.getTransitionLabel(transitionId);
+      
+      html += `
+        <div class="sl-trace-step-item">
+          <div class="sl-trace-step-header" style="background: rgba(191, 97, 106, 0.3);">
+            <span class="sl-trace-step-number" style="background: #BF616A;">#${index + 1}</span>
+            <span class="sl-trace-step-transition" style="color: #BF616A;">🚫 ${this.escapeHtml(transitionLabel)}</span>
+          </div>
+          <div class="sl-trace-step-body">
+            <div class="sl-dead-transition-info">
+              <div class="sl-dead-transition-reason">
+                <strong>Why is this transition dead?</strong><br>
+                This transition's precondition can never be satisfied given the data constraints established by other transitions in the net.
+              </div>
+              ${dt.precondition ? `
+                <div class="sl-trace-condition-row" style="margin-top: 10px;">
+                  <span class="sl-trace-condition-label">Precondition:</span>
+                  <span class="sl-trace-condition-value">${this.escapeHtml(dt.precondition)}</span>
+                </div>
+              ` : ''}
+              ${dt.postcondition ? `
+                <div class="sl-trace-condition-row">
+                  <span class="sl-trace-condition-label">Postcondition:</span>
+                  <span class="sl-trace-condition-value">${this.escapeHtml(dt.postcondition)}</span>
+                </div>
+              ` : ''}
+              ${dt.variants && dt.variants.length > 1 ? `
+                <div style="margin-top: 8px; font-size: 11px; color: #81A1C1;">
+                  Refined variants: ${dt.variants.join(', ')}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    });
+
+    return html;
+  }
+
+  /**
+   * Create overfinal nodes section
+   */
+  createOverfinalNodesSection(overfinalNodes) {
+    let html = '<div class="sl-trace-section-title" style="color: #D08770; font-weight: 600; margin-bottom: 12px; font-size: 14px;">🔥 Overfinal Markings Detected</div>';
+
+    overfinalNodes.forEach((node, index) => {
+      const marking = node.marking || {};
+      const formula = node.formula || '';
+      
+      html += `
+        <div class="sl-trace-step-item">
+          <div class="sl-trace-step-header" style="background: rgba(208, 135, 112, 0.3);">
+            <span class="sl-trace-step-number" style="background: #D08770;">State #${index + 1}</span>
+            <span class="sl-trace-step-transition" style="color: #D08770;">Overfinal Marking</span>
+          </div>
+          <div class="sl-trace-step-body">
+            <div style="margin-bottom: 10px; color: #D8DEE9; font-size: 13px;">
+              This marking has more tokens than the expected final marking.
+            </div>
+            <div class="sl-trace-marking-grid">
+              ${Object.entries(marking).filter(([, tokens]) => tokens > 0).map(([placeId, tokens]) => `
+                <div class="sl-trace-marking-item">
+                  <span class="sl-trace-marking-place">${this.getPlaceLabel(placeId)}</span>
+                  <span class="sl-trace-marking-tokens">${tokens}</span>
+                </div>
+              `).join('')}
+            </div>
+            ${formula && formula !== 'true' ? `
+              <div style="margin-top: 10px;">
+                <span style="color: #81A1C1; font-size: 12px;">Data constraint:</span>
+                <div class="sl-formula-display">${this.escapeHtml(formula)}</div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    });
+
+    return html;
+  }
+
+  /**
+   * Create offending state section (for deadlock)
+   */
+  createOffendingStateSection(offendingState) {
+    const marking = offendingState.marking || {};
+    const formula = offendingState.formula || '';
+    const nodeId = offendingState.nodeId || '';
+
+    return `
+      <div class="sl-trace-state-section">
+        <div class="sl-trace-state-title">
+          <span>⛔</span>
+          <span>Deadlock State Reached</span>
+        </div>
+        <div style="margin-bottom: 12px; color: #D8DEE9; font-size: 13px;">
+          The system reached this state from which no final marking can be reached.
+          No enabled transitions can fire from this configuration.
+        </div>
+        <div style="margin-bottom: 10px;">
+          <span style="color: #81A1C1; font-size: 12px; font-weight: 500;">Token Distribution:</span>
+        </div>
+        <div class="sl-trace-marking-grid">
+          ${Object.entries(marking).filter(([, tokens]) => tokens > 0).map(([placeId, tokens]) => `
+            <div class="sl-trace-marking-item">
+              <span class="sl-trace-marking-place">${this.getPlaceLabel(placeId)}</span>
+              <span class="sl-trace-marking-tokens">${tokens}</span>
+            </div>
+          `).join('')}
+        </div>
+        ${formula && formula !== 'true' ? `
+          <div style="margin-top: 12px;">
+            <span style="color: #81A1C1; font-size: 12px;">Data constraint at this state:</span>
+            <div class="sl-formula-display">${this.escapeHtml(formula)}</div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Toggle trace panel expand/collapse
+   */
+  toggleTracePanel(index) {
+    const header = document.querySelector(`[data-panel-index="${index}"]`);
+    const content = document.getElementById(`sl-trace-panel-content-${index}`);
+    
+    if (header && content) {
+      header.classList.toggle('expanded');
+      content.classList.toggle('expanded');
+    }
+  }
+
+  /**
+   * Get transition label from ID
+   */
+  getTransitionLabel(transitionId) {
+    const transition = this.app?.api?.petriNet?.transitions?.get(transitionId);
+    return transition?.label || transitionId;
+  }
+
+  /**
+   * Get place label from ID
+   */
+  getPlaceLabel(placeId) {
+    const place = this.app?.api?.petriNet?.places?.get(placeId);
+    return place?.label || placeId;
+  }
+
+  /**
+   * Format variable value for display
+   */
+  formatVariableValue(value) {
+    if (value === null || value === undefined) return 'null';
+    if (typeof value === 'number') {
+      // Format numbers nicely
+      if (Number.isInteger(value)) return value.toString();
+      return value.toFixed(2);
+    }
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
   }
 
   getPropertyDisplayName(checkName) {
@@ -1055,21 +1739,30 @@ class SuvorovLomazovaVerificationUI {
 
   getCounterexampleDescription(check) {
     if (check.trace && check.trace.length > 0) {
-      return `Trace with ${check.trace.length} steps showing property violation`;
+      const traceTransitions = check.trace
+        .map((step, i) => `${i + 1}. ${this.getTransitionLabel(step.transitionId)}`)
+        .slice(0, 3)
+        .join(' → ');
+      const suffix = check.trace.length > 3 ? ` ... (${check.trace.length} steps total)` : '';
+      return `Execution trace: ${traceTransitions}${suffix}. Click "Detailed Trace" below to see variable values at each step.`;
     }
 
     if (check.deadTransitions && check.deadTransitions.length > 0) {
       const transitions = check.deadTransitions
         .map((dt) => dt.transitionLabel || dt.transitionId)
         .join(", ");
-      return `Dead transitions: ${transitions}`;
+      return `Dead transitions detected: ${transitions}. These transitions can never fire due to unsatisfiable preconditions.`;
     }
 
     if (check.overfinalNodes && check.overfinalNodes.length > 0) {
-      return `${check.overfinalNodes.length} state(s) with overfinal markings`;
+      return `${check.overfinalNodes.length} state(s) with overfinal markings found. The net can reach states with more tokens than the final marking allows.`;
     }
 
-    return "Property violation detected";
+    if (check.offendingState) {
+      return `Deadlock state found. The system can reach a state from which no final marking is reachable.`;
+    }
+
+    return "Property violation detected. Expand the trace panel below for details.";
   }
 
   createControlPanel() {
