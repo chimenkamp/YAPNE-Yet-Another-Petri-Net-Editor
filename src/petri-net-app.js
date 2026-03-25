@@ -4,7 +4,9 @@
  * This file contains the implementation of a web application that uses the Petri Net Editor library.
  * It demonstrates how to create, edit, simulate, and analyze Petri nets.
  */
-import { PetriNetAPI } from './petri-net-simulator.js';
+import { PetriNetAPI, Place, Transition, Arc } from './petri-net-simulator.js';
+import HistoryDialog from './history-dialog.js';
+import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
 
 class PetriNetApp {
   /**
@@ -54,7 +56,21 @@ class PetriNetApp {
     this.api = new PetriNetAPI();
     this.editor = this.api.attachEditor(this.canvas);
     
-    
+    // ── Snapshot-based undo/redo system ──
+    this._undoStack = [];      // past snapshots (JSON strings)
+    this._redoStack = [];      // future snapshots
+    this._maxSnapshots = 80;   // limit memory usage
+    this._isRestoring = false; // guard: don't snapshot during undo/redo
+
+    // ActionHistory instance is kept for the HistoryDialog UI
+    this.actionHistory = new ActionHistory(100);
+    this.historyDialog = new HistoryDialog(this.actionHistory, () => {
+      this.editor.render();
+      this.updateTokensDisplay();
+      this.updateSelectedElementProperties();
+      this.updateUndoRedoButtons();
+    });
+    this.historyDialog.init();
 
     this.api.setZoomSensitivity(0.05);
 
@@ -71,6 +87,9 @@ class PetriNetApp {
 
     // Add initial place to the editor
     this.addInitialPlace();
+
+    // Take the very first snapshot (initial state)
+    this._takeSnapshot('Initial state');
 
     this.editor.render();
     this.updateTokensDisplay();
@@ -228,8 +247,47 @@ initEventHandlers() {
     this.appEventListeners.push(['click', handler, btnAddArc]);
   }
 
+  // Undo / Redo / History buttons
+  const btnUndo = document.getElementById("btn-undo");
+  if (btnUndo) {
+    const handler = () => this.performUndo();
+    btnUndo.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnUndo]);
+  }
+
+  const btnRedo = document.getElementById("btn-redo");
+  if (btnRedo) {
+    const handler = () => this.performRedo();
+    btnRedo.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnRedo]);
+  }
+
+  const btnHistory = document.getElementById("btn-history");
+  if (btnHistory) {
+    const handler = () => this.historyDialog.toggle();
+    btnHistory.addEventListener("click", handler);
+    this.appEventListeners.push(['click', handler, btnHistory]);
+  }
+
   // Space key handlers for arc mode
   const keydownHandler = (e) => {
+    // Don't intercept undo/redo when a text input is focused
+    const tag = document.activeElement?.tagName;
+    const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+    // Undo: Ctrl+Z / Cmd+Z
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !isInputFocused) {
+      e.preventDefault();
+      this.performUndo();
+      return;
+    }
+    // Redo: Ctrl+Shift+Z / Cmd+Shift+Z  or  Ctrl+Y / Cmd+Y
+    if (((e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) ||
+        (e.key === 'y' && (e.ctrlKey || e.metaKey))) && !isInputFocused) {
+      e.preventDefault();
+      this.performRedo();
+      return;
+    }
     if (e.key === ' ' && this.editor && this.editor.mode !== 'addArc') {
       e.preventDefault();
       e.stopPropagation();
@@ -538,6 +596,7 @@ initEventHandlers() {
     if (labelInput) {
       labelInput.addEventListener("change", (e) => {
         this.api.setLabel(id, e.target.value);
+        this._takeSnapshot(`Rename place to ${e.target.value}`);
       });
     }
 
@@ -550,6 +609,7 @@ initEventHandlers() {
           this.updateTokensDisplay();
           this.updateFinalMarkingDisplay(); 
           this.editor.render();
+          this._takeSnapshot(`Set tokens ${place.label} to ${value}`);
         }
       });
     }
@@ -561,6 +621,7 @@ initEventHandlers() {
         if (!isNaN(value)) {
           place.capacity = value === 0 ? null : value;
           this.editor.render();
+          this._takeSnapshot('Change capacity');
         }
       });
     }
@@ -579,6 +640,7 @@ initEventHandlers() {
         }
         this.editor.render();
         this.updateFinalMarkingDisplay();
+        this._takeSnapshot('Change final marking');
         this.showPlaceProperties(id);
       });
     }
@@ -655,6 +717,7 @@ initEventHandlers() {
         // Re-render the properties panel to update disabled state
         this.showTransitionProperties(id);
         this.editor.render();
+        this._takeSnapshot(e.target.checked ? 'Make silent' : 'Make visible');
       });
     }
 
@@ -662,6 +725,7 @@ initEventHandlers() {
     if (labelInput) {
       labelInput.addEventListener("change", (e) => {
         this.api.setLabel(id, e.target.value);
+        this._takeSnapshot(`Rename transition to ${e.target.value}`);
       });
     }
 
@@ -672,6 +736,7 @@ initEventHandlers() {
         if (!isNaN(value) && value >= 1) {
           transition.priority = value;
           this.editor.render();
+          this._takeSnapshot('Change priority');
         }
       });
     }
@@ -683,6 +748,7 @@ initEventHandlers() {
         if (!isNaN(value) && value >= 0) {
           transition.delay = value;
           this.editor.render();
+          this._takeSnapshot('Change delay');
         }
       });
     }
@@ -828,6 +894,7 @@ initEventHandlers() {
           if (labelInput && !labelInput.value) {
             arc.label = value.toString();
           }
+          this._takeSnapshot('Change arc weight');
         }
       });
     }
@@ -836,6 +903,7 @@ initEventHandlers() {
     if (typeSelect) {
       typeSelect.addEventListener("change", (e) => {
         this.api.setArcType(id, e.target.value);
+        this._takeSnapshot('Change arc type');
       });
     }
 
@@ -845,6 +913,7 @@ initEventHandlers() {
         const label = e.target.value || arc.weight.toString();
         arc.label = label;
         this.editor.render();
+        this._takeSnapshot('Change arc label');
       });
     }
   }
@@ -908,12 +977,165 @@ initEventHandlers() {
     this.updateTokensDisplay();
     this.updateFinalMarkingDisplay();
 
+    // Record a snapshot for undo on every change (unless we're mid-restore)
+    if (!this._isRestoring) {
+      this._takeSnapshot('Edit');
+    }
+
     if (this.editor.selectedElement) {
       this.handleElementSelected(
         this.editor.selectedElement.id,
         this.editor.selectedElement.type
       );
     }
+  }
+
+  /* ═══════════════════════════════════════════════
+   *  Snapshot-based Undo / Redo
+   * ═══════════════════════════════════════════════ */
+
+  /**
+   * Serialize the current PetriNet state and push it onto the undo stack.
+   * Clears the redo stack (new edit branch).
+   * Skips if the state hasn't actually changed since the last snapshot.
+   */
+  _takeSnapshot(label = 'Edit') {
+    const json = this.api.petriNet.toJSON();
+    // Deduplicate: skip if the state is identical to the top of the stack
+    if (this._undoStack.length > 0 &&
+        this._undoStack[this._undoStack.length - 1].json === json) {
+      return;
+    }
+    this._undoStack.push({ json, label, timestamp: Date.now() });
+    this._redoStack = [];
+    // Trim oldest entries if over limit
+    while (this._undoStack.length > this._maxSnapshots) {
+      this._undoStack.shift();
+    }
+    // Sync the ActionHistory so the dialog stays up-to-date
+    this._syncActionHistory();
+    this.updateUndoRedoButtons();
+  }
+
+  /**
+   * Restore a JSON snapshot into the current PetriNet **in-place**
+   * (without recreating the editor).
+   */
+  _restoreSnapshot(json) {
+    this._isRestoring = true;
+    try {
+      const data = JSON.parse(json);
+      const net = this.api.petriNet;
+
+      // 1. Clear current data
+      net.places.clear();
+      net.transitions.clear();
+      net.arcs.clear();
+
+      // 2. Restore net-level metadata
+      if (data.id) net.id = data.id;
+      if (data.name !== undefined) net.name = data.name;
+      if (data.description !== undefined) net.description = data.description;
+
+      // 3. Rebuild from snapshot using the imported classes directly
+      if (data.places) {
+        for (const pd of data.places) {
+          const place = new Place(pd.id, pd.position, pd.label, pd.tokens, pd.capacity, pd.finalMarking);
+          net.places.set(place.id, place);
+        }
+      }
+      if (data.transitions) {
+        for (const td of data.transitions) {
+          const isSilent = td.silent || !td.label || td.label.trim() === '';
+          const tr = new Transition(td.id, td.position, td.label || '', td.priority, td.delay, isSilent);
+          net.transitions.set(tr.id, tr);
+        }
+      }
+      if (data.arcs) {
+        for (const ad of data.arcs) {
+          const arc = new Arc(ad.id, ad.source, ad.target, ad.weight, ad.type, ad.points || [], ad.label);
+          net.arcs.set(arc.id, arc);
+        }
+      }
+
+      // 4. Refresh everything
+      this.editor.selectedElement = null;
+      this.editor.render();
+      this.updateTokensDisplay();
+      this.updateFinalMarkingDisplay();
+      this.propertiesPanel.innerHTML = '<p>No element selected.</p>';
+    } finally {
+      this._isRestoring = false;
+    }
+  }
+
+  /** Execute undo */
+  performUndo() {
+    // We need at least 2 entries: [previous_state, current_state]
+    if (this._undoStack.length < 2) return;
+    // Move current state to redo
+    const current = this._undoStack.pop();
+    this._redoStack.push(current);
+    // Restore the previous state
+    const prev = this._undoStack[this._undoStack.length - 1];
+    this._restoreSnapshot(prev.json);
+    this._syncActionHistory();
+    this.updateUndoRedoButtons();
+  }
+
+  /** Execute redo */
+  performRedo() {
+    if (this._redoStack.length === 0) return;
+    const next = this._redoStack.pop();
+    this._undoStack.push(next);
+    this._restoreSnapshot(next.json);
+    this._syncActionHistory();
+    this.updateUndoRedoButtons();
+  }
+
+  /** Sync the ActionHistory entries so the HistoryDialog panel can display them. */
+  _syncActionHistory() {
+    this.actionHistory.past = [];
+    this.actionHistory.future = [];
+    // past = undoStack entries (skip index 0 which is the baseline)
+    for (let i = 1; i < this._undoStack.length; i++) {
+      const s = this._undoStack[i];
+      this.actionHistory.past.push({
+        label: s.label,
+        icon: ACTION_ICONS.edit,
+        timestamp: s.timestamp,
+        redo() {},
+        undo() {},
+      });
+    }
+    // future = redoStack (reversed, oldest first)
+    for (let i = this._redoStack.length - 1; i >= 0; i--) {
+      const s = this._redoStack[i];
+      this.actionHistory.future.push({
+        label: s.label,
+        icon: ACTION_ICONS.edit,
+        timestamp: s.timestamp,
+        redo() {},
+        undo() {},
+      });
+    }
+    this.actionHistory._notifyChange();
+  }
+
+  /** Sync the disabled state of the toolbar undo/redo buttons */
+  updateUndoRedoButtons() {
+    const btnUndo = document.getElementById("btn-undo");
+    const btnRedo = document.getElementById("btn-redo");
+    if (btnUndo) btnUndo.disabled = this._undoStack.length < 2;
+    if (btnRedo) btnRedo.disabled = this._redoStack.length === 0;
+  }
+
+  /** Reset the undo/redo stacks (called on file load / reset) */
+  _resetUndoHistory() {
+    this._undoStack = [];
+    this._redoStack = [];
+    this.actionHistory.clear();
+    this._takeSnapshot('Initial state');
   }
 
   /**
@@ -1084,6 +1306,9 @@ initEventHandlers() {
     this.editor.setMode("select");
     this.updateActiveButton("btn-select");
 
+    // Reset undo/redo stacks for the new editor
+    this._resetUndoHistory();
+
     this.editor.render();
     this.updateTokensDisplay();
     this.updateZoomDisplay();
@@ -1217,6 +1442,9 @@ initEventHandlers() {
           this.editor.setMode("select");
           this.updateActiveButton("btn-select");
 
+          // Reset undo/redo stacks for the new editor
+          this._resetUndoHistory();
+
           this.editor.render();
           this.updateTokensDisplay();
           this.updateZoomDisplay();
@@ -1347,6 +1575,9 @@ initEventHandlers() {
           
           // Reinitialize all handlers
           this.initEventHandlers();
+
+          // Reset undo/redo stacks for the new editor
+          this._resetUndoHistory();
 
           // Reset all simulation and UI state
           this.initialState = null;
