@@ -905,7 +905,7 @@ class SuvorovLomazovaVerificationUI {
    * Create verification section in sidebar
    */
   createVerificationSection() {
-    const modelTab = document.querySelector('.sidebar-pane[data-tab="model"]');
+    const modelTab = document.querySelector('.sidebar-pane[data-tab="file"]');
     if (!modelTab || document.getElementById("sl-verification-section")) return;
 
     const section = document.createElement("div");
