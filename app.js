@@ -321,6 +321,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.workflowTutorial.toggle();
                     });
                 }
+
+                // Wire up "Workflow Tutorials" button in the welcome dialog
+                const tutorialWelcomeBtn = document.getElementById('btn-open-tutorials-welcome');
+                if (tutorialWelcomeBtn) {
+                    tutorialWelcomeBtn.addEventListener('click', () => {
+                        closeHelpDialog();
+                        window.workflowTutorial.openDialog();
+                    });
+                }
                 
                 clearInterval(initTimer);
             }

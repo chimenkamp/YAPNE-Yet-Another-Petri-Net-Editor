@@ -557,11 +557,28 @@
     <!-- Help Dialog Overlay -->
     <div id="help-dialog-overlay" class="help-dialog-overlay">
         <div class="help-dialog">
+
             <div class="help-dialog-header">
                 <h2>📖 Controls Guide</h2>
                 <button id="help-dialog-close" class="help-dialog-close">×</button>
             </div>
             <div class="help-dialog-content">
+                            <div class="help-section" style="background: linear-gradient(135deg, rgba(94,129,172,0.15), rgba(136,192,208,0.10)); border: 1px solid #5E81AC; border-radius: 8px; padding: 16px; margin-top: 8px;">
+                <h3>📚 Guided Workflow Tutorials</h3>
+                <p style="color: #D8DEE9; font-size: 14px; line-height: 1.5; margin: 8px 0 12px;">
+                    New to YAPNE? Follow our interactive step-by-step workflows that highlight each UI element and set the editor to the correct state automatically.
+                </p>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px;">
+                    <span style="background: rgba(163,190,140,0.15); color: #A3BE8C; padding: 2px 8px; border-radius: 4px; font-size: 12px;">🎨 Modeling</span>
+                    <span style="background: rgba(136,192,208,0.15); color: #88C0D0; padding: 2px 8px; border-radius: 4px; font-size: 12px;">📁 Import/Export</span>
+                    <span style="background: rgba(129,161,193,0.15); color: #81A1C1; padding: 2px 8px; border-radius: 4px; font-size: 12px;">▶️ Simulation</span>
+                    <span style="background: rgba(180,142,173,0.15); color: #B48EAD; padding: 2px 8px; border-radius: 4px; font-size: 12px;">🔬 Verification</span>
+                    <span style="background: rgba(208,135,112,0.15); color: #D08770; padding: 2px 8px; border-radius: 4px; font-size: 12px;">📊 Log Generation</span>
+                </div>
+                <button id="btn-open-tutorials-welcome" style="width: 100%; padding: 10px; background: linear-gradient(135deg, #5E81AC, #81A1C1); color: #ECEFF4; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;">
+                    📚 Open Workflow Tutorials
+                </button>
+            </div>
                 <div class="help-section">
                     <h3>� Quick Start - Ghost Mode</h3>
                     <div class="help-tip">
@@ -647,6 +664,8 @@
                         <span class="help-description">Fire a specific transition (appears when transition is selected)</span>
                     </div>
                 </div>
+
+
             </div>
         </div>
     </div>
