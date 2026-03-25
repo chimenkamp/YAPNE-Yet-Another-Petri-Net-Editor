@@ -112,7 +112,16 @@
     {
         "name": "DPN: Fibonacci Sequence",
         "description": "Example modeling Fibonacci sequence calculation",
+<<<<<<< Updated upstream
         "path": "public/examples/DPN-Fibonacci(n).json "
+=======
+        "path": "examples/DPN-Fibonacci(n).json"
+    },
+    {
+        "name": "DPN: Emergency Department Triage & Treatment",
+        "description": "Complex medical workflow with 5 data variables: patient registration, triage by severity, diagnostic workup, treatment branching (surgery vs medication), and admission/discharge decision. Sound workflow net.",
+        "path": "examples/DPN-Emergency-Triage.json"
+>>>>>>> Stashed changes
     }
 
 ]

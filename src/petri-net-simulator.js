@@ -478,7 +478,8 @@ class PetriNet {
         placeData.position,
         placeData.label,
         placeData.tokens,
-        placeData.capacity
+        placeData.capacity,
+        placeData.finalMarking || null
       );
       net.places.set(place.id, place);
     });
