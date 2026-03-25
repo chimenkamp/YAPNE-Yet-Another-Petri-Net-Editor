@@ -1444,23 +1444,9 @@ class PetriNetEditor {
 
 
     const keyDownHandler = (event) => {
-      // Delete currently selected element
+      // Delete currently selected element – delegate to deleteSelected()
       if (event.code === 'Delete' && this.selectedElement) {
-        if (this.selectedElement.type === 'place') {
-          this.petriNet.removePlace(this.selectedElement.id);
-        } else if (this.selectedElement.type === 'transition') {
-          this.petriNet.removeTransition(this.selectedElement.id);
-        } else if (this.selectedElement.type === 'arc') {
-          this.petriNet.removeArc(this.selectedElement.id);
-        } 
-
-
-        this.selectedElement = null;
-        this.dragOffset = null;
-        if (this.callbacks.onChange) {
-          this.callbacks.onChange();
-        }
-        this.render();
+        this.deleteSelected();
         return;
       }
 

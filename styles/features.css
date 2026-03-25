@@ -1,0 +1,177 @@
+/* ===== YAPNE Feature Extensions Styles ===== */
+
+/* ─── Undo/Redo toolbar ─── */
+.undo-redo-controls {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.undo-redo-controls button {
+  background: rgba(67, 76, 94, 0.9);
+  border: 1px solid #4C566A;
+  color: #D8DEE9;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.undo-redo-controls button:hover:not(:disabled) {
+  background: #4C566A;
+}
+
+.undo-redo-controls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* ─── Node / Arc Styling panel ─── */
+.style-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #4C566A;
+}
+
+.style-section h4 {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: #88C0D0;
+}
+
+.style-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.style-row label {
+  flex: 0 0 90px;
+  font-size: 12px;
+  color: #D8DEE9;
+}
+
+.style-row input[type="color"] {
+  width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.style-row input[type="range"] {
+  flex: 1;
+  accent-color: #88C0D0;
+}
+
+.style-row select {
+  flex: 1;
+  padding: 3px 6px;
+  background: #3B4252;
+  color: #D8DEE9;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.style-row .range-value {
+  flex: 0 0 30px;
+  text-align: right;
+  font-size: 11px;
+  color: #81A1C1;
+}
+
+/* ─── Simulation mode styling ─── */
+.sim-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  background: #3B4252;
+  border-radius: 6px;
+  padding: 3px;
+}
+
+.sim-mode-toggle button {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #D8DEE9;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+
+.sim-mode-toggle button.active {
+  background: #5E81AC;
+  color: #ECEFF4;
+}
+
+.sim-mode-toggle button:hover:not(.active) {
+  background: rgba(136, 192, 208, 0.15);
+}
+
+/* ─── Simulation trace log ─── */
+.sim-trace-log {
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(46, 52, 64, 0.5);
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+}
+
+.sim-trace-log::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sim-trace-log::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 3px;
+}
+
+.sim-trace-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #D8DEE9;
+  margin-bottom: 2px;
+}
+
+.sim-trace-entry:hover {
+  background: rgba(136, 192, 208, 0.1);
+}
+
+.sim-trace-step-num {
+  background: #5E81AC;
+  color: #ECEFF4;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.sim-trace-transitions {
+  flex: 1;
+  color: #88C0D0;
+}
+
+/* ─── Enabled transition highlight (canvas CSS fallback) ─── */
+@keyframes enabledPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(163, 190, 140, 0.4); }
+  50% { box-shadow: 0 0 14px rgba(163, 190, 140, 0.8); }
+}
+
+/* ─── Verification tab ─── */
+.verification-pane .sidebar-section {
+  margin-bottom: 0;
+}

@@ -1,0 +1,236 @@
+{
+  "id": "emergency-triage-dpn",
+  "name": "Emergency Department Triage & Treatment",
+  "description": "A data Petri net modelling an emergency department workflow: patient arrives, vitals are assessed, a triage level is assigned based on severity, diagnostic tests are ordered, treatment is chosen based on diagnosis, and the patient is either discharged or admitted to the hospital. Uses 5 data variables with guard-based branching.",
+  "places": [
+    { "id": "p_start", "position": { "x": 60, "y": 300 }, "label": "Patient Arrival", "tokens": 1, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_registered", "position": { "x": 220, "y": 300 }, "label": "Registered", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_vitals_taken", "position": { "x": 400, "y": 300 }, "label": "Vitals Assessed", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_triaged", "position": { "x": 580, "y": 300 }, "label": "Triaged", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_critical", "position": { "x": 740, "y": 120 }, "label": "Critical (Level 1-2)", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_urgent", "position": { "x": 740, "y": 300 }, "label": "Urgent (Level 3)", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_minor", "position": { "x": 740, "y": 480 }, "label": "Minor (Level 4-5)", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_lab_ordered", "position": { "x": 920, "y": 120 }, "label": "Labs & Imaging", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_exam_done", "position": { "x": 920, "y": 300 }, "label": "Examined", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_quick_check", "position": { "x": 920, "y": 480 }, "label": "Quick Assessment", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_diagnosed", "position": { "x": 1100, "y": 300 }, "label": "Diagnosed", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_surgery", "position": { "x": 1280, "y": 160 }, "label": "Surgery / ICU", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_medication", "position": { "x": 1280, "y": 440 }, "label": "Medication Rx", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_post_treatment", "position": { "x": 1460, "y": 300 }, "label": "Post-Treatment", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_admitted", "position": { "x": 1640, "y": 180 }, "label": "Admitted", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+    { "id": "p_discharged", "position": { "x": 1640, "y": 420 }, "label": "Discharged", "tokens": 0, "capacity": null, "finalMarking": 0, "radius": 20 },
+
+    { "id": "p_end", "position": { "x": 1820, "y": 300 }, "label": "Case Closed", "tokens": 0, "capacity": null, "finalMarking": 1, "radius": 20 }
+  ],
+  "transitions": [
+    {
+      "id": "t_register", "position": { "x": 140, "y": 300 },
+      "label": "Register Patient", "width": 20, "height": 50,
+      "isEnabled": true, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": "patientAge' = Math.floor(Math.random() * 80) + 5; severity' = Math.floor(Math.random() * 5) + 1; heartRate' = Math.floor(Math.random() * 80) + 60; cost' = 150;"
+    },
+    {
+      "id": "t_assess_vitals", "position": { "x": 310, "y": 300 },
+      "label": "Assess Vitals", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "heartRate > 0",
+      "postcondition": "diagnosisCode' = Math.floor(Math.random() * 3);"
+    },
+    {
+      "id": "t_triage", "position": { "x": 490, "y": 300 },
+      "label": "Assign Triage Level", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity >= 1 && severity <= 5",
+      "postcondition": ""
+    },
+    {
+      "id": "t_route_critical", "position": { "x": 660, "y": 120 },
+      "label": "Route Critical", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity <= 2",
+      "postcondition": "cost' = cost + 5000;"
+    },
+    {
+      "id": "t_route_urgent", "position": { "x": 660, "y": 300 },
+      "label": "Route Urgent", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity == 3",
+      "postcondition": "cost' = cost + 2000;"
+    },
+    {
+      "id": "t_route_minor", "position": { "x": 660, "y": 480 },
+      "label": "Route Minor", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity >= 4",
+      "postcondition": "cost' = cost + 300;"
+    },
+    {
+      "id": "t_order_labs", "position": { "x": 830, "y": 120 },
+      "label": "Order Labs & Imaging", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": "cost' = cost + 1200;"
+    },
+    {
+      "id": "t_examine", "position": { "x": 830, "y": 300 },
+      "label": "Physician Exam", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": "cost' = cost + 600;"
+    },
+    {
+      "id": "t_quick_assess", "position": { "x": 830, "y": 480 },
+      "label": "Nurse Assessment", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": "cost' = cost + 200;"
+    },
+    {
+      "id": "t_diagnose_critical", "position": { "x": 1010, "y": 120 },
+      "label": "Diagnose (Critical)", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": ""
+    },
+    {
+      "id": "t_diagnose_urgent", "position": { "x": 1010, "y": 300 },
+      "label": "Diagnose (Urgent)", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": ""
+    },
+    {
+      "id": "t_diagnose_minor", "position": { "x": 1010, "y": 480 },
+      "label": "Diagnose (Minor)", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": ""
+    },
+    {
+      "id": "t_treat_surgery", "position": { "x": 1190, "y": 160 },
+      "label": "Surgical Intervention", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity <= 2 && diagnosisCode >= 1",
+      "postcondition": "cost' = cost + 15000;"
+    },
+    {
+      "id": "t_treat_medication", "position": { "x": 1190, "y": 440 },
+      "label": "Prescribe Medication", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "diagnosisCode == 0 || severity >= 3",
+      "postcondition": "cost' = cost + 400;"
+    },
+    {
+      "id": "t_post_surgery", "position": { "x": 1370, "y": 160 },
+      "label": "Post-Op Recovery", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": "cost' = cost + 3000;"
+    },
+    {
+      "id": "t_post_medication", "position": { "x": 1370, "y": 440 },
+      "label": "Monitor Response", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": ""
+    },
+    {
+      "id": "t_admit", "position": { "x": 1550, "y": 180 },
+      "label": "Admit to Hospital", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity <= 2 || (heartRate > 120)",
+      "postcondition": "cost' = cost + 8000;"
+    },
+    {
+      "id": "t_discharge", "position": { "x": 1550, "y": 420 },
+      "label": "Discharge Patient", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "severity >= 3 && heartRate <= 120",
+      "postcondition": ""
+    },
+    {
+      "id": "t_close_admit", "position": { "x": 1730, "y": 180 },
+      "label": "Finalize Admission", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": ""
+    },
+    {
+      "id": "t_close_discharge", "position": { "x": 1730, "y": 420 },
+      "label": "Finalize Discharge", "width": 20, "height": 50,
+      "isEnabled": false, "priority": 0, "delay": 0,
+      "precondition": "",
+      "postcondition": ""
+    }
+  ],
+  "arcs": [
+    { "id": "a1",  "source": "p_start",      "target": "t_register",        "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a2",  "source": "t_register",    "target": "p_registered",      "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a3",  "source": "p_registered",  "target": "t_assess_vitals",   "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a4",  "source": "t_assess_vitals","target": "p_vitals_taken",   "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a5",  "source": "p_vitals_taken", "target": "t_triage",         "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a6",  "source": "t_triage",       "target": "p_triaged",        "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a7",  "source": "p_triaged",   "target": "t_route_critical",  "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a8",  "source": "p_triaged",   "target": "t_route_urgent",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a9",  "source": "p_triaged",   "target": "t_route_minor",     "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a10", "source": "t_route_critical", "target": "p_critical",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a11", "source": "t_route_urgent",   "target": "p_urgent",      "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a12", "source": "t_route_minor",    "target": "p_minor",       "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a13", "source": "p_critical", "target": "t_order_labs",     "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a14", "source": "p_urgent",   "target": "t_examine",        "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a15", "source": "p_minor",    "target": "t_quick_assess",   "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a16", "source": "t_order_labs",   "target": "p_lab_ordered",  "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a17", "source": "t_examine",      "target": "p_exam_done",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a18", "source": "t_quick_assess", "target": "p_quick_check",  "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a19", "source": "p_lab_ordered", "target": "t_diagnose_critical", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a20", "source": "p_exam_done",   "target": "t_diagnose_urgent",   "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a21", "source": "p_quick_check", "target": "t_diagnose_minor",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a22", "source": "t_diagnose_critical", "target": "p_diagnosed", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a23", "source": "t_diagnose_urgent",   "target": "p_diagnosed", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a24", "source": "t_diagnose_minor",    "target": "p_diagnosed", "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a25", "source": "p_diagnosed", "target": "t_treat_surgery",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a26", "source": "p_diagnosed", "target": "t_treat_medication",  "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a27", "source": "t_treat_surgery",    "target": "p_surgery",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a28", "source": "t_treat_medication",  "target": "p_medication", "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a29", "source": "p_surgery",    "target": "t_post_surgery",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a30", "source": "p_medication",  "target": "t_post_medication", "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a31", "source": "t_post_surgery",    "target": "p_post_treatment", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a32", "source": "t_post_medication",  "target": "p_post_treatment", "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a33", "source": "p_post_treatment", "target": "t_admit",     "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a34", "source": "p_post_treatment", "target": "t_discharge",  "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a35", "source": "t_admit",     "target": "p_admitted",    "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a36", "source": "t_discharge",  "target": "p_discharged", "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a37", "source": "p_admitted",   "target": "t_close_admit",     "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a38", "source": "p_discharged", "target": "t_close_discharge", "weight": 1, "type": "regular", "points": [], "label": "1" },
+
+    { "id": "a39", "source": "t_close_admit",     "target": "p_end", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a40", "source": "t_close_discharge",  "target": "p_end", "weight": 1, "type": "regular", "points": [], "label": "1" }
+  ],
+  "dataVariables": [
+    { "id": "var_age",       "name": "patientAge",    "type": "number", "currentValue": 0,   "description": "Patient age in years (randomised 5–84 on registration)" },
+    { "id": "var_severity",  "name": "severity",      "type": "number", "currentValue": 0,   "description": "Triage severity level 1 (critical) to 5 (minor)" },
+    { "id": "var_hr",        "name": "heartRate",     "type": "number", "currentValue": 0,   "description": "Heart rate in bpm (randomised 60–139 on registration)" },
+    { "id": "var_diag",      "name": "diagnosisCode", "type": "number", "currentValue": 0,   "description": "Diagnosis code: 0 = manageable, 1 = surgical, 2 = complex" },
+    { "id": "var_cost",      "name": "cost",          "type": "number", "currentValue": 0,   "description": "Cumulative treatment cost in USD" }
+  ]
+}
