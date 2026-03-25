@@ -1,0 +1,736 @@
+/* ===================================================================
+   Simulation Dashboard & Properties Panel – Side Panel System
+   Nord-themed modern design
+   =================================================================== */
+
+/* ─── Toggle Buttons (right edge of canvas) ─── */
+.side-panel-toggle {
+  position: absolute;
+  right: 12px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: rgba(59, 66, 82, 0.92);
+  border: 1px solid #4C566A;
+  border-radius: 8px;
+  color: #D8DEE9;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  backdrop-filter: blur(8px);
+}
+
+/* Shift toggle buttons left when a panel is open */
+body.panel-open .side-panel-toggle {
+  right: 372px;
+}
+
+.side-panel-toggle:hover {
+  background: rgba(76, 86, 106, 0.95);
+  color: #ECEFF4;
+  transform: translateX(-2px);
+}
+
+.side-panel-toggle.active {
+  background: rgba(94, 129, 172, 0.9);
+  border-color: #81A1C1;
+  color: #ECEFF4;
+}
+
+.side-panel-toggle svg {
+  flex-shrink: 0;
+}
+
+.side-panel-toggle .toggle-label {
+  white-space: nowrap;
+}
+
+/* Position the toggles */
+.props-toggle {
+  top: 60px;
+}
+
+.sim-toggle {
+  top: 110px;
+}
+
+/* ─── Side Panel Base ─── */
+.side-panel {
+  position: fixed;
+  right: 0;
+  width: 360px;
+  background: rgba(59, 66, 82, 0.97);
+  border-left: 1px solid #4C566A;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  z-index: 400;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.side-panel.open {
+  transform: translateX(0);
+}
+
+/* When both panels are open they stack vertically */
+.props-panel {
+  top: 0;
+  height: 50vh;
+  border-bottom: 1px solid #4C566A;
+}
+
+.sim-dashboard-panel {
+  top: 0;
+  height: 100vh;
+}
+
+/* Stacking logic via JS classes on body */
+body.both-panels-open .props-panel.open {
+  height: 45vh;
+  top: 0;
+}
+
+body.both-panels-open .sim-dashboard-panel.open {
+  top: 45vh;
+  height: 55vh;
+  border-top: 2px solid #81A1C1;
+}
+
+/* Single panel: full height */
+body:not(.both-panels-open) .props-panel.open {
+  height: 100vh;
+  top: 0;
+}
+
+body:not(.both-panels-open) .sim-dashboard-panel.open {
+  height: 100vh;
+  top: 0;
+}
+
+/* ─── Panel Header ─── */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #2E3440;
+  border-bottom: 1px solid #4C566A;
+  flex-shrink: 0;
+}
+
+.panel-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ECEFF4;
+}
+
+.panel-header-title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #E5E9F0;
+}
+
+.panel-header-title svg {
+  color: #88C0D0;
+}
+
+.panel-close {
+  background: none;
+  border: none;
+  color: #D8DEE9;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  width: auto;
+  height: auto;
+}
+
+.panel-close:hover {
+  background: #4C566A;
+  color: #ECEFF4;
+}
+
+/* ─── Panel Body ─── */
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-body::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 3px;
+}
+
+.panel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ─── Dashboard Section ─── */
+.dash-section {
+  background: #434C5E;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+}
+
+.dash-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(76, 86, 106, 0.6);
+  font-size: 13px;
+  font-weight: 600;
+  color: #E5E9F0;
+  user-select: none;
+}
+
+.dash-icon {
+  display: flex;
+  align-items: center;
+  color: #88C0D0;
+}
+
+.dash-badge {
+  margin-left: auto;
+  background: #5E81AC;
+  color: #ECEFF4;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+}
+
+.dash-clear-btn {
+  margin-left: auto;
+  background: rgba(191, 97, 106, 0.3);
+  color: #D8DEE9;
+  border: 1px solid rgba(191, 97, 106, 0.4);
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dash-clear-btn:hover {
+  background: rgba(191, 97, 106, 0.5);
+  color: #ECEFF4;
+}
+
+.dash-section-body {
+  padding: 12px 14px;
+}
+
+/* ─── Status Banner ─── */
+.sim-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(46, 52, 64, 0.8), rgba(67, 76, 94, 0.8));
+  border-radius: 8px;
+  margin-bottom: 10px;
+  border: 1px solid #4C566A;
+}
+
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.status-indicator.stopped  { background: #4C566A; }
+.status-indicator.ready    { background: #81A1C1; }
+.status-indicator.running  { background: #A3BE8C; animation: pulse-dot 1.5s infinite; }
+.status-indicator.paused   { background: #EBCB8B; }
+.status-indicator.deadlocked { background: #BF616A; }
+.status-indicator.completed { background: #A3BE8C; }
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(163, 190, 140, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(163, 190, 140, 0); }
+}
+
+.status-text {
+  font-size: 13px;
+  color: #D8DEE9;
+  font-weight: 500;
+}
+
+/* ─── Controls ─── */
+.sim-controls-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.sim-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex: 1;
+  justify-content: center;
+  color: #ECEFF4;
+}
+
+.sim-btn-primary {
+  background: #5E81AC;
+}
+.sim-btn-primary:hover { background: #81A1C1; }
+
+.sim-btn-success {
+  background: #A3BE8C;
+  color: #2E3440;
+}
+.sim-btn-success:hover { background: #8FBCBB; color: #2E3440; }
+
+.sim-btn-warning {
+  background: rgba(235, 203, 139, 0.25);
+  color: #EBCB8B;
+  border: 1px solid rgba(235, 203, 139, 0.3);
+}
+.sim-btn-warning:hover { 
+  background: rgba(235, 203, 139, 0.4); 
+  color: #ECEFF4;
+}
+
+.sim-btn-danger {
+  background: #BF616A;
+}
+.sim-btn-danger:hover { background: #D08770; }
+
+/* ─── Config Grid ─── */
+.sim-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sim-config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sim-config-item label {
+  font-size: 11px;
+  color: #81A1C1;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+.sim-speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sim-speed-control input[type="range"] {
+  flex: 1;
+  accent-color: #88C0D0;
+  height: 4px;
+  padding: 0;
+  border: none;
+  width: auto;
+}
+
+.sim-config-value {
+  font-size: 11px;
+  color: #88C0D0;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sim-input-small {
+  width: 100% !important;
+  padding: 6px 8px !important;
+  background: #3B4252 !important;
+  border: 1px solid #4C566A !important;
+  border-radius: 4px !important;
+  color: #ECEFF4 !important;
+  font-size: 13px !important;
+}
+
+/* ─── Progress Bar ─── */
+.sim-progress-bar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sim-progress-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #D8DEE9;
+}
+
+.sim-progress-stats strong {
+  color: #88C0D0;
+  font-size: 20px;
+}
+
+.sim-max-label {
+  font-size: 12px;
+  color: #81A1C1;
+}
+
+.sim-progress-bar {
+  height: 6px;
+  background: #3B4252;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.sim-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5E81AC, #88C0D0);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* ─── Active Transitions List ─── */
+.sim-transitions-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.sim-transitions-list::-webkit-scrollbar {
+  width: 4px;
+}
+.sim-transitions-list::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 2px;
+}
+
+.sim-transition-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  background: rgba(46, 52, 64, 0.5);
+  transition: background 0.15s;
+}
+
+.sim-transition-item:hover {
+  background: rgba(94, 129, 172, 0.15);
+}
+
+.sim-transition-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sim-transition-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sim-transition-dot.enabled {
+  background: #A3BE8C;
+  box-shadow: 0 0 6px rgba(163, 190, 140, 0.5);
+}
+
+.sim-transition-label {
+  font-size: 13px;
+  color: #E5E9F0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-silent-badge {
+  background: rgba(136, 192, 208, 0.2);
+  color: #88C0D0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.sim-fire-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(163, 190, 140, 0.2);
+  color: #A3BE8C;
+  border: 1px solid rgba(163, 190, 140, 0.3);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.sim-fire-btn:hover {
+  background: rgba(163, 190, 140, 0.4);
+  color: #ECEFF4;
+}
+
+/* ─── Token Grid ─── */
+.sim-token-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.sim-token-grid::-webkit-scrollbar {
+  width: 4px;
+}
+.sim-token-grid::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 2px;
+}
+
+.sim-token-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  background: rgba(46, 52, 64, 0.4);
+  border-radius: 4px;
+}
+
+.sim-token-place {
+  font-size: 12px;
+  color: #D8DEE9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+.sim-token-count {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4C566A;
+  background: rgba(46, 52, 64, 0.5);
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 24px;
+  text-align: center;
+}
+
+.sim-token-count.has-tokens {
+  color: #A3BE8C;
+  background: rgba(163, 190, 140, 0.15);
+}
+
+/* ─── Final Markings ─── */
+.sim-final-summary {
+  margin-bottom: 8px;
+}
+
+.sim-final-progress {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #D8DEE9;
+}
+
+.sim-final-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.sim-final-item.satisfied {
+  color: #A3BE8C;
+  background: rgba(163, 190, 140, 0.08);
+}
+
+.sim-final-item.pending {
+  color: #EBCB8B;
+  background: rgba(235, 203, 139, 0.08);
+}
+
+.sim-final-status {
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.sim-final-complete {
+  text-align: center;
+  padding: 8px;
+  margin-top: 6px;
+  background: rgba(163, 190, 140, 0.15);
+  border: 1px solid rgba(163, 190, 140, 0.3);
+  border-radius: 6px;
+  color: #A3BE8C;
+  font-size: 13px;
+}
+
+/* ─── Trace Log ─── */
+.sim-trace-container {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.sim-trace-container::-webkit-scrollbar {
+  width: 4px;
+}
+.sim-trace-container::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 2px;
+}
+
+.sim-trace-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-bottom: 2px;
+  transition: background 0.1s;
+}
+
+.sim-trace-entry:hover {
+  background: rgba(136, 192, 208, 0.08);
+}
+
+.sim-trace-step {
+  background: #5E81AC;
+  color: #ECEFF4;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 26px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sim-trace-arrow {
+  color: #4C566A;
+  flex-shrink: 0;
+}
+
+.sim-trace-transitions {
+  color: #88C0D0;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Empty States ─── */
+.sim-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px;
+  color: #4C566A;
+  font-size: 12px;
+}
+
+.sim-empty-state-text {
+  color: #4C566A;
+  font-size: 12px;
+  font-style: italic;
+  margin: 0;
+  padding: 4px 0;
+}
+
+/* Variable overlays are now drawn on-canvas by DataPetriNetRenderer */
+
+/* ─── Properties Panel Content ─── */
+.props-content {
+  padding: 4px 0;
+}
+
+.props-content .form-group {
+  margin-bottom: 12px;
+}
+
+.props-content label {
+  font-size: 12px;
+  color: #81A1C1;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.props-content input,
+.props-content select {
+  background: #3B4252;
+  border: 1px solid #4C566A;
+  color: #ECEFF4;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.props-content input:focus,
+.props-content select:focus {
+  border-color: #88C0D0;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(136, 192, 208, 0.2);
+}
+
+/* ─── Hide old sidebar when new panels are active ─── */
+body.new-panels-active .sidebar,
+body.new-panels-active .sidebar-toggle {
+  display: none !important;
+}
+
+/* Adjust zoom controls when panels are open */
+body.new-panels-active .zoom-controls {
+  right: 15px;
+  transition: right 0.3s ease;
+}
+
+body.new-panels-active .side-panel.open ~ .canvas-container .zoom-controls,
+body.new-panels-active.panel-open .zoom-controls {
+  right: 380px;
+}

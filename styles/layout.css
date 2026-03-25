@@ -1,5 +1,5 @@
 
-/* Add these new rules at the top of layout.css */
+/* ========== FULL-VIEWPORT OVERLAY LAYOUT ========== */
 html, body {
   height: 100%;
   margin: 0;
@@ -11,39 +11,64 @@ body {
   flex-direction: column;
 }
 
+/* Header: overlays the editor, transparent background, just the title */
 header {
-  flex-shrink: 0; /* Prevent the header from shrinking */
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  pointer-events: none;
+  background: transparent;
 }
 
-/* Modify the .container rule */
+header .container {
+  padding: 8px 16px;
+  display: block;
+}
+
+header .header-title {
+  font-size: 16px;
+  color: rgba(236, 239, 244, 0.85); /* nord6 */
+  pointer-events: auto;
+  display: inline-block;
+  background-color: rgba(59, 66, 82, 0.7); /* nord1 with opacity */
+  padding: 4px 12px;
+  border-radius: 4px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
+
+/* Container: fills entire viewport, no padding */
 .container {
   width: 100%;
-  flex-grow: 1; /* Allow the container to fill available vertical space */
-  padding: 20px;
+  flex-grow: 1;
+  padding: 0;
   box-sizing: border-box;
   display: flex;
-  min-height: 0; /* Crucial for flex layouts to shrink properly */
+  min-height: 0;
 }
 
-/* Modify the .editor-container rule */
+/* Editor container: fills all available space */
 .editor-container {
   display: flex;
-  flex-wrap: nowrap; /* Prevent wrapping to a new line */
-  gap: 20px;
+  flex-wrap: nowrap;
+  gap: 0;
+  width: 100%;
+  height: 100vh;
+}
+
+/* Canvas container: fills entire viewport */
+.canvas-container {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  min-height: 0;
   width: 100%;
   height: 100%;
 }
 
-/* Modify the .canvas-container rule */
-.canvas-container {
-  flex: 1;
-  min-width: 600px;
-  position: relative; /* This is key for child positioning */
-  display: flex;
-  min-height: 0; /* Allow shrinking */
-}
-
-/* Modify the canvas rule */
+/* Canvas: fills entire container */
 #petri-canvas {
   width: 100%;
   height: 100%;
@@ -60,16 +85,8 @@ body {
   padding: 0;
   background-color: #2E3440; /* nord0 */
 }
-.container {
-  width: 100%;
-  padding: 20px;
-  box-sizing: border-box;
-}
-header {
-  background-color: #3B4252; /* nord1 */
-  color: #ECEFF4; /* nord6 */
-  padding: 0px 0;
-}
+/* container padding handled in overlay layout rules above */
+/* header background is now transparent (overlay mode) */
 h1, h2, h3 {
   margin-top: 0;
   color: #E5E9F0; /* nord5 */
@@ -112,46 +129,86 @@ button:disabled {
 .canvas-container {
   /* This ensures the container itself can resize */
   overflow: hidden;
+  background-color: #2E3440; /* nord0 - full bleed editor */
+  border-radius: 0;
+  padding: 0;
+  position: relative;
 }
 
 #petri-canvas {
   /* Make the canvas fill its container */
   width: 100%;
   height: 100%;
-  
-  /* The 'resizable-content' class adds a manual resize handle, which you might not want for automatic scaling. */
-  /* You can remove the class from the canvas tag or override it like this: */
-  resize: none; 
-}
-
-
-/* Layout styles */
-.editor-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-}
-.canvas-container {
-  flex: 1;
-  min-width: 600px;
-  background-color: #3B4252; /* nord1 */
-  border-radius: 5px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  padding: 15px;
-  position: relative;
+  resize: none;
+  border: none;
+  border-radius: 0;
 }
 
 /* REDESIGNED SIDEBAR STYLES START */
 .sidebar {
-  width: 320px;
-  background-color: #3B4252; /* nord1 */
-  border-radius: 5px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 300px;
+  height: 100vh;
+  background-color: rgba(59, 66, 82, 0.95); /* nord1 with slight transparency */
+  border-right: 1px solid #4C566A;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.4);
   padding: 0;
   overflow-y: auto;
-  max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
+  z-index: 300;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease-in-out;
+}
+
+.sidebar.sidebar-visible {
+  transform: translateX(0);
+}
+
+.sidebar.sidebar-hidden {
+  transform: translateX(-100%);
+}
+
+/* Sidebar toggle button */
+.sidebar-toggle {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 301;
+  width: 28px;
+  height: 60px;
+  background-color: rgba(59, 66, 82, 0.9);
+  border: 1px solid #4C566A;
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  color: #D8DEE9;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  transition: left 0.3s ease-in-out, background-color 0.2s;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-toggle:hover {
+  background-color: #4C566A;
+}
+
+.sidebar.sidebar-visible ~ .sidebar-toggle,
+.sidebar-toggle.sidebar-expanded {
+  left: 300px;
+}
+
+.sidebar.sidebar-hidden ~ .sidebar-toggle,
+.sidebar-toggle:not(.sidebar-expanded) {
+  left: 0;
+  border-radius: 0 6px 6px 0;
 }
 
 /* Sidebar tabs */
@@ -381,13 +438,9 @@ canvas {
 .hidden {
   display: none;
 }
-/* Footer */
+/* Footer - hidden in overlay mode */
 footer {
-  margin-top: 30px;
-  text-align: center;
-  color: #D8DEE9; /* nord4 */
-  font-size: 14px;
-  padding: 20px 0;
+  display: none;
 }
 .header-title{
   margin: 0;
@@ -396,10 +449,8 @@ footer {
 .resizable-content {
   min-height: 30px;
   min-width: 30px;
-  resize: both;
-  overflow: auto;
-  max-height: fit-content;
-  max-width: fit-content;
+  resize: none;
+  overflow: hidden;
 }
 
 
@@ -407,14 +458,20 @@ footer {
 .vertical-toolbar {
   position: absolute;
   left: 10px;
-  top: 70px; /* Position below the existing toolbar */
+  top: 50px; /* Below the overlay header */
   display: flex;
   flex-direction: column;
-  background-color: #3B4252; /* nord1 */
+  background-color: rgba(59, 66, 82, 0.85); /* nord1 with transparency */
   border-radius: 5px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   padding: 10px;
   z-index: 100; /* Ensure it floats above the canvas */
+  transition: left 0.3s ease-in-out;
+}
+
+/* Shift toolbar right when left sidebar is open */
+body.sidebar-open .vertical-toolbar {
+  left: 310px;
 }
 
 .toolbar-group.vertical {
@@ -441,10 +498,7 @@ footer {
   transform: scale(1.05);
 }
 
-/* Make canvas position relative for absolute positioning context */
-.canvas-container {
-  position: relative;
-}
+/* Canvas container already has position:relative from above */
 
 /* Zoom Controls Styles */
 .zoom-controls {
@@ -458,6 +512,12 @@ footer {
   padding: 5px 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   z-index: 100;
+  transition: right 0.3s ease-in-out;
+}
+
+/* When a side panel is open, move zoom controls left */
+body.panel-open .zoom-controls {
+  right: 380px;
 }
 
 .zoom-controls button {
@@ -532,48 +592,31 @@ body, header, footer, .sidebar, .vertical-toolbar,
 }
 
 body.fullscreen-mode header,
-body.fullscreen-mode footer,
-body.fullscreen-mode .sidebar {
+body.fullscreen-mode footer {
   opacity: 0;
   visibility: hidden;
-  position: absolute;
 }
 
-body.fullscreen-mode .container {
-  width: 100%;
-  max-width: none;
-  padding: 0;
-  margin: 0;
-  transition: width 0.3s ease-in-out, max-width 0.3s ease-in-out, 
-              padding 0.3s ease-in-out, margin 0.3s ease-in-out;
+body.fullscreen-mode .sidebar,
+body.fullscreen-mode .sidebar-toggle {
+  opacity: 0;
+  visibility: hidden;
 }
 
-body.fullscreen-mode .editor-container {
-  display: block;
-  transition: display 0.3s ease-in-out;
+body.fullscreen-mode .side-panel,
+body.fullscreen-mode .side-panel-toggle {
+  opacity: 0;
+  visibility: hidden;
 }
 
-body.fullscreen-mode .canvas-container {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 1000;
-  background-color: white;
-  transition: width 0.3s ease-in-out, height 0.3s ease-in-out, 
-              position 0.3s ease-in-out, top 0.3s ease-in-out, 
-              left 0.3s ease-in-out;
-}
-
-body.fullscreen-mode #petri-canvas {
-  width: 100vw !important;
-  height: 100vh !important;
-  transition: width 0.3s ease-in-out, height 0.3s ease-in-out;
+body.fullscreen-mode .vertical-toolbar {
+  top: 10px;
 }
 
 /* Add a z-index to ensure controls stay visible */
 .zoom-controls {
   z-index: 500; 
-  transition: z-index 0.3s ease-in-out;
+  transition: right 0.3s ease-in-out;
 }
 
 .pan-instructions {

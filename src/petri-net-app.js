@@ -5,8 +5,11 @@
  * It demonstrates how to create, edit, simulate, and analyze Petri nets.
  */
 import { PetriNetAPI, Place, Transition, Arc } from './petri-net-simulator.js';
+import { DataAwareTransition, DataVariable } from './extensions/dpn-model.js';
 import HistoryDialog from './history-dialog.js';
 import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
+import { SimulationDashboard } from './simulation-dashboard.js';
+import { PropertiesPanel } from './properties-panel.js';
 
 class PetriNetApp {
   /**
@@ -40,13 +43,20 @@ class PetriNetApp {
 
     this.propertiesPanel = document.getElementById("properties-content");
     if (!this.propertiesPanel) {
-      throw new Error("Properties panel element not found");
+      // Create hidden fallback element
+      this.propertiesPanel = document.createElement('div');
+      this.propertiesPanel.id = 'properties-content';
+      this.propertiesPanel.style.display = 'none';
+      document.body.appendChild(this.propertiesPanel);
     }
 
 
     this.tokensDisplay = document.getElementById("tokens-display");
     if (!this.tokensDisplay) {
-      throw new Error("Tokens display element not found");
+      this.tokensDisplay = document.createElement('div');
+      this.tokensDisplay.id = 'tokens-display';
+      this.tokensDisplay.style.display = 'none';
+      document.body.appendChild(this.tokensDisplay);
     }
 
 
@@ -95,6 +105,42 @@ class PetriNetApp {
     this.updateTokensDisplay();
     this.updateZoomDisplay();
 
+    // ── Initialize new side panels ──
+    this.propsPanel = new PropertiesPanel(this);
+    this.simDashboard = new SimulationDashboard(this);
+
+    // Override propertiesPanel to point to the new panel's content element
+    this.propertiesPanel = this.propsPanel.getContentElement();
+
+    // Setup panel layout management (stacking)
+    this._setupPanelLayout();
+
+  }
+
+  /**
+   * Manages panel stacking layout when both Properties and Simulation panels are open
+   */
+  _setupPanelLayout() {
+    const updateLayout = () => {
+      const propsOpen = this.propsPanel && this.propsPanel.isOpen;
+      const simOpen = this.simDashboard && this.simDashboard.isOpen;
+      
+      if (propsOpen && simOpen) {
+        document.body.classList.add('both-panels-open');
+      } else {
+        document.body.classList.remove('both-panels-open');
+      }
+
+      // Signal to zoom controls
+      if (propsOpen || simOpen) {
+        document.body.classList.add('panel-open');
+      } else {
+        document.body.classList.remove('panel-open');
+      }
+    };
+
+    document.addEventListener('side-panel-changed', updateLayout);
+    updateLayout();
   }
 
   /**
@@ -977,6 +1023,11 @@ initEventHandlers() {
     this.updateTokensDisplay();
     this.updateFinalMarkingDisplay();
 
+    // Refresh simulation dashboard
+    if (this.simDashboard) {
+      this.simDashboard.refresh();
+    }
+
     // Record a snapshot for undo on every change (unless we're mid-restore)
     if (!this._isRestoring) {
       this._takeSnapshot('Edit');
@@ -1047,7 +1098,17 @@ initEventHandlers() {
       if (data.transitions) {
         for (const td of data.transitions) {
           const isSilent = td.silent || !td.label || td.label.trim() === '';
-          const tr = new Transition(td.id, td.position, td.label || '', td.priority, td.delay, isSilent);
+          const hasPrecondition = td.precondition && td.precondition.trim() !== '';
+          const hasPostcondition = td.postcondition && td.postcondition.trim() !== '';
+          let tr;
+          if (hasPrecondition || hasPostcondition) {
+            tr = new DataAwareTransition(
+              td.id, td.position, td.label || '', td.priority, td.delay,
+              td.precondition || '', td.postcondition || '', isSilent
+            );
+          } else {
+            tr = new Transition(td.id, td.position, td.label || '', td.priority, td.delay, isSilent);
+          }
           net.transitions.set(tr.id, tr);
         }
       }
@@ -1055,6 +1116,17 @@ initEventHandlers() {
         for (const ad of data.arcs) {
           const arc = new Arc(ad.id, ad.source, ad.target, ad.weight, ad.type, ad.points || [], ad.label);
           net.arcs.set(arc.id, arc);
+        }
+      }
+
+      // 3b. Restore data variables (DPN)
+      if (data.dataVariables && net.dataVariables) {
+        net.dataVariables.clear();
+        for (const vd of data.dataVariables) {
+          let varType = vd.type;
+          if (varType === 'number') varType = 'int';
+          const variable = new DataVariable(vd.id, vd.name, varType, vd.currentValue, vd.description);
+          net.dataVariables.set(variable.id, variable);
         }
       }
 
@@ -1211,13 +1283,16 @@ initEventHandlers() {
   /**
    * Steps the simulation by firing all enabled transitions simultaneously (ASYNC)
    * Uses synchronous step semantics with conflict resolution
+   * @param {Object} [options] - Options
+   * @param {boolean} [options.silent] - If true, suppress alerts (used by dashboard)
+   * @returns {Promise<boolean>} Whether transitions were fired
    */
-  async stepSimulation() {
+  async stepSimulation(options = {}) {
     const enabledTransitions = this.api.getEnabledTransitions();
 
     if (enabledTransitions.length === 0) {
-      alert("No enabled transitions.");
-      return;
+      if (!options.silent) alert("No enabled transitions.");
+      return false;
     }
 
     // Fire all enabled transitions simultaneously using synchronous step semantics
@@ -1239,6 +1314,13 @@ initEventHandlers() {
     
     this.updateTokensDisplay();
     this.updateSelectedElementProperties();
+    
+    // Refresh simulation dashboard
+    if (this.simDashboard) {
+      this.simDashboard.refresh();
+    }
+    
+    return true;
   }
 
   /**
@@ -1313,6 +1395,13 @@ initEventHandlers() {
     this.updateTokensDisplay();
     this.updateZoomDisplay();
     this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+
+    // Refresh simulation dashboard
+    if (this.simDashboard) {
+      this.simDashboard.stepCount = 0;
+      this.simDashboard.traceLog = [];
+      this.simDashboard.refresh();
+    }
   }
   /**
    * Clean up all app-level event listeners
@@ -1449,6 +1538,13 @@ initEventHandlers() {
           this.updateTokensDisplay();
           this.updateZoomDisplay();
           this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+
+          // Reset simulation dashboard
+          if (this.simDashboard) {
+            this.simDashboard.stepCount = 0;
+            this.simDashboard.traceLog = [];
+            this.simDashboard.refresh();
+          }
 
           this._resetTimeout = null;
           resolve();
@@ -1592,6 +1688,13 @@ initEventHandlers() {
           this.updateTokensDisplay();
           this.updateZoomDisplay();
           this.updateFinalMarkingDisplay();
+
+          // Reset simulation dashboard
+          if (this.simDashboard) {
+            this.simDashboard.stepCount = 0;
+            this.simDashboard.traceLog = [];
+            this.simDashboard.refresh();
+          }
 
           // Fit canvas to new network
           this.fitCanvasTimeout = setTimeout(() => {

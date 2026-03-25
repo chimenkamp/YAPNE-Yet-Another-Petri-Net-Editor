@@ -17,6 +17,8 @@
     <link rel="stylesheet" href="styles/random-generator.css">
     <link rel="stylesheet" href="styles/png-exporter.css">
     <link rel="stylesheet" href="styles/features.css">
+    <link rel="stylesheet" href="styles/side-panels.css">
+    <link rel="stylesheet" href="styles/workflow-tutorial.css">
 
     <!-- 
       WebPPL Bundle for Probabilistic Programming
@@ -391,7 +393,7 @@
                     <span id="zoom-display">100%</span>
                     <button id="btn-zoom-out" title="Zoom Out">-</button>
                     <button id="btn-reset-view" title="Reset View">↺</button>
-                    <button id="btn-fullscreen" title="Toggle Full Screen">⛶</button>
+                    <!-- <button id="btn-fullscreen" title="Toggle Full Screen">⛶</button> -->
                     <button id="btn-fit-to-canvas" title="Fit to Canvas">⊡</button>
                 </div>
                 
@@ -409,133 +411,19 @@
                 <canvas id="petri-canvas" class="resizable-content"></canvas>
             </div>
 
-            <!-- BEGIN REDESIGNED SIDEBAR -->
-            <div class="sidebar">
+            <!-- Old sidebar kept for File/Help operations -->
+            <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar (Tab)">◀</button>
+            <div class="sidebar" id="sidebar">
                 <!-- Tab Navigation -->
                 <div class="sidebar-tabs">
-                    <button class="sidebar-tab active" data-tab="model">Model</button>
-                    <button class="sidebar-tab" data-tab="simulation">Simulation</button>
-                    <button class="sidebar-tab" data-tab="file">File</button>
+                    <button class="sidebar-tab active" data-tab="file">File</button>
                     <button class="sidebar-tab" data-tab="help">Help</button>
                 </div>
                 
                 <!-- Tab Content -->
                 <div class="sidebar-content">
-                    <!-- Model Tab -->
-                    <div class="sidebar-pane active" data-tab="model">
-                        <!-- Properties Section -->
-                        <div id="properties-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">⚙️</span>
-                                    <h3>Properties</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content" id="properties-content">
-                                <p>No element selected.</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Data Variables Section -->
-                        <div id="data-variables-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">🔢</span>
-                                    <h3>Data Variables</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content" id="data-variables-content-conatiner"> 
-
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Simulation Tab -->
-                    <div class="sidebar-pane" data-tab="simulation">
-                        <!-- Simulation Controls Section -->
-                        <div id="simulation-controls-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">▶️</span>
-                                    <h3>Controls</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <div class="button-group">
-                                    <button id="btn-step" class="success" title="Fire a single transition">Step</button>
-                                    <button id="btn-auto-run" class="success" title="Auto-fire transitions">Auto Run</button>
-                                    <button id="btn-reset" title="Reset simulation to initial state">Reset</button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Token Marking Section -->
-                        <div id="tokens-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">⚫</span>
-                                    <h3>Token Marking</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content tokens-display" id="tokens-display">
-                                <!-- Will be filled dynamically -->
-                                <p>No places in the Petri net.</p>
-                            </div>
-                        </div>
-                        <div id="final-marking-section" class="sidebar-section">
-                        <div class="section-header">
-                            <div class="section-title">
-                            <span class="section-icon">🎯</span>
-                            <h3>Final Markings</h3>
-                            </div>
-                            <button class="section-toggle">▼</button>
-                        </div>
-                        <div class="section-content" id="final-marking-content">
-                            <p>No final markings defined.</p>
-                        </div>
-                        </div>
-                        <!-- Data Values Section -->
-                        <div id="data-values-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">📊</span>
-                                    <h3>Data Values</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content" id="data-values-content">
-                                <!-- Will be filled dynamically -->
-                                <p>No data variables defined.</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Variable History Section -->
-                        <div id="variable-history-section" class="sidebar-section">
-                            <div class="section-header">
-                                <div class="section-title">
-                                    <span class="section-icon">📈</span>
-                                    <h3>Variable History</h3>
-                                </div>
-                                <button class="section-toggle">▼</button>
-                            </div>
-                            <div class="section-content">
-                                <div class="section-content" id="variable-history-content">
-                                    <p>History tracking is disabled.</p>
-                                </div>
-                                <div class="section-actions">
-                                    <button id="btn-toggle-history">Start Tracking</button>
-                                    <button id="btn-clear-history">Clear</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
                     <!-- File Tab -->
-                    <div class="sidebar-pane" data-tab="file">
+                    <div class="sidebar-pane active" data-tab="file">
                         <!-- Example Section -->
                         <div id="templates-section" class="sidebar-section">
                             <div class="section-header">
@@ -600,6 +488,7 @@
                             </div>
                             <div class="section-content">
                                 <button id="btn-open-help" class="help-button" style="width: 100%;">📖 Open Guide</button>
+                                <button id="btn-open-tutorials" class="help-button" style="width: 100%; margin-top: 6px;">📚 Workflow Tutorials</button>
                             </div>
                         </div>
                         
@@ -659,6 +548,9 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Hidden elements for backward compatibility (DPN data variables mirror) -->
+            <div id="data-variables-content-conatiner" style="display:none"></div>
         </div>
     </div>
 
@@ -793,10 +685,12 @@
     <script type="module" src="src/event-log-integration.js"></script>
     <script type="module" src="src/event-log-generator.js"></script>
     
-    <script type="module" src="src/extensions/variable-tracking.js"></script>
+    <!-- Variable tracking replaced by simulation dashboard variable popups -->
+    <!-- <script type="module" src="src/extensions/variable-tracking.js"></script> -->
     <script type="module" src="src/extensions/pnml-importer.js"></script>
     <!-- <script type="module" src="src/extensions/random-petri-net-generator.js"></script> -->
     <script type="module" src="src/extensions/png-exporter.js"></script>
+    <script type="module" src="src/workflow-tutorial.js"></script>
 
 </body>
 </html>

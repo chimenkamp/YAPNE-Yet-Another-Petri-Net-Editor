@@ -1,0 +1,524 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Workflow Tutorial Styles — Floating Dialog + Spotlight + Tooltip
+   Uses Nord colour palette, positioned at bottom-left so it never
+   overlaps the Properties / Simulation panels on the right.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ────────────────────── Floating Dialog ───────────────────────── */
+
+.tutorial-dialog {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  width: 380px;
+  max-height: 80vh;
+  background: #2E3440;
+  border: 1px solid #434C5E;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  display: none;
+  flex-direction: column;
+  z-index: 10000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+  transition: box-shadow 0.25s ease;
+}
+
+.tutorial-dialog.open {
+  display: flex;
+}
+
+.tutorial-dialog.minimized .tutorial-dialog-body {
+  display: none;
+}
+
+.tutorial-dialog.minimized {
+  max-height: none;
+}
+
+/* ─── Header ─── */
+
+.tutorial-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #3B4252;
+  border-bottom: 1px solid #434C5E;
+  cursor: grab;
+  user-select: none;
+}
+
+.tutorial-dialog-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: #ECEFF4;
+}
+
+.tutorial-dialog-header-title svg {
+  color: #88C0D0;
+}
+
+.tutorial-dialog-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.tutorial-dialog-minimize,
+.tutorial-dialog-close-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #D8DEE9;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.tutorial-dialog-minimize:hover,
+.tutorial-dialog-close-btn:hover {
+  background: #434C5E;
+}
+
+.tutorial-dialog-close-btn:hover {
+  color: #BF616A;
+}
+
+/* ─── Body ─── */
+
+.tutorial-dialog-body {
+  overflow-y: auto;
+  padding: 14px;
+  flex: 1;
+}
+
+/* ─── Intro ─── */
+
+.tutorial-intro {
+  margin-bottom: 12px;
+}
+
+.tutorial-intro p {
+  color: #D8DEE9;
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* ────────────────────── Workflow Cards ────────────────────────── */
+
+.tutorial-workflow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tutorial-workflow-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #3B4252;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--wf-color, #88C0D0);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+  color: #D8DEE9;
+  font: inherit;
+}
+
+.tutorial-workflow-card:hover {
+  background: #434C5E;
+  border-color: var(--wf-color, #88C0D0);
+  transform: translateX(2px);
+}
+
+.wf-card-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  width: 32px;
+  text-align: center;
+}
+
+.wf-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wf-card-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #ECEFF4;
+  margin-bottom: 2px;
+}
+
+.wf-card-desc {
+  font-size: 11.5px;
+  color: #9BA3AF;
+  line-height: 1.4;
+}
+
+.wf-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.wf-card-steps,
+.wf-card-features {
+  font-size: 10.5px;
+  color: #88C0D0;
+  background: rgba(136, 192, 208, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.wf-card-features {
+  color: #81A1C1;
+  background: rgba(129, 161, 193, 0.1);
+}
+
+.wf-card-arrow {
+  color: #4C566A;
+  font-size: 12px;
+  transition: transform 0.15s;
+}
+
+.tutorial-workflow-card:hover .wf-card-arrow {
+  color: var(--wf-color, #88C0D0);
+  transform: translateX(3px);
+}
+
+/* ────────────────────── Step View ─────────────────────────────── */
+
+.tutorial-back-btn {
+  background: none;
+  border: none;
+  color: #81A1C1;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.tutorial-back-btn:hover {
+  background: #3B4252;
+  color: #88C0D0;
+}
+
+.tutorial-wf-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tutorial-wf-icon {
+  font-size: 24px;
+}
+
+.tutorial-wf-title {
+  margin: 0;
+  font-size: 14px;
+  color: #ECEFF4;
+  font-weight: 600;
+}
+
+.tutorial-wf-features {
+  font-size: 11px;
+  color: #81A1C1;
+}
+
+/* ─── Progress ─── */
+
+.tutorial-progress {
+  height: 3px;
+  background: #3B4252;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.tutorial-progress-bar {
+  height: 100%;
+  background: var(--wf-color, #88C0D0);
+  border-radius: 2px;
+  transition: width 0.35s ease;
+}
+
+/* ─── Step List ─── */
+
+.tutorial-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.tutorial-step-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+  color: #D8DEE9;
+  font: inherit;
+  font-size: 12px;
+}
+
+.tutorial-step-item:hover {
+  background: #3B4252;
+}
+
+.tutorial-step-item.active {
+  background: #434C5E;
+  border-left: 2px solid #88C0D0;
+}
+
+.tutorial-step-item.completed {
+  opacity: 0.65;
+}
+
+.step-number {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #434C5E;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ECEFF4;
+  flex-shrink: 0;
+}
+
+.tutorial-step-item.active .step-number {
+  background: #88C0D0;
+  color: #2E3440;
+}
+
+.tutorial-step-item.completed .step-number {
+  background: #A3BE8C;
+  color: #2E3440;
+  font-size: 9px;
+}
+
+.step-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Step Detail Card ─── */
+
+.tutorial-step-detail {
+  margin-bottom: 10px;
+}
+
+.step-detail-card {
+  background: #3B4252;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.step-detail-card h4 {
+  margin: 0 0 4px 0;
+  font-size: 12.5px;
+  color: #88C0D0;
+}
+
+.step-detail-card p {
+  margin: 0 0 6px 0;
+  font-size: 12px;
+  color: #D8DEE9;
+  line-height: 1.5;
+}
+
+.step-tip {
+  background: rgba(163, 190, 140, 0.1);
+  border-left: 2px solid #A3BE8C;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: #A3BE8C;
+  line-height: 1.4;
+}
+
+/* ─── Bottom Nav ─── */
+
+.tutorial-bottom-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tutorial-nav-btn {
+  padding: 6px 14px;
+  background: #434C5E;
+  border: 1px solid #4C566A;
+  border-radius: 6px;
+  color: #D8DEE9;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tutorial-nav-btn:hover:not(:disabled) {
+  background: #4C566A;
+  color: #ECEFF4;
+}
+
+.tutorial-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tutorial-nav-btn.tutorial-nav-next {
+  background: #5E81AC;
+  border-color: #5E81AC;
+  color: #ECEFF4;
+}
+
+.tutorial-nav-btn.tutorial-nav-next:hover:not(:disabled) {
+  background: #81A1C1;
+  border-color: #81A1C1;
+}
+
+/* ────────────────────── Spotlight Overlay ─────────────────────── */
+
+.tutorial-spotlight-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9998;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.tutorial-spotlight-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ────────────────────── Tooltip ───────────────────────────────── */
+
+.tutorial-tooltip {
+  position: fixed;
+  z-index: 10001;
+  max-width: 340px;
+  min-width: 220px;
+  background: #3B4252;
+  border: 1px solid #5E81AC;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  padding: 12px 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.tutorial-tooltip.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tutorial-tooltip-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #88C0D0;
+  margin-bottom: 4px;
+}
+
+.tutorial-tooltip-desc {
+  font-size: 12px;
+  color: #D8DEE9;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.tutorial-tooltip-tip {
+  background: rgba(163, 190, 140, 0.1);
+  border-left: 2px solid #A3BE8C;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: #A3BE8C;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.tutorial-tooltip-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tutorial-nav-counter {
+  font-size: 11px;
+  color: #4C566A;
+}
+
+/* ────────────────────── Element Highlight Pulse ───────────────── */
+
+.tutorial-highlight {
+  position: relative;
+  z-index: 9999 !important;
+  outline: 2px solid #88C0D0 !important;
+  outline-offset: 4px;
+  border-radius: 4px;
+  animation: tutorial-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes tutorial-pulse {
+  0%, 100% { outline-color: #88C0D0; box-shadow: 0 0 0 0 rgba(136, 192, 208, 0.4); }
+  50%      { outline-color: #5E81AC; box-shadow: 0 0 0 6px rgba(136, 192, 208, 0); }
+}
+
+/* ────────────────────── Scrollbar (dialog body) ──────────────── */
+
+.tutorial-dialog-body::-webkit-scrollbar {
+  width: 5px;
+}
+
+.tutorial-dialog-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tutorial-dialog-body::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 3px;
+}
+
+.tutorial-step-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.tutorial-step-list::-webkit-scrollbar-thumb {
+  background: #4C566A;
+  border-radius: 2px;
+}

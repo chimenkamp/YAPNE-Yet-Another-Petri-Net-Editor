@@ -1,5 +1,6 @@
 import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
 import { initializeProbabilisticExecution } from "./src/extensions/probabilistic-integration.js";
+import { initWorkflowTutorial } from "./src/workflow-tutorial.js";
 
 const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
 
@@ -29,6 +30,67 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         });
+
+        // Sidebar toggle functionality
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+
+        function toggleSidebar() {
+            const isVisible = sidebar.classList.contains('sidebar-visible');
+            if (isVisible) {
+                sidebar.classList.remove('sidebar-visible');
+                sidebar.classList.add('sidebar-hidden');
+                sidebarToggle.classList.remove('sidebar-expanded');
+                sidebarToggle.innerHTML = '▶';
+                sidebarToggle.title = 'Show sidebar (Tab)';
+                document.body.classList.remove('sidebar-open');
+            } else {
+                sidebar.classList.remove('sidebar-hidden');
+                sidebar.classList.add('sidebar-visible');
+                sidebarToggle.classList.add('sidebar-expanded');
+                sidebarToggle.innerHTML = '◀';
+                sidebarToggle.title = 'Hide sidebar (Tab)';
+                document.body.classList.add('sidebar-open');
+            }
+            if (window.localStorage) {
+                localStorage.setItem('sidebarHidden', isVisible ? 'true' : 'false');
+            }
+            // Trigger canvas resize after sidebar animation completes
+            setTimeout(() => {
+                if (window.petriApp && window.petriApp.resizeCanvas) {
+                    window.petriApp.resizeCanvas();
+                }
+            }, 350);
+        }
+
+        if (sidebarToggle) {
+            sidebarToggle.addEventListener('click', toggleSidebar);
+        }
+
+        // Restore sidebar state - default to hidden (File/Help on left)
+        if (window.localStorage) {
+            const sidebarHidden = localStorage.getItem('sidebarHidden');
+            if (sidebarHidden !== 'false') {
+                // Default hidden
+                sidebar.classList.add('sidebar-hidden');
+                sidebar.classList.remove('sidebar-visible');
+                sidebarToggle.classList.remove('sidebar-expanded');
+                sidebarToggle.innerHTML = '▶';
+                sidebarToggle.title = 'Show sidebar (Tab)';
+                document.body.classList.remove('sidebar-open');
+            } else {
+                sidebar.classList.add('sidebar-visible');
+                sidebar.classList.remove('sidebar-hidden');
+                sidebarToggle.classList.add('sidebar-expanded');
+                sidebarToggle.innerHTML = '◀';
+                sidebarToggle.title = 'Hide sidebar (Tab)';
+                document.body.classList.add('sidebar-open');
+            }
+        } else {
+            // Default hidden
+            sidebar.classList.add('sidebar-hidden');
+            sidebarToggle.innerHTML = '▶';
+        }
         
         // Section collapse functionality
         const sectionHeaders = document.querySelectorAll('.section-header');
@@ -192,50 +254,51 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        const fullscreenButton = document.getElementById('btn-fullscreen');
-        fullscreenButton.addEventListener('click', toggleFullscreen);
+        // const fullscreenButton = document.getElementById('btn-fullscreen');
+        // fullscreenButton.addEventListener('click', toggleFullscreen);
         
-        function toggleFullscreen() {
-            const body = document.body;
-            const canvasElement = document.getElementById('petri-canvas');
+        // function toggleFullscreen() {
+        //     const body = document.body;
             
-            body.classList.toggle('fullscreen-mode');
+        //     body.classList.toggle('fullscreen-mode');
             
-            if (body.classList.contains('fullscreen-mode')) {
-                fullscreenButton.innerHTML = '⤣';
-                fullscreenButton.title = 'Exit Full Screen';
-                
-                setTimeout(() => {
-                    canvasElement.width = window.innerWidth;
-                    canvasElement.height = window.innerHeight;
-                }, 10);
-            } else {
-                fullscreenButton.innerHTML = '⛶';
-                fullscreenButton.title = 'Toggle Full Screen';
-                
-                setTimeout(() => {
-                    canvasElement.width = "1090";
-                    canvasElement.height = "800";
-                }, 10);
-            }
+        //     if (body.classList.contains('fullscreen-mode')) {
+        //         fullscreenButton.innerHTML = '⤣';
+        //         fullscreenButton.title = 'Exit Full Screen';
+        //     } else {
+        //         fullscreenButton.innerHTML = '⛶';
+        //         fullscreenButton.title = 'Toggle Full Screen';
+        //     }
             
-            if (window.petriApp && window.petriApp.resizeCanvas) {
-                setTimeout(() => {
-                    window.petriApp.resizeCanvas();
-                }, 50);
+        //     if (window.petriApp && window.petriApp.resizeCanvas) {
+        //         setTimeout(() => {
+        //             window.petriApp.resizeCanvas();
+        //         }, 50);
                 
-                setTimeout(() => {
-                    window.petriApp.resizeCanvas();
-                }, 350); // slightly longer than the CSS transition duration
-            }
-        }
+        //         setTimeout(() => {
+        //             window.petriApp.resizeCanvas();
+        //         }, 350);
+        //     }
+        // }
         
+        // document.addEventListener('keydown', (e) => {
+        //     if (e.key === 'Escape' && document.body.classList.contains('fullscreen-mode')) {
+        //         toggleFullscreen();
+        //     } else if (e.key === 'F' && (e.ctrlKey || e.metaKey)) {
+        //         e.preventDefault(); // Prevent browser's find functionality
+        //         toggleFullscreen();
+        //     }
+        // });
+
+        // Keyboard shortcut to toggle sidebar (Tab key, only when no input is focused)
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && document.body.classList.contains('fullscreen-mode')) {
-                toggleFullscreen();
-            } else if (e.key === 'F' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault(); // Prevent browser's find functionality
-                toggleFullscreen();
+            if (e.key === 'Tab') {
+                const activeEl = document.activeElement;
+                const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+                if (!isInputFocused) {
+                    e.preventDefault();
+                    toggleSidebar();
+                }
             }
         });
 
@@ -247,6 +310,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Implements "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024)
                 // This adds probabilistic step/playout capabilities using the paper's approach
                 window.probabilisticIntegration = initializeProbabilisticExecution(window.petriApp);
+                
+                // Initialize Workflow Tutorial System
+                window.workflowTutorial = initWorkflowTutorial();
+
+                // Wire up "Workflow Tutorials" button
+                const tutorialBtn = document.getElementById('btn-open-tutorials');
+                if (tutorialBtn) {
+                    tutorialBtn.addEventListener('click', () => {
+                        window.workflowTutorial.toggle();
+                    });
+                }
                 
                 clearInterval(initTimer);
             }
