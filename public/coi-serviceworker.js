@@ -121,8 +121,17 @@ if (typeof window === 'undefined') {
             return;
         }
 
-        // Get script URL - handle both regular scripts and ES6 modules
-        const scriptUrl = (document.currentScript && document.currentScript.src) || new URL(import.meta.url).href;
+        // Get the script URL for service worker registration.
+        // In non-module scripts, document.currentScript is always available.
+        // In module scripts, fall back to import.meta.url.
+        let scriptUrl;
+        if (document.currentScript && document.currentScript.src) {
+            scriptUrl = document.currentScript.src;
+        } else {
+            // Dynamic import.meta access to avoid syntax errors in non-module contexts
+            try { scriptUrl = new URL(new Function('return import.meta.url')()).href; }
+            catch(_) { scriptUrl = window.location.href; }
+        }
         
         n.serviceWorker.register(scriptUrl).then(
             (registration) => {

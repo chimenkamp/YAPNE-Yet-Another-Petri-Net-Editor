@@ -7,8 +7,8 @@
 
     <title>YAPNE - Yet Another Petri Net Editor</title>
     
-    <!-- Cross-Origin Isolation Service Worker -->
-    <script type="module" src="/public/coi-serviceworker.js"></script>
+    <!-- Cross-Origin Isolation Service Worker - must NOT be type="module" to avoid Vite bundling -->
+    <script src="coi-serviceworker.js"></script>
 
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/event-log.css">
