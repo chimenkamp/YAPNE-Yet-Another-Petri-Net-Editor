@@ -10,6 +10,7 @@ import HistoryDialog from './history-dialog.js';
 import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
 import { SimulationDashboard } from './simulation-dashboard.js';
 import { PropertiesPanel } from './properties-panel.js';
+import { VerificationPanel } from './verification-panel.js';
 
 class PetriNetApp {
   /**
@@ -108,6 +109,7 @@ class PetriNetApp {
     // ── Initialize new side panels ──
     this.propsPanel = new PropertiesPanel(this);
     this.simDashboard = new SimulationDashboard(this);
+    this.verifyPanel = new VerificationPanel(this);
 
     // Override propertiesPanel to point to the new panel's content element
     this.propertiesPanel = this.propsPanel.getContentElement();
@@ -118,25 +120,76 @@ class PetriNetApp {
   }
 
   /**
-   * Manages panel stacking layout when both Properties and Simulation panels are open
+   * Manages panel stacking layout for Properties, Simulation and Verification.
+   *
+   * Stacking rules:
+   *  1 open  → full height
+   *  2 open  → stacked vertically (top 45 vh / bottom 55 vh)
+   *  3 open  → most-recently-opened gets full height in front;
+   *            the other two stack behind it
    */
   _setupPanelLayout() {
+    this._panelOpenOrder = [];
+    let isUpdating = false;   // re-entrance guard
+
+    const panels = [
+      { key: 'props',  ref: () => this.propsPanel },
+      { key: 'sim',    ref: () => this.simDashboard },
+      { key: 'verify', ref: () => this.verifyPanel }
+    ];
+
     const updateLayout = () => {
-      const propsOpen = this.propsPanel && this.propsPanel.isOpen;
-      const simOpen = this.simDashboard && this.simDashboard.isOpen;
-      
-      if (propsOpen && simOpen) {
-        document.body.classList.add('both-panels-open');
-      } else {
-        document.body.classList.remove('both-panels-open');
+      if (isUpdating) return;
+      isUpdating = true;
+
+      // Rebuild _panelOpenOrder keeping tracked-open panels in order
+      const newOrder = this._panelOpenOrder.filter(key => {
+        const e = panels.find(p => p.key === key);
+        return e && e.ref() && e.ref().isOpen;
+      });
+      // Append any newly-opened panels to end (most-recently-opened)
+      for (const { key, ref } of panels) {
+        const p = ref();
+        if (p && p.isOpen && !newOrder.includes(key)) {
+          newOrder.push(key);
+        }
+      }
+      this._panelOpenOrder = newOrder;
+      const openCount = newOrder.length;
+
+      // Clear all layout classes
+      document.body.classList.remove(
+        'panels-open-0', 'panels-open-1', 'panels-open-2', 'panels-open-3',
+        'both-panels-open', 'panel-open'
+      );
+      for (const { ref } of panels) {
+        const p = ref();
+        if (p && p.panel) {
+          p.panel.classList.remove('panel-front', 'panel-stack-top', 'panel-stack-bottom');
+        }
       }
 
-      // Signal to zoom controls
-      if (propsOpen || simOpen) {
-        document.body.classList.add('panel-open');
-      } else {
-        document.body.classList.remove('panel-open');
+      document.body.classList.add(`panels-open-${openCount}`);
+      if (openCount > 0) document.body.classList.add('panel-open');
+
+      if (openCount === 2) {
+        document.body.classList.add('both-panels-open');
+        const top = panels.find(p => p.key === newOrder[0]);
+        const bot = panels.find(p => p.key === newOrder[1]);
+        if (top?.ref()?.panel) top.ref().panel.classList.add('panel-stack-top');
+        if (bot?.ref()?.panel) bot.ref().panel.classList.add('panel-stack-bottom');
       }
+
+      if (openCount === 3) {
+        const front = panels.find(p => p.key === newOrder[2]);
+        const top   = panels.find(p => p.key === newOrder[0]);
+        const bot   = panels.find(p => p.key === newOrder[1]);
+        if (front?.ref()?.panel) front.ref().panel.classList.add('panel-front');
+        if (top?.ref()?.panel)   top.ref().panel.classList.add('panel-stack-top');
+        if (bot?.ref()?.panel)   bot.ref().panel.classList.add('panel-stack-bottom');
+      }
+
+      isUpdating = false;
     };
 
     document.addEventListener('side-panel-changed', updateLayout);

@@ -903,10 +903,29 @@ class SuvorovLomazovaVerificationUI {
 
   /**
    * Create verification section in sidebar
+   * Now targets the Verification panel instead of the File sidebar.
+   * Falls back to File sidebar if the new panel doesn't exist.
    */
   createVerificationSection() {
+    if (document.getElementById("sl-verification-section")) return;
+
+    // Prefer the new Verification panel's content area
+    const verifyPanelContent = document.getElementById("verify-soundness-content");
+    if (verifyPanelContent) {
+      // The Verification panel already has the button (#btn-sl-verify-panel)
+      // which is wired up in verification-panel.js, so skip creating a
+      // duplicate section.  Just ensure there's a legacy #btn-sl-verify
+      // alias so callers still work.
+      const existing = document.getElementById("btn-sl-verify");
+      if (!existing) {
+        // nothing more to do – the panel button triggers startVerification()
+      }
+      return;
+    }
+
+    // Legacy fallback: inject into the File sidebar if new panel not found
     const modelTab = document.querySelector('.sidebar-pane[data-tab="file"]');
-    if (!modelTab || document.getElementById("sl-verification-section")) return;
+    if (!modelTab) return;
 
     const section = document.createElement("div");
     section.id = "sl-verification-section";

@@ -58,6 +58,10 @@ body.panel-open .side-panel-toggle {
   top: 110px;
 }
 
+.verify-toggle {
+  top: 160px;
+}
+
 /* ─── Side Panel Base ─── */
 .side-panel {
   position: fixed;
@@ -70,7 +74,9 @@ body.panel-open .side-panel-toggle {
   flex-direction: column;
   z-index: 400;
   transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              top 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
   backdrop-filter: blur(12px);
 }
@@ -79,11 +85,10 @@ body.panel-open .side-panel-toggle {
   transform: translateX(0);
 }
 
-/* When both panels are open they stack vertically */
+/* ─── Single panel defaults (full height) ─── */
 .props-panel {
   top: 0;
-  height: 50vh;
-  border-bottom: 1px solid #4C566A;
+  height: 100vh;
 }
 
 .sim-dashboard-panel {
@@ -91,27 +96,45 @@ body.panel-open .side-panel-toggle {
   height: 100vh;
 }
 
-/* Stacking logic via JS classes on body */
-body.both-panels-open .props-panel.open {
-  height: 45vh;
+.verify-panel {
   top: 0;
+  height: 100vh;
 }
 
-body.both-panels-open .sim-dashboard-panel.open {
+/* ─── Two panels open: stacked vertically ─── */
+body.both-panels-open .side-panel.open.panel-stack-top {
+  height: 45vh;
+  top: 0;
+  z-index: 400;
+  border-bottom: 1px solid #4C566A;
+}
+
+body.both-panels-open .side-panel.open.panel-stack-bottom {
   top: 45vh;
   height: 55vh;
+  z-index: 400;
   border-top: 2px solid #81A1C1;
 }
 
-/* Single panel: full height */
-body:not(.both-panels-open) .props-panel.open {
+/* ─── Three panels open: front panel full-height, other two stacked behind ─── */
+body.panels-open-3 .side-panel.open.panel-front {
   height: 100vh;
   top: 0;
+  z-index: 410;
 }
 
-body:not(.both-panels-open) .sim-dashboard-panel.open {
-  height: 100vh;
+body.panels-open-3 .side-panel.open.panel-stack-top {
+  height: 45vh;
   top: 0;
+  z-index: 400;
+  border-bottom: 1px solid #4C566A;
+}
+
+body.panels-open-3 .side-panel.open.panel-stack-bottom {
+  top: 45vh;
+  height: 55vh;
+  z-index: 400;
+  border-top: 2px solid #81A1C1;
 }
 
 /* ─── Panel Header ─── */
@@ -734,3 +757,4 @@ body.new-panels-active .side-panel.open ~ .canvas-container .zoom-controls,
 body.new-panels-active.panel-open .zoom-controls {
   right: 380px;
 }
+

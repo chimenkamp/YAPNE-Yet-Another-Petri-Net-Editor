@@ -19,9 +19,6 @@ export class PropertiesPanel {
   _init() {
     this._createToggleButton();
     this._createPanel();
-
-    // Listen for layout changes from simulation panel
-    document.addEventListener('side-panel-changed', () => this._updateLayout());
   }
 
   _createToggleButton() {
