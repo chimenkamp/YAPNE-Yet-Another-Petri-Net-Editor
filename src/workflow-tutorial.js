@@ -363,6 +363,9 @@ export class WorkflowTutorial {
     // Simulation panel
     this._controlPanel('sim', state.simPanel);
 
+    // Verification panel
+    this._controlPanel('verify', state.verifyPanel);
+
     // Select an element
     if (state.selectElement && app.editor) {
       setTimeout(() => this._selectElement(state.selectElement, app), 100);
@@ -417,6 +420,9 @@ export class WorkflowTutorial {
     } else if (type === 'sim') {
       toggleId = 'sim-panel-toggle';
       panelId = 'sim-dashboard';
+    } else if (type === 'verify') {
+      toggleId = 'verify-panel-toggle';
+      panelId = 'verify-panel';
     }
 
     const panel = document.getElementById(panelId);

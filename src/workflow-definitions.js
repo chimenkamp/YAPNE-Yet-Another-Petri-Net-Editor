@@ -301,13 +301,13 @@ export const WORKFLOW_DEFINITIONS = [
         }
       },
       {
-        title: 'Open Verification Section',
-        description: 'Open the <strong>sidebar (File tab)</strong> and scroll down to the <strong>Formal Verification</strong> section with the 🔬 icon.',
-        highlight: '#sl-verification-section',
-        position: 'right',
+        title: 'Open Verification Panel',
+        description: 'Click the <strong>Verification</strong> toggle button on the right side of the canvas to open the <strong>Verification panel</strong>.',
+        highlight: '#verify-panel-toggle',
+        position: 'left',
         editorState: {
-          sidebar: 'open',
-          sidebarTab: 'file',
+          verifyPanel: 'open',
+          sidebar: 'close',
           propsPanel: 'close',
           simPanel: 'close'
         }
@@ -315,9 +315,9 @@ export const WORKFLOW_DEFINITIONS = [
       {
         title: 'Run Formal Verification (F6)',
         description: 'Click <strong>Run Formal Verification</strong> to check all three soundness properties using the Suvorov & Lomazova algorithms with Z3 SMT solver.',
-        highlight: '#btn-sl-verify',
-        position: 'right',
-        editorState: { sidebar: 'open', sidebarTab: 'file' }
+        highlight: '#btn-sl-verify-panel',
+        position: 'left',
+        editorState: { verifyPanel: 'open' }
       },
       {
         title: 'Understanding Property P1: Reachability',
@@ -359,19 +359,18 @@ export const WORKFLOW_DEFINITIONS = [
       {
         title: 'Inspect Counterexamples (F7)',
         description: 'For each violated property, YAPNE generates a <strong>counterexample trace</strong> showing the execution path that leads to the violating state. Click on a violation to see the trace visualized on the canvas.',
-        highlight: '#btn-sl-verify',
-        position: 'right',
-        editorState: { sidebar: 'open', sidebarTab: 'file' }
+        highlight: '#btn-sl-verify-panel',
+        position: 'left',
+        editorState: { verifyPanel: 'open' }
       },
       {
         title: 'Guard Analysis (F8)',
         description: 'The verifier also detects <strong>unsatisfiable guards</strong> — preconditions that can never be met, making their transition effectively dead.',
-        highlight: '#btn-sl-verify',
-        position: 'right',
+        highlight: '#btn-sl-verify-panel',
+        position: 'left',
         editorState: {
           loadExample: 'examples/soundness-test-choice-sound.json',
-          sidebar: 'open',
-          sidebarTab: 'file'
+          verifyPanel: 'open'
         }
       }
     ]

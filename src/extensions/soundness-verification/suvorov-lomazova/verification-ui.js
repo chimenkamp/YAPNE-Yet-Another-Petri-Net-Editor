@@ -1143,7 +1143,8 @@ class SuvorovLomazovaVerificationUI {
    * Start the verification process
    */
   async startVerification() {
-    const verifyButton = document.getElementById("btn-sl-verify");
+    const verifyButton = document.getElementById("btn-sl-verify")
+      || document.getElementById("btn-sl-verify-panel");
     // const algorithmSelect = document.getElementById("sl-algorithm-select");
     const modalBody = document.getElementById("sl-modal-body");
 
@@ -1151,8 +1152,10 @@ class SuvorovLomazovaVerificationUI {
     this.clearVisualization();
 
     // Disable button and show loading
-    verifyButton.disabled = true;
-    verifyButton.innerHTML = "⏳ Running Verification...";
+    if (verifyButton) {
+      verifyButton.disabled = true;
+      verifyButton.innerHTML = "⏳ Running Verification...";
+    }
 
     this.showModal();
     modalBody.innerHTML = this.createProgressHTML("Initializing verification...");
@@ -1184,8 +1187,10 @@ class SuvorovLomazovaVerificationUI {
       modalBody.innerHTML = this.createErrorHTML(error);
     } finally {
       // Re-enable button
-      verifyButton.disabled = false;
-      verifyButton.innerHTML = "🔬 Run Formal Verification";
+      if (verifyButton) {
+        verifyButton.disabled = false;
+        verifyButton.innerHTML = "🔬 Run Formal Verification";
+      }
     }
   }
 

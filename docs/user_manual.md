@@ -122,7 +122,7 @@ To handle complex constraint-based postconditions, YAPNE integrates the **Z3 SMT
 YAPNE includes a data-aware soundness checker to verify the correctness of your DPN models.
 
 #### 3.5.1 The Verification Process
-When you run the "Soundness Verification" from the "Model" tab, the tool performs a systematic check of your model's properties through **state-space exploration**.
+When you run the "Soundness Verification" from the **Verification** panel (toggled via the checkmark button on the right side of the canvas), the tool performs a systematic check of your model's properties through **state-space exploration**.
 
 1.  **State Definition:** A "state" in the context of a DPN is not just the token marking but a combination of **(Marking, Data Valuation)**. The marking is the distribution of tokens, and the data valuation is the set of current values for all data variables.
 2.  **State-Space Exploration:** The verifier starts from the initial state `(Initial Marking, Initial Data Values)` and systematically explores all reachable states. It does this by:
