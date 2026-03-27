@@ -19,20 +19,25 @@
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transform: translateX(0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              background 0.2s ease,
+              color 0.2s ease,
+              border-color 0.2s ease,
+              box-shadow 0.2s ease;
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   backdrop-filter: blur(8px);
+  will-change: transform;
 }
 
-/* Shift toggle buttons left when a panel is open */
+/* Shift toggle buttons left when a panel is open (GPU-composited) */
 body.panel-open .side-panel-toggle {
-  right: 372px;
+  transform: translateX(-360px);
 }
 
 .side-panel-toggle:hover {
   background: rgba(76, 86, 106, 0.95);
   color: #ECEFF4;
-  transform: translateX(-2px);
 }
 
 .side-panel-toggle.active {
@@ -749,12 +754,11 @@ body.new-panels-active .sidebar-toggle {
 
 /* Adjust zoom controls when panels are open */
 body.new-panels-active .zoom-controls {
-  right: 15px;
-  transition: right 0.3s ease;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body.new-panels-active .side-panel.open ~ .canvas-container .zoom-controls,
 body.new-panels-active.panel-open .zoom-controls {
-  right: 380px;
+  transform: translateX(-365px);
 }
 

@@ -466,12 +466,14 @@ footer {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   padding: 10px;
   z-index: 100; /* Ensure it floats above the canvas */
-  transition: left 0.3s ease-in-out;
+  transform: translateX(0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 }
 
 /* Shift toolbar right when left sidebar is open */
 body.sidebar-open .vertical-toolbar {
-  left: 310px;
+  transform: translateX(300px);
 }
 
 .toolbar-group.vertical {
@@ -512,12 +514,14 @@ body.sidebar-open .vertical-toolbar {
   padding: 5px 10px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   z-index: 100;
-  transition: right 0.3s ease-in-out;
+  transform: translateX(0);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 }
 
-/* When a side panel is open, move zoom controls left */
+/* When a side panel is open, move zoom controls left (GPU-composited) */
 body.panel-open .zoom-controls {
-  right: 380px;
+  transform: translateX(-365px);
 }
 
 .zoom-controls button {
@@ -616,7 +620,7 @@ body.fullscreen-mode .vertical-toolbar {
 /* Add a z-index to ensure controls stay visible */
 .zoom-controls {
   z-index: 500; 
-  transition: right 0.3s ease-in-out;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .pan-instructions {
