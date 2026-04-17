@@ -28,6 +28,7 @@
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   backdrop-filter: blur(8px);
   will-change: transform;
+  min-width: 127px;
 }
 
 /* Shift toggle buttons left when a panel is open (GPU-composited) */
