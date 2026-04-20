@@ -5,7 +5,10 @@
   "places": [
     {
       "id": "p_start",
-      "position": { "x": 100, "y": 200 },
+      "position": {
+        "x": 100,
+        "y": 200
+      },
       "label": "Start",
       "tokens": 1,
       "capacity": null,
@@ -14,7 +17,10 @@
     },
     {
       "id": "p_choice",
-      "position": { "x": 250, "y": 200 },
+      "position": {
+        "x": 250,
+        "y": 200
+      },
       "label": "Choice",
       "tokens": 0,
       "capacity": null,
@@ -23,7 +29,10 @@
     },
     {
       "id": "p_good",
-      "position": { "x": 400, "y": 100 },
+      "position": {
+        "x": 400,
+        "y": 100
+      },
       "label": "Good Path",
       "tokens": 0,
       "capacity": null,
@@ -32,7 +41,10 @@
     },
     {
       "id": "p_deadlock",
-      "position": { "x": 400, "y": 300 },
+      "position": {
+        "x": 400,
+        "y": 300
+      },
       "label": "Deadlock",
       "tokens": 0,
       "capacity": null,
@@ -41,7 +53,10 @@
     },
     {
       "id": "p_end",
-      "position": { "x": 550, "y": 100 },
+      "position": {
+        "x": 550,
+        "y": 100
+      },
       "label": "End",
       "tokens": 0,
       "capacity": null,
@@ -52,7 +67,10 @@
   "transitions": [
     {
       "id": "t_init",
-      "position": { "x": 175, "y": 200 },
+      "position": {
+        "x": 175,
+        "y": 200
+      },
       "label": "Init",
       "width": 20,
       "height": 50,
@@ -60,35 +78,44 @@
       "priority": 0,
       "delay": 0,
       "precondition": "",
-      "postcondition": "x' >= 0 && x' <= 1"
+      "postcondition": "x' >= 0 and x' <= 1"
     },
     {
       "id": "t_good",
-      "position": { "x": 325, "y": 100 },
+      "position": {
+        "x": 325,
+        "y": 100
+      },
       "label": "Good Branch",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 0,
       "delay": 0,
-      "precondition": "x == 1",
+      "precondition": "x = 1",
       "postcondition": ""
     },
     {
       "id": "t_bad",
-      "position": { "x": 325, "y": 300 },
+      "position": {
+        "x": 325,
+        "y": 300
+      },
       "label": "Bad Branch",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 0,
       "delay": 0,
-      "precondition": "x == 0",
+      "precondition": "x = 0",
       "postcondition": ""
     },
     {
       "id": "t_finish",
-      "position": { "x": 475, "y": 100 },
+      "position": {
+        "x": 475,
+        "y": 100
+      },
       "label": "Finish",
       "width": 20,
       "height": 50,

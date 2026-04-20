@@ -31,26 +31,24 @@ class ExpressionEditorDialog {
     if (this.type === 'precondition') {
       return {
         comparison: [
+          { label: '=', value: ' = ', description: 'Equal' },
+          { label: 'distinct', value: ' distinct ', description: 'Not equal' },
           { label: '>', value: ' > ', description: 'Greater than' },
           { label: '<', value: ' < ', description: 'Less than' },
           { label: '>=', value: ' >= ', description: 'Greater or equal' },
-          { label: '<=', value: ' <= ', description: 'Less or equal' },
-          { label: '===', value: ' === ', description: 'Strict equal' },
-          { label: '!==', value: ' !== ', description: 'Strict not equal' },
-          { label: '==', value: ' == ', description: 'Equal' },
-          { label: '!=', value: ' != ', description: 'Not equal' }
+          { label: '<=', value: ' <= ', description: 'Less or equal' }
         ],
         logical: [
-          { label: '&&', value: ' && ', description: 'Logical AND' },
-          { label: '||', value: ' || ', description: 'Logical OR' },
-          { label: '!', value: '!', description: 'Logical NOT' }
+          { label: 'and', value: ' and ', description: 'Logical AND' },
+          { label: 'or', value: ' or ', description: 'Logical OR' },
+          { label: 'not', value: 'not ', description: 'Logical NOT' },
+          { label: '=>', value: ' => ', description: 'Implies' }
         ],
         arithmetic: [
           { label: '+', value: ' + ', description: 'Add' },
           { label: '-', value: ' - ', description: 'Subtract' },
           { label: '*', value: ' * ', description: 'Multiply' },
-          { label: '/', value: ' / ', description: 'Divide' },
-          { label: '%', value: ' % ', description: 'Modulo' }
+          { label: '/', value: ' / ', description: 'Divide' }
         ],
         grouping: [
           { label: '( )', value: '()', description: 'Parentheses', cursorOffset: -1 }
@@ -64,26 +62,25 @@ class ExpressionEditorDialog {
       // Postcondition operators
       return {
         assignment: [
-          { label: "=' =", value: "' = ", description: 'Assignment (primed)', insertPrimed: true },
-          { label: ';', value: '; ', description: 'Statement separator' }
+          { label: "x' =", value: "' = ", description: 'Assignment (primed)', insertPrimed: true }
         ],
         comparison: [
+          { label: '=', value: ' = ', description: 'Equal' },
+          { label: 'distinct', value: ' distinct ', description: 'Not equal' },
           { label: '>', value: ' > ', description: 'Greater than (constraint)' },
           { label: '<', value: ' < ', description: 'Less than (constraint)' },
           { label: '>=', value: ' >= ', description: 'Greater or equal (constraint)' },
-          { label: '<=', value: ' <= ', description: 'Less or equal (constraint)' },
-          { label: '==', value: ' == ', description: 'Equal (constraint)' }
+          { label: '<=', value: ' <= ', description: 'Less or equal (constraint)' }
         ],
         arithmetic: [
           { label: '+', value: ' + ', description: 'Add' },
           { label: '-', value: ' - ', description: 'Subtract' },
           { label: '*', value: ' * ', description: 'Multiply' },
-          { label: '/', value: ' / ', description: 'Divide' },
-          { label: '%', value: ' % ', description: 'Modulo' }
+          { label: '/', value: ' / ', description: 'Divide' }
         ],
         logical: [
-          { label: '&&', value: ' && ', description: 'Logical AND (for constraints)' },
-          { label: '||', value: ' || ', description: 'Logical OR (for constraints)' }
+          { label: 'and', value: ' and ', description: 'Conjunction (combine assignments/constraints)' },
+          { label: 'or', value: ' or ', description: 'Logical OR (for constraints)' }
         ],
         grouping: [
           { label: '( )', value: '()', description: 'Parentheses', cursorOffset: -1 }
@@ -127,11 +124,19 @@ class ExpressionEditorDialog {
       validationStatus.className = 'expr-validation-status valid';
       validationStatus.textContent = '✓ Valid';
       validationMessage.textContent = '';
+      this.textarea.classList.remove('expr-textarea-error');
       this.dialog.querySelector('#btn-save-expression').disabled = false;
     } else {
       validationStatus.className = 'expr-validation-status invalid';
       validationStatus.textContent = '✗ Invalid';
-      validationMessage.textContent = validationResult.error || 'Invalid expression';
+      const pos = validationResult.pos;
+      const errorMsg = validationResult.error || 'Invalid expression';
+      validationMessage.textContent = pos != null ? `[col ${pos + 1}] ${errorMsg}` : errorMsg;
+      this.textarea.classList.add('expr-textarea-error');
+      // Move cursor to error position if available
+      if (pos != null && pos <= expression.length) {
+        this.textarea.setSelectionRange(pos, pos);
+      }
       this.dialog.querySelector('#btn-save-expression').disabled = true;
     }
   }
@@ -199,22 +204,29 @@ class ExpressionEditorDialog {
                 <div class="expr-help-content" id="expr-help-content" style="display: none;">
                   ${isPrecondition ? `
                     <p><strong>Precondition (Guard):</strong> A boolean expression that must be <code>true</code> for the transition to be enabled.</p>
-                    <p><strong>Examples:</strong></p>
+                    <p><strong>Infix form:</strong></p>
                     <ul>
                       <li><code>counter > 0</code> - Enable when counter is positive</li>
-                      <li><code>x >= 5 && y < 10</code> - Enable when x ≥ 5 AND y < 10</li>
-                      <li><code>status === "ready"</code> - Enable when status equals "ready"</li>
+                      <li><code>x >= 5 and y < 10</code> - Enable when x &ge; 5 AND y &lt; 10</li>
+                      <li><code>status = 1 or status = 2</code> - Enable for status 1 or 2</li>
                     </ul>
+                    <p><strong>SMT prefix form:</strong></p>
+                    <ul>
+                      <li><code>(and (> x 0) (= y 1))</code></li>
+                      <li><code>(or (< x 5) (>= y 10))</code></li>
+                    </ul>
+                    <p><strong>Operators:</strong> =, distinct, &lt;, &le;, &gt;, &ge;, and, or, not, =&gt;</p>
                   ` : `
-                    <p><strong>Postcondition (Updates):</strong> Defines how variables change when the transition fires.</p>
-                    <p><strong>Direct Assignment:</strong> Use <code>variable' = expression;</code></p>
-                    <p><strong>Constraint-based:</strong> Use <code>variable' > expr; variable' < expr;</code> (solver finds valid value)</p>
+                    <p><strong>Postcondition (Updates):</strong> Defines how variables change when the transition fires. Use primed variables (<code>x'</code>) for next-state values.</p>
+                    <p><strong>Direct Assignment:</strong> <code>x' = expression</code></p>
+                    <p><strong>Constraint-based:</strong> <code>x' > expr and x' &lt; expr</code> (solver finds valid value)</p>
                     <p><strong>Examples:</strong></p>
                     <ul>
-                      <li><code>counter' = counter + 1;</code> - Increment counter</li>
-                      <li><code>x' = x * 2; y' = y - 1;</code> - Double x and decrement y</li>
-                      <li><code>n' > n; n' < n + 10;</code> - n increases by 1-9 (random)</li>
+                      <li><code>counter' = counter + 1</code> - Increment counter</li>
+                      <li><code>x' = x * 2 and y' = y - 1</code> - Double x, decrement y</li>
+                      <li><code>n' > n and n' &lt; n + 10</code> - n increases by 1-9</li>
                     </ul>
+                    <p>Use <code>and</code> to combine multiple assignments/constraints.</p>
                   `}
                 </div>
               </div>
@@ -223,7 +235,7 @@ class ExpressionEditorDialog {
               <div class="expr-input-section">
                 <label for="expr-textarea">Expression</label>
                 <textarea id="expr-textarea" class="expr-textarea" rows="8" 
-                          placeholder="${isPrecondition ? 'e.g., counter > 0 && status === \"ready\"' : 'e.g., counter\' = counter + 1;'}">${this.escapeHtml(this.currentExpression)}</textarea>
+                          placeholder="${isPrecondition ? 'e.g., counter > 0 and status = 1' : 'e.g., counter\' = counter + 1'}">${this.escapeHtml(this.currentExpression)}</textarea>
                 <div class="expr-validation">
                   <span id="expr-validation-status" class="expr-validation-status"></span>
                   <span id="expr-validation-message" class="expr-validation-message"></span>
@@ -279,16 +291,18 @@ class ExpressionEditorDialog {
                 <div class="expr-template-buttons">
                   ${isPrecondition ? `
                     <button type="button" class="expr-template-btn" data-template="var > 0">var > 0</button>
-                    <button type="button" class="expr-template-btn" data-template="var === value">var === value</button>
+                    <button type="button" class="expr-template-btn" data-template="var = value">var = value</button>
                     <button type="button" class="expr-template-btn" data-template="var1 > var2">var1 > var2</button>
-                    <button type="button" class="expr-template-btn" data-template="cond1 && cond2">cond1 && cond2</button>
-                    <button type="button" class="expr-template-btn" data-template="cond1 || cond2">cond1 || cond2</button>
+                    <button type="button" class="expr-template-btn" data-template="cond1 and cond2">cond1 and cond2</button>
+                    <button type="button" class="expr-template-btn" data-template="cond1 or cond2">cond1 or cond2</button>
+                    <button type="button" class="expr-template-btn" data-template="(and (> var 0) (= var2 1))">(and (> ..) (= ..))</button>
                   ` : `
-                    <button type="button" class="expr-template-btn" data-template="var' = var + 1;">var' = var + 1;</button>
-                    <button type="button" class="expr-template-btn" data-template="var' = var - 1;">var' = var - 1;</button>
-                    <button type="button" class="expr-template-btn" data-template="var' = 0;">var' = 0;</button>
-                    <button type="button" class="expr-template-btn" data-template="var' > var; var' < var + 10;">var' ∈ (var, var+10)</button>
-                    <button type="button" class="expr-template-btn" data-template="var' >= 0; var' <= 100;">var' ∈ [0, 100]</button>
+                    <button type="button" class="expr-template-btn" data-template="var' = var + 1">var' = var + 1</button>
+                    <button type="button" class="expr-template-btn" data-template="var' = var - 1">var' = var - 1</button>
+                    <button type="button" class="expr-template-btn" data-template="var' = 0">var' = 0</button>
+                    <button type="button" class="expr-template-btn" data-template="x' = x + 1 and y' = y - 1">x' = .. and y' = ..</button>
+                    <button type="button" class="expr-template-btn" data-template="var' > var and var' < var + 10">var' &isin; (var, var+10)</button>
+                    <button type="button" class="expr-template-btn" data-template="var' >= 0 and var' <= 100">var' &isin; [0, 100]</button>
                   `}
                 </div>
               </div>
@@ -590,7 +604,7 @@ class DataPetriNetUI {
                   ${transition.postcondition ? `<button id="btn-clear-postcondition" type="button" class="expr-clear-btn" ${disabledAttr} title="Clear expression">✕</button>` : ''}
                 </div>
               </div>
-              <small>Format: variable' = expression; (use ' for new values)</small>
+              <small>Format: variable' = expression (use ' for new values, <code>and</code> to combine)</small>
             </div>
           `;
           
@@ -964,10 +978,9 @@ showAddVariableDialog() {
         <div class="form-group">
           <label for="variable-type">Type</label>
           <select id="variable-type">
-            <option value="int">Integer</option>
-            <option value="float">Float</option>
-            <option value="string">String</option>
-            <option value="boolean">Boolean</option>
+            <option value="int">Integer (Int)</option>
+            <option value="real">Real</option>
+            <option value="bool">Boolean (Bool)</option>
           </select>
         </div>
         <div class="form-group">
@@ -999,13 +1012,10 @@ showAddVariableDialog() {
       case 'int':
         inputHtml = '<input type="number" id="variable-initial-value" step="1" placeholder="Enter an integer">';
         break;
-      case 'float':
-        inputHtml = '<input type="number" id="variable-initial-value" step="any" placeholder="Enter a decimal number">';
+      case 'real':
+        inputHtml = '<input type="number" id="variable-initial-value" step="any" placeholder="Enter a real number">';
         break;
-      case 'string':
-        inputHtml = '<input type="text" id="variable-initial-value" placeholder="Enter text">';
-        break;
-      case 'boolean':
+      case 'bool':
         inputHtml = `
           <select id="variable-initial-value">
             <option value="">Select a value</option>
@@ -1082,7 +1092,7 @@ showAddVariableDialog() {
           if (isNaN(initialValue)) {
             throw new Error('Not a valid float');
           }
-        } else if (type === 'boolean') {
+        } else if (type === 'bool') {
           if (initialValueStr === 'true') {
             initialValue = true;
           } else if (initialValueStr === 'false') {
@@ -1090,8 +1100,6 @@ showAddVariableDialog() {
           } else {
             throw new Error('Boolean must be true or false');
           }
-        } else { // string
-          initialValue = initialValueStr;
         }
       } catch (error) {
         alert(`Invalid initial value: ${error.message}`);
@@ -1141,10 +1149,9 @@ showAddVariableDialog() {
           <div class="form-group">
             <label for="variable-type">Type</label>
             <select id="variable-type">
-              <option value="int" ${variable.type === 'int' ? 'selected' : ''}>Integer</option>
-              <option value="float" ${variable.type === 'float' ? 'selected' : ''}>Float</option>
-              <option value="string" ${variable.type === 'string' ? 'selected' : ''}>String</option>
-              <option value="boolean" ${variable.type === 'boolean' ? 'selected' : ''}>Boolean</option>
+              <option value="int" ${variable.type === 'int' ? 'selected' : ''}>Integer (Int)</option>
+              <option value="real" ${variable.type === 'real' ? 'selected' : ''}>Real</option>
+              <option value="bool" ${variable.type === 'bool' ? 'selected' : ''}>Boolean (Bool)</option>
             </select>
           </div>
           <div class="form-group">
@@ -1213,12 +1220,12 @@ showAddVariableDialog() {
             if (isNaN(parsedValue)) {
               throw new Error('Not a valid integer');
             }
-          } else if (type === 'float') {
+          } else if (type === 'real') {
             parsedValue = parseFloat(valueStr);
             if (isNaN(parsedValue)) {
-              throw new Error('Not a valid float');
+              throw new Error('Not a valid real number');
             }
-          } else if (type === 'boolean') {
+          } else if (type === 'bool') {
             if (valueStr.toLowerCase() === 'true') {
               parsedValue = true;
             } else if (valueStr.toLowerCase() === 'false') {
@@ -1226,8 +1233,6 @@ showAddVariableDialog() {
             } else {
               throw new Error('Boolean must be true or false');
             }
-          } else { // string
-            parsedValue = valueStr;
           }
         } catch (error) {
           alert(`Invalid value: ${error.message}`);
@@ -1318,12 +1323,12 @@ showAddVariableDialog() {
             if (isNaN(parsedValue)) {
               throw new Error('Not a valid integer');
             }
-          } else if (variable.type === 'float') {
+          } else if (variable.type === 'real') {
             parsedValue = parseFloat(valueStr);
             if (isNaN(parsedValue)) {
-              throw new Error('Not a valid float');
+              throw new Error('Not a valid real number');
             }
-          } else if (variable.type === 'boolean') {
+          } else if (variable.type === 'bool') {
             if (valueStr.toLowerCase() === 'true') {
               parsedValue = true;
             } else if (valueStr.toLowerCase() === 'false') {
@@ -1331,8 +1336,6 @@ showAddVariableDialog() {
             } else {
               throw new Error('Boolean must be true or false');
             }
-          } else { // string
-            parsedValue = valueStr;
           }
         } catch (error) {
           alert(`Invalid value: ${error.message}`);

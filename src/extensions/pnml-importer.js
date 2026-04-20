@@ -2,6 +2,7 @@ import { PetriNetAPI, Place, Transition, Arc } from '../petri-net-simulator.js';
 import { DataPetriNetAPI } from './dpn-api.js';
 import { DataAwareTransition, DataVariable } from './dpn-model.js';
 import { DataPetriNetRenderer } from './dpn-renderer.js';
+import { migratePrecondition, migratePostcondition } from './guard-language/guard-migrator.js';
 
 /**
  * PNML Importer Extension with Improved BPMN Layout Algorithm
@@ -697,8 +698,8 @@ class PNMLImporter {
             position: this.getPosition(transition),
             priority: 1,
             delay: 0,
-            precondition: precondition.replace(/'/g, ""),
-            postcondition: postcondition,
+            precondition: migratePrecondition(precondition.replace(/'/g, "")),
+            postcondition: migratePostcondition(postcondition),
             isDataAware: isDataAware,
             silent: isSilent
           };

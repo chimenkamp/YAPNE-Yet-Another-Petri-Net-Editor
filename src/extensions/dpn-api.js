@@ -1,6 +1,7 @@
 
 import { PetriNetAPI, Place, Transition, Arc } from '../petri-net-simulator.js';
 import { DataPetriNet, DataAwareTransition, DataVariable } from './dpn-model.js';
+import { validatePrecondition, validatePostcondition } from './guard-language/guard-validator.js';
 
 class DataPetriNetAPI extends PetriNetAPI {
   /**
@@ -47,7 +48,7 @@ class DataPetriNetAPI extends PetriNetAPI {
   /**
    * Create a new data variable
    * @param {string} name - Name of the variable
-   * @param {string} type - Data type ('int', 'float', 'string', 'boolean')
+   * @param {string} type - Data type ('int'|'integer'|'bool'|'boolean'|'real')
    * @param {*} initialValue - Initial value
    * @param {string} description - Optional description
    * @returns {string} ID of the created variable
@@ -251,16 +252,10 @@ class DataPetriNetAPI extends PetriNetAPI {
 
       // Add new variables
       for (const varData of variables) {
-        // Handle legacy 'number' type by converting to 'int'
-        let variableType = varData.type;
-        if (variableType === 'number') {
-          variableType = 'int';
-        }
-        
         const variable = new DataVariable(
           varData.id || this.generateUUID(),
           varData.name,
-          variableType,
+          varData.type, // normalizeType is called in the constructor
           varData.currentValue,
           varData.description || ""
         );
@@ -284,140 +279,26 @@ class DataPetriNetAPI extends PetriNetAPI {
    * Validate a precondition expression
    * @param {string} expression - Precondition expression to validate
    * @param {Array<string>} variableNames - Available variable names
-   * @returns {Object} Validation result {valid: boolean, error: string}
+   * @returns {Object} Validation result {valid: boolean, error: string|null, pos: number|null}
    */
   validatePrecondition(expression, variableNames = []) {
     if (!expression.trim()) {
-      return { valid: true, error: null }; // Empty expression is valid
+      return { valid: true, error: null, pos: null };
     }
-
-    try {
-      // Create dummy valuation
-      const dummyValuation = {};
-      variableNames.forEach(name => {
-        dummyValuation[name] = 0; // Use 0 as a safe default for validation
-      });
-
-      // Create evaluator function
-      const functionBody = `return ${expression};`;
-      const evaluator = new Function(...variableNames, functionBody);
-
-      // Test evaluation
-      evaluator(...variableNames.map(name => dummyValuation[name]));
-
-      return { valid: true, error: null };
-    } catch (error) {
-      return {
-        valid: false,
-        error: `Invalid expression: ${error.message}`
-      };
-    }
+    return validatePrecondition(expression, variableNames);
   }
 
   /**
    * Validate a postcondition expression
    * @param {string} expression - Postcondition expression to validate
    * @param {Array<string>} variableNames - Available variable names
-   * @returns {Object} Validation result {valid: boolean, error: string}
+   * @returns {Object} Validation result {valid: boolean, error: string|null, pos: number|null}
    */
   validatePostcondition(expression, variableNames = []) {
     if (!expression.trim()) {
-      return { valid: true, error: null }; // Empty expression is valid
+      return { valid: true, error: null, pos: null };
     }
-  
-    // Split into statements
-    const statements = expression.split(';');
-    
-    for (const statement of statements) {
-      if (!statement.trim()) continue;
-      
-      // Check for assignment pattern
-      const assignMatch = statement.trim().match(/^([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
-      
-      if (assignMatch) {
-        // Direct assignment validation
-        const [, variableName, rightHandSide] = assignMatch;
-        
-        // Check if variable exists
-        if (!variableNames.includes(variableName)) {
-          return {
-            valid: false,
-            error: `Unknown variable: ${variableName}`
-          };
-        }
-        
-        // Validate right-hand side expression
-        try {
-          // Create dummy valuation
-          const dummyValuation = {};
-          variableNames.forEach(name => {
-            dummyValuation[name] = 0; // Use 0 as a safe default for validation
-          });
-          
-          // Process expression (remove primes)
-          let processedExpression = rightHandSide;
-          variableNames.forEach(name => {
-            const regex = new RegExp(`${name}'`, 'g');
-            processedExpression = processedExpression.replace(regex, name);
-          });
-          
-          // Create and test evaluator
-          const evaluator = new Function(...variableNames, `return (${processedExpression});`);
-          evaluator(...variableNames.map(name => dummyValuation[name]));
-        } catch (error) {
-          return { 
-            valid: false, 
-            error: `Invalid expression in "${statement}": ${error.message}` 
-          };
-        }
-      } else {
-        // Check for constraint pattern
-        const primedVarsUsed = variableNames.filter(name => 
-          statement.match(new RegExp(`${name}'`, 'g'))
-        );
-        
-        if (primedVarsUsed.length === 0) {
-          return {
-            valid: false,
-            error: `Statement "${statement}" is not a valid assignment or constraint. It should either be an assignment (x' = expr) or a constraint involving primed variables (x' > 0).`
-          };
-        }
-        
-        // Validate constraint expression
-        try {
-          // Create dummy valuation
-          const dummyValuation = {};
-          variableNames.forEach(name => {
-            dummyValuation[name] = 0; // Use 0 as a safe default for validation
-          });
-          
-          const dummyTestValuation = { ...dummyValuation };
-          
-          // Process expression for validation
-          let processedExpression = statement;
-          variableNames.forEach(name => {
-            const regex = new RegExp(`${name}'`, 'g');
-            processedExpression = processedExpression.replace(regex, `dummyTestValuation["${name}"]`);
-          });
-          
-          // Create and test evaluator
-          const evaluator = new Function(
-            ...variableNames,
-            'dummyTestValuation',
-            `return (${processedExpression});`
-          );
-          
-          evaluator(...variableNames.map(name => dummyValuation[name]), dummyTestValuation);
-        } catch (error) {
-          return {
-            valid: false,
-            error: `Invalid constraint in "${statement}": ${error.message}`
-          };
-        }
-      }
-    }
-    
-    return { valid: true, error: null };
+    return validatePostcondition(expression, variableNames);
   }
 
   /**
@@ -428,31 +309,32 @@ class DataPetriNetAPI extends PetriNetAPI {
     return {
       precondition: `
   Precondition (Guard) Help:
-  - JavaScript expression that evaluates to true/false
+  - Guard expression that evaluates to true/false
   - Determines when a transition is enabled
-  - Example: x > 5 && y === "ready"
+  - Two forms supported:
+    1. Infix: x > 5 and y = 1
+    2. SMT prefix: (and (> x 5) (= y 1))
+  - Operators: =, distinct, <, <=, >, >=, +, -, *, /
+  - Logical: and, or, not, => (implies)
+  - No primed variables (x') allowed in preconditions
   - Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
       `,
       postcondition: `
   Postcondition (Data Update) Help:
   - Defines how variables change when transition fires
+  - Use primed variables (x') for next-state values
   - Two supported formats:
-    1. Direct assignment: variable' = expression;
-       Example: x' = x + 1; y' = "done";
-    
-    2. Constraint-based random assignment: expression containing variable';
-       Example: x' > 0 && x' < x*2;
-       (generates a random value satisfying the constraints)
-       
-  - Use semicolons to separate multiple assignments/constraints
+    1. Direct assignment: x' = x + 1 and y' = 0
+    2. Constraint-based: x' > 0 and x' < x * 2
+       (generates a value satisfying the constraints)
+  - Use 'and' to combine multiple assignments/constraints
   - Direct assignments have priority over constraints
   - Available variables: ${Array.from(this.petriNet.dataVariables.values()).map(v => v.name).join(', ')}
   
   Data Types:
-  - int: Whole numbers (42, -7, 0)
-  - float: Decimal numbers (3.14, -2.5, 1.0)
-  - string: Text values ("hello", "processing")
-  - boolean: true or false values
+  - int / integer: Whole numbers (42, -7, 0)
+  - real: Decimal numbers (3.14, -2.5, 1.0)
+  - bool / boolean: true or false values
       `
     };
   }

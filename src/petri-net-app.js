@@ -387,7 +387,7 @@ initEventHandlers() {
       this.performRedo();
       return;
     }
-    if (e.key === ' ' && this.editor && this.editor.mode !== 'addArc') {
+    if (e.key === ' ' && !isInputFocused && !document.querySelector('.modal-overlay') && this.editor && this.editor.mode !== 'addArc') {
       e.preventDefault();
       e.stopPropagation();
       this.editor.setMode('addArc');
@@ -396,7 +396,9 @@ initEventHandlers() {
   };
 
   const keyupHandler = (e) => {
-    if (e.key === ' ' && this.editor) {
+    const tag = document.activeElement?.tagName;
+    const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    if (e.key === ' ' && !isInputFocused && !document.querySelector('.modal-overlay') && this.editor) {
       e.preventDefault();
       e.stopPropagation();
       this.editor.setMode('select');

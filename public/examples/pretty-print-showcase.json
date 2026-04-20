@@ -4,7 +4,10 @@
   "places": [
     {
       "id": "P_Start",
-      "position": { "x": 100, "y": 50 },
+      "position": {
+        "x": 100,
+        "y": 50
+      },
       "label": "Start",
       "tokens": 1,
       "capacity": null,
@@ -12,7 +15,10 @@
     },
     {
       "id": "P_Comparison",
-      "position": { "x": 300, "y": 50 },
+      "position": {
+        "x": 300,
+        "y": 50
+      },
       "label": "Comparison",
       "tokens": 0,
       "capacity": null,
@@ -20,7 +26,10 @@
     },
     {
       "id": "P_Logical",
-      "position": { "x": 500, "y": 50 },
+      "position": {
+        "x": 500,
+        "y": 50
+      },
       "label": "Logical",
       "tokens": 0,
       "capacity": null,
@@ -28,7 +37,10 @@
     },
     {
       "id": "P_Arithmetic",
-      "position": { "x": 700, "y": 50 },
+      "position": {
+        "x": 700,
+        "y": 50
+      },
       "label": "Arithmetic",
       "tokens": 0,
       "capacity": null,
@@ -36,7 +48,10 @@
     },
     {
       "id": "P_Complex1",
-      "position": { "x": 100, "y": 250 },
+      "position": {
+        "x": 100,
+        "y": 250
+      },
       "label": "Complex1",
       "tokens": 0,
       "capacity": null,
@@ -44,7 +59,10 @@
     },
     {
       "id": "P_Complex2",
-      "position": { "x": 300, "y": 250 },
+      "position": {
+        "x": 300,
+        "y": 250
+      },
       "label": "Complex2",
       "tokens": 0,
       "capacity": null,
@@ -52,7 +70,10 @@
     },
     {
       "id": "P_Mixed",
-      "position": { "x": 500, "y": 250 },
+      "position": {
+        "x": 500,
+        "y": 250
+      },
       "label": "Mixed",
       "tokens": 0,
       "capacity": null,
@@ -60,7 +81,10 @@
     },
     {
       "id": "P_Advanced",
-      "position": { "x": 700, "y": 250 },
+      "position": {
+        "x": 700,
+        "y": 250
+      },
       "label": "Advanced",
       "tokens": 0,
       "capacity": null,
@@ -68,7 +92,10 @@
     },
     {
       "id": "P_Primed",
-      "position": { "x": 100, "y": 450 },
+      "position": {
+        "x": 100,
+        "y": 450
+      },
       "label": "Primed Vars",
       "tokens": 0,
       "capacity": null,
@@ -76,7 +103,10 @@
     },
     {
       "id": "P_Nested",
-      "position": { "x": 300, "y": 450 },
+      "position": {
+        "x": 300,
+        "y": 450
+      },
       "label": "Nested",
       "tokens": 0,
       "capacity": null,
@@ -84,7 +114,10 @@
     },
     {
       "id": "P_Boolean",
-      "position": { "x": 500, "y": 450 },
+      "position": {
+        "x": 500,
+        "y": 450
+      },
       "label": "Boolean",
       "tokens": 0,
       "capacity": null,
@@ -92,7 +125,10 @@
     },
     {
       "id": "P_End",
-      "position": { "x": 700, "y": 450 },
+      "position": {
+        "x": 700,
+        "y": 450
+      },
       "label": "End",
       "tokens": 0,
       "capacity": null,
@@ -102,7 +138,10 @@
   "transitions": [
     {
       "id": "T_GreaterEqual",
-      "position": { "x": 200, "y": 50 },
+      "position": {
+        "x": 200,
+        "y": 50
+      },
       "label": "T_GreaterEqual",
       "width": 20,
       "height": 50,
@@ -114,7 +153,10 @@
     },
     {
       "id": "T_LessEqual",
-      "position": { "x": 400, "y": 50 },
+      "position": {
+        "x": 400,
+        "y": 50
+      },
       "label": "T_LessEqual",
       "width": 20,
       "height": 50,
@@ -126,43 +168,55 @@
     },
     {
       "id": "T_NotEqual",
-      "position": { "x": 600, "y": 50 },
+      "position": {
+        "x": 600,
+        "y": 50
+      },
       "label": "T_NotEqual",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "value != 0",
+      "precondition": "value distinct 0",
       "postcondition": "status' = 1"
     },
     {
       "id": "T_And",
-      "position": { "x": 800, "y": 50 },
+      "position": {
+        "x": 800,
+        "y": 50
+      },
       "label": "T_And",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "x >= 5 && y <= 20",
+      "precondition": "x >= 5 and y <= 20",
       "postcondition": "flag' = true"
     },
     {
       "id": "T_Or",
-      "position": { "x": 200, "y": 250 },
+      "position": {
+        "x": 200,
+        "y": 250
+      },
       "label": "T_Or",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "a == 0 || b != 0",
+      "precondition": "a = 0 or b distinct 0",
       "postcondition": "choice' = a"
     },
     {
       "id": "T_Multiply",
-      "position": { "x": 400, "y": 250 },
+      "position": {
+        "x": 400,
+        "y": 250
+      },
       "label": "T_Multiply",
       "width": 20,
       "height": 50,
@@ -174,75 +228,93 @@
     },
     {
       "id": "T_ComplexAnd",
-      "position": { "x": 600, "y": 250 },
+      "position": {
+        "x": 600,
+        "y": 250
+      },
       "label": "T_ComplexAnd",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "x >= min && x <= max && active == true",
+      "precondition": "x >= min and x <= max and active = true",
       "postcondition": "validated' = x"
     },
     {
       "id": "T_ComplexOr",
-      "position": { "x": 800, "y": 250 },
+      "position": {
+        "x": 800,
+        "y": 250
+      },
       "label": "T_ComplexOr",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "error != 0 || timeout >= 100 || cancelled == true",
+      "precondition": "error distinct 0 or timeout >= 100 or cancelled = true",
       "postcondition": "state' = 99"
     },
     {
       "id": "T_MultiPrimed",
-      "position": { "x": 200, "y": 450 },
+      "position": {
+        "x": 200,
+        "y": 450
+      },
       "label": "T_MultiPrimed",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "x' >= x + 1 && y' <= y * 2",
-      "postcondition": "x' = x + 1; y' = y * 2; z' = x * y"
+      "precondition": "x' >= x + 1 and y' <= y * 2",
+      "postcondition": "x' = x + 1 and y' = y * 2 and z' = x * y"
     },
     {
       "id": "T_NestedLogic",
-      "position": { "x": 400, "y": 450 },
+      "position": {
+        "x": 400,
+        "y": 450
+      },
       "label": "T_NestedLogic",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "(a >= 10 && b <= 50) || (c != 0 && d == 1)",
+      "precondition": "(a >= 10 and b <= 50) or (c distinct 0 and d = 1)",
       "postcondition": "output' = a + b * c"
     },
     {
       "id": "T_BooleanOps",
-      "position": { "x": 600, "y": 450 },
+      "position": {
+        "x": 600,
+        "y": 450
+      },
       "label": "T_BooleanOps",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "enabled == true && locked != true",
-      "postcondition": "ready' = true; active' = false"
+      "precondition": "enabled = true and locked distinct true",
+      "postcondition": "ready' = true and active' = false"
     },
     {
       "id": "T_AllOperators",
-      "position": { "x": 800, "y": 450 },
+      "position": {
+        "x": 800,
+        "y": 450
+      },
       "label": "T_AllOperators",
       "width": 20,
       "height": 50,
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "x >= 0 && y <= 100 && z != 50 && w == 25",
-      "postcondition": "result' = x + y * z; final' = result >= threshold"
+      "precondition": "x >= 0 and y <= 100 and z distinct 50 and w = 25",
+      "postcondition": "result' = x + y * z and final' = result >= threshold"
     }
   ],
   "arcs": [
@@ -315,8 +387,7 @@
       "target": "P_Complex1",
       "weight": 1,
       "type": "regular",
-      "points": [
-      ],
+      "points": [],
       "label": "1"
     },
     {
@@ -388,8 +459,7 @@
       "target": "P_Primed",
       "weight": 1,
       "type": "regular",
-      "points": [
-      ],
+      "points": [],
       "label": "1"
     },
     {
@@ -460,224 +530,224 @@
     {
       "id": "var_x",
       "name": "x",
-      "type": "number",
+      "type": "real",
       "currentValue": 15,
       "description": "Test variable for >= operator"
     },
     {
       "id": "var_y",
       "name": "y",
-      "type": "number",
+      "type": "real",
       "currentValue": 50,
       "description": "Test variable for <= operator"
     },
     {
       "id": "var_z",
       "name": "z",
-      "type": "number",
+      "type": "real",
       "currentValue": 75,
       "description": "Test variable for complex expressions"
     },
     {
       "id": "var_w",
       "name": "w",
-      "type": "number",
+      "type": "real",
       "currentValue": 25,
       "description": "Test variable for == operator"
     },
     {
       "id": "var_value",
       "name": "value",
-      "type": "number",
+      "type": "real",
       "currentValue": 5,
       "description": "Test variable for != operator"
     },
     {
       "id": "var_a",
       "name": "a",
-      "type": "number",
+      "type": "real",
       "currentValue": 10,
       "description": "Variable a for complex expressions"
     },
     {
       "id": "var_b",
       "name": "b",
-      "type": "number",
+      "type": "real",
       "currentValue": 20,
       "description": "Variable b for complex expressions"
     },
     {
       "id": "var_c",
       "name": "c",
-      "type": "number",
+      "type": "real",
       "currentValue": 1,
       "description": "Variable c for nested logic"
     },
     {
       "id": "var_d",
       "name": "d",
-      "type": "number",
+      "type": "real",
       "currentValue": 1,
       "description": "Variable d for nested logic"
     },
     {
       "id": "var_counter",
       "name": "counter",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Counter variable"
     },
     {
       "id": "var_result",
       "name": "result",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Result variable"
     },
     {
       "id": "var_status",
       "name": "status",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Status code"
     },
     {
       "id": "var_width",
       "name": "width",
-      "type": "number",
+      "type": "real",
       "currentValue": 10,
       "description": "Width for multiplication example"
     },
     {
       "id": "var_height",
       "name": "height",
-      "type": "number",
+      "type": "real",
       "currentValue": 5,
       "description": "Height for multiplication example"
     },
     {
       "id": "var_area",
       "name": "area",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Calculated area (width × height)"
     },
     {
       "id": "var_min",
       "name": "min",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Minimum threshold"
     },
     {
       "id": "var_max",
       "name": "max",
-      "type": "number",
+      "type": "real",
       "currentValue": 100,
       "description": "Maximum threshold"
     },
     {
       "id": "var_threshold",
       "name": "threshold",
-      "type": "number",
+      "type": "real",
       "currentValue": 50,
       "description": "Threshold for comparison"
     },
     {
       "id": "var_error",
       "name": "error",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Error code"
     },
     {
       "id": "var_timeout",
       "name": "timeout",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Timeout counter"
     },
     {
       "id": "var_count",
       "name": "count",
-      "type": "number",
+      "type": "real",
       "currentValue": 3,
       "description": "Item count"
     },
     {
       "id": "var_choice",
       "name": "choice",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Choice variable"
     },
     {
       "id": "var_validated",
       "name": "validated",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Validated value"
     },
     {
       "id": "var_state",
       "name": "state",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Current state"
     },
     {
       "id": "var_output",
       "name": "output",
-      "type": "number",
+      "type": "real",
       "currentValue": 0,
       "description": "Output value"
     },
     {
       "id": "var_final",
       "name": "final",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": false,
       "description": "Final boolean result"
     },
     {
       "id": "var_flag",
       "name": "flag",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": false,
       "description": "Boolean flag"
     },
     {
       "id": "var_active",
       "name": "active",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": true,
       "description": "Active status"
     },
     {
       "id": "var_enabled",
       "name": "enabled",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": true,
       "description": "Enabled status"
     },
     {
       "id": "var_locked",
       "name": "locked",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": false,
       "description": "Locked status"
     },
     {
       "id": "var_ready",
       "name": "ready",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": false,
       "description": "Ready status"
     },
     {
       "id": "var_cancelled",
       "name": "cancelled",
-      "type": "boolean",
+      "type": "bool",
       "currentValue": false,
       "description": "Cancelled flag"
     }
