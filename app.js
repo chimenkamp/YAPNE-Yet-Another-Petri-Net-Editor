@@ -1,6 +1,7 @@
 import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
 import { initializeProbabilisticExecution } from "./src/extensions/probabilistic-integration.js";
 import { initWorkflowTutorial } from "./src/workflow-tutorial.js";
+import { PythonImportDialog } from "./src/extensions/python-import-dialog.js";
 
 const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
 
@@ -305,6 +306,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const initTimer = setInterval(() => {
             if (window.petriApp) {
                 window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
+
+                // Python Import Dialog
+                const btnImportPython = document.getElementById('btn-import-python');
+                if (btnImportPython) {
+                    btnImportPython.addEventListener('click', () => {
+                        const dialog = new PythonImportDialog(window.petriApp);
+                        dialog.open();
+                    });
+                }
                 
                 // Initialize Probabilistic Execution Integration
                 // Implements "Data Petri Nets Meet Probabilistic Programming" (Kuhn et al., BPM 2024)

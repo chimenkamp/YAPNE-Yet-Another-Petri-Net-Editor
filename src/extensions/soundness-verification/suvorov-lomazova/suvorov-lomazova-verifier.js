@@ -1,6 +1,8 @@
 import { SmtFromDpnGenerator } from './smt-generator.js';
 import { DPNRefinementEngine } from './DPN-refinement-engine.js';
 import { Z3Solver } from './z3-solver-wrapper.js';
+import { parse } from '../../guard-language/guard-parser.js';
+import { toSmtLib2 } from '../../guard-language/guard-smt-emitter.js';
 
 
 /**
@@ -317,9 +319,14 @@ checkDeadTransitions(dpn, lts) {
       if (!expr || expr === "true" || expr === "false") return expr || "true";
       // If already in SMT-LIB2 format (starts with '('), return as-is
       if (expr.trim().startsWith("(")) return expr;
-      // Otherwise, use the SmtFromDpnGenerator's conversion
-      const gen = new SmtFromDpnGenerator();
-      return gen._infixToSmt(expr);
+      // Use the guard language parser + SMT emitter
+      try {
+        const ast = parse(expr);
+        return toSmtLib2(ast);
+      } catch (e) {
+        console.warn("Guard parse failed, returning raw:", expr, e);
+        return expr;
+      }
     };
 
     for (const t of originalTransitions) {

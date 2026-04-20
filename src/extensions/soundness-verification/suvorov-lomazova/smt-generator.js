@@ -2,6 +2,9 @@
  * Suvorov–Lomazova Data Petri Net Soundness Verifier
  * Refactored to use SMT-based verification with SmtFromDpnGenerator integration
  */
+import { parse } from '../../guard-language/guard-parser.js';
+import { toSmtLib2, toSmtLib2ForTau, extractWrittenVars } from '../../guard-language/guard-smt-emitter.js';
+
 class SmtFromDpnGenerator {
   /**
    * Generate an SMT-LIB2 encoding aligned with the paper’s step semantics.
@@ -418,25 +421,36 @@ class SmtFromDpnGenerator {
     const pre =
       this._rewriteGuard(preStr, i, dataVarsList, /*isPost=*/ false) || "true";
 
-    // Identify written variables (v' occurs in post)
+    // Identify written variables
     const writes = this._writtenVars(postStr, dataVarsList);
 
-    // Replace each v' in post with its bound write symbol W_v; then map reads to step i
-    let postBody = String(postStr || "").trim();
-    for (const [vName] of dataVarsList) {
-      const rePrime = new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g");
-      postBody = postBody.replace(rePrime, this._wVar(vName)); // v' → v_w (bound name)
+    // For postBody, use toSmtLib2ForTau which maps primed vars to _w bound vars
+    let post = "true";
+    const postTrimmed = String(postStr || "").trim();
+    if (postTrimmed) {
+      try {
+        const { ast: postAst } = parse(postTrimmed, { isPostcondition: true });
+        if (postAst) {
+          post = toSmtLib2ForTau(postAst, i, dataVarsList, (x) => this._sym(x));
+        }
+      } catch (e) {
+        console.warn(`[SMT] Failed to parse postcondition for τ-guard: ${e.message}`);
+        // Fallback: manually replace primed vars and rewrite
+        let postBody = postTrimmed;
+        for (const [vName] of dataVarsList) {
+          const rePrime = new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g");
+          postBody = postBody.replace(rePrime, this._wVar(vName));
+        }
+        post = this._rewriteGuard(postBody, i, dataVarsList, false) || "true";
+      }
     }
-    const post =
-      this._rewriteGuard(postBody, i, dataVarsList, /*isPost=*/ false) ||
-      "true";
 
     // Simple simplifications when no writes are present
     if (writes.size === 0) {
-      if (pre === "true" && post === "true") return "false"; // ¬(true ∧ true)
-      if (post === "true") return `(not ${pre})`; // ¬(pre)
-      if (pre === "true") return `(not ${post})`; // ¬(post)
-      return `(not (and ${pre} ${post}))`; // ¬(pre ∧ post)
+      if (pre === "true" && post === "true") return "false";
+      if (post === "true") return `(not ${pre})`;
+      if (pre === "true") return `(not ${post})`;
+      return `(not (and ${pre} ${post}))`;
     }
 
     // Build ∃W_t. (pre ∧ post) where W_t = { v_w | v ∈ writes }
@@ -444,9 +458,8 @@ class SmtFromDpnGenerator {
     for (const [vName, sort] of dataVarsList) {
       if (writes.has(vName)) boundDecls.push(`(${this._wVar(vName)} ${sort})`);
     }
-    const decls = boundDecls.length ? boundDecls.join(" ") : "(dummy_w Int)"; // should not happen because writes.size>0
+    const decls = boundDecls.length ? boundDecls.join(" ") : "(dummy_w Int)";
 
-    // (not (exists (W_t) (and pre post)))
     return `(not (exists (${decls}) (and ${pre} ${post})))`;
   }
 
@@ -464,23 +477,24 @@ class SmtFromDpnGenerator {
   _rewriteGuard(guardStr, i, dataVarsList, isPost) {
     const s = String(guardStr || "").trim();
     if (!s) return "";
-    const withVars = this._applyStepVars(s, i, dataVarsList, isPost);
-    if (/^\s*\(/.test(withVars)) return withVars;
-    return this._infixToSmt(withVars);
+    try {
+      const { ast } = parse(s, { isPostcondition: isPost });
+      if (!ast) return "";
+      return toSmtLib2(ast, i, dataVarsList, isPost, (x) => this._sym(x));
+    } catch (e) {
+      console.warn(`[SMT] Failed to parse guard "${s}": ${e.message}. Using fallback.`);
+      // Fallback: return the string with basic variable stepping
+      const withVars = this._applyStepVarsLegacy(s, i, dataVarsList, isPost);
+      return withVars;
+    }
   }
 
   /**
-   * Replace variable names with per-step symbols, handling primed writes (x') robustly.
-   * Ensures patterns like "x'","x'=", "x' +", "x' >" are correctly replaced.
-   *
-   * @param {string} s - Input string.
-   * @param {number} i - Step index.
-   * @param {Array<[string, string]>} dataVarsList - List of [varName, sort].
-   * @param {boolean} isPost - Whether this is a postcondition.
-   * @returns {string} String with variables stepped, no apostrophes left for known variables.
+   * Legacy fallback: replace variable names with per-step symbols.
+   * Only used when the parser fails on malformed input.
    * @private
    */
-  _applyStepVars(s, i, dataVarsList, isPost) {
+  _applyStepVarsLegacy(s, i, dataVarsList, isPost) {
     let r = ` ${s} `;
     r = r.replace(/\btrue\b/gi, "true").replace(/\bfalse\b/gi, "false");
 
@@ -500,102 +514,6 @@ class SmtFromDpnGenerator {
   }
 
   /**
-   * Convert a minimal infix boolean/arithmetic comparison string into SMT-LIB2 prefix form.
-   * Supports: and, or, not, parentheses, binary comparators (=,!=,<,<=,>,>=).
-   *
-   * @param {string} expr - Infix-like expression.
-   * @returns {string} SMT-LIB2 s-expression.
-   * @private
-   */
-  _infixToSmt(expr) {
-    const e = String(expr || "").trim();
-    if (!e) return "";
-    const norm = e
-      .replace(/\s+/g, " ")
-      .replace(/\band\b/gi, "and")
-      .replace(/\bor\b/gi, "or")
-      .replace(/\bnot\b/gi, "not");
-
-    const isAtom = (s) =>
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ||
-      /^[-+]?\d+(?:\.\d+)?$/.test(s) ||
-      s === "true" ||
-      s === "false";
-
-    const stripOuter = (s) => {
-      let t = String(s || "").trim();
-      const balanced = (x) => {
-        let d = 0;
-        for (const ch of x) {
-          if (ch === "(") d++;
-          else if (ch === ")") d--;
-          if (d < 0) return false;
-        }
-        return d === 0;
-      };
-      while (t.startsWith("(") && t.endsWith(")") && balanced(t)) {
-        const inner = t.slice(1, -1).trim();
-        if (!inner.startsWith("(") || !inner.endsWith(")")) {
-          // only strip once if inner isn't also wrapped
-          t = inner;
-          break;
-        }
-        t = inner;
-      }
-      return t;
-    };
-
-    const splitTop = (s, op) => {
-      const parts = [];
-      let depth = 0,
-        buf = [];
-      const tokens = s.split(" ");
-      for (let i = 0; i < tokens.length; i++) {
-        const tok = tokens[i];
-        for (const ch of tok) {
-          if (ch === "(") depth++;
-          if (ch === ")") depth--;
-        }
-        if (depth === 0 && tok === op) {
-          parts.push(buf.join(" ").trim());
-          buf = [];
-        } else {
-          buf.push(tok);
-        }
-      }
-      const last = buf.join(" ").trim();
-      if (last) parts.push(last);
-      return parts;
-    };
-
-    const rec = (s) => {
-      const t = s.trim();
-      if (!t) return "true";
-      if (t.startsWith("(") && t.endsWith(")")) return rec(t.slice(1, -1));
-      const andParts = splitTop(t, "and");
-      if (andParts.length > 1) return `(and ${andParts.map(rec).join(" ")})`;
-      const orParts = splitTop(t, "or");
-      if (orParts.length > 1) return `(or ${orParts.map(rec).join(" ")})`;
-      if (t.startsWith("not ")) return `(not ${rec(t.slice(4))})`;
-      const cmp = t.match(/^(.+?)\s*(=|!=|<=|>=|<|>)\s*(.+)$/);
-      if (cmp) {
-        const lhs = rec(cmp[1]);
-        const rhs = rec(cmp[3]);
-        const op = cmp[2] === "!=" ? "distinct" : cmp[2];
-        if (op === "distinct") return `(distinct ${lhs} ${rhs})`;
-        if (["=", "<", "<=", ">", ">="].includes(op))
-          return `(${op} ${lhs} ${rhs})`;
-      }
-      return isAtom(t) ? t : t;
-    };
-
-    let res = rec(norm).replace(/\s+/g, " ").trim();
-    if (isAtom(res)) return res;
-    // Don't strip outer parens - they're part of the SMT-LIB2 syntax
-    return res.startsWith("(") ? res : `(${res})`;
-  }
-
-  /**
    * Compute the set of written variables (those with a primed occurrence) in a postcondition.
    *
    * @param {string} postStr - Postcondition string.
@@ -604,13 +522,20 @@ class SmtFromDpnGenerator {
    * @private
    */
   _writtenVars(postStr, dataVarsList) {
-    const set = new Set();
-    const s = String(postStr || "");
-    for (const [vName] of dataVarsList) {
-      if (new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g").test(s))
-        set.add(vName);
+    const s = String(postStr || "").trim();
+    if (!s) return new Set();
+    try {
+      const { ast } = parse(s, { isPostcondition: true });
+      return extractWrittenVars(ast);
+    } catch {
+      // Fallback to regex-based detection
+      const set = new Set();
+      for (const [vName] of dataVarsList) {
+        if (new RegExp(`\\b${this._escapeReg(vName)}\\s*'`, "g").test(s))
+          set.add(vName);
+      }
+      return set;
     }
-    return set;
   }
 
   /**

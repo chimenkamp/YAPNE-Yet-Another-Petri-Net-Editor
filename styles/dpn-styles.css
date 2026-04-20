@@ -971,6 +971,16 @@
   border-color: #88C0D0;
 }
 
+.expr-textarea-error {
+  border-color: #BF616A !important;
+  background-color: #2E3440;
+}
+
+.expr-textarea-error:focus {
+  border-color: #BF616A !important;
+  box-shadow: 0 0 0 2px rgba(191, 97, 106, 0.25);
+}
+
 .expr-textarea::placeholder {
   color: #4C566A;
 }

@@ -1,5 +1,7 @@
 import { Transition, PetriNet, Place, Arc } from '../petri-net-simulator.js';
 import { solveExpressionWithWebPPL } from './probabilistic-execution.js';
+import { parse } from './guard-language/guard-parser.js';
+import { evaluatePrecondition as evalPre, evaluatePostcondition as evalPost, checkConstraint, constraintToString, getWrittenVariables } from './guard-language/guard-evaluator.js';
 
 /**
  * Represents a data variable in a Data Petri Net
@@ -9,16 +11,31 @@ class DataVariable {
    * Create a new data variable
    * @param {string} id - Unique identifier for the variable
    * @param {string} name - Human-readable name of the variable
-   * @param {string} type - Data type ('int', 'float', 'string', 'boolean')
+   * @param {string} type - Data type ('int'|'integer'|'bool'|'boolean'|'real')
    * @param {*} initialValue - Initial value of the variable
    * @param {string} description - Optional description of the variable
    */
   constructor(id, name, type, initialValue = null, description = "") {
     this.id = id;
     this.name = name;
-    this.type = type;
+    this.type = DataVariable.normalizeType(type);
     this.currentValue = initialValue;
     this.description = description;
+  }
+
+  /**
+   * Normalize type aliases to canonical forms
+   * @param {string} type - Raw type string
+   * @returns {string} Normalized type: 'int', 'bool', or 'real'
+   */
+  static normalizeType(type) {
+    const t = (type || 'real').toLowerCase();
+    if (t === 'int' || t === 'integer') return 'int';
+    if (t === 'bool' || t === 'boolean') return 'bool';
+    if (t === 'real' || t === 'float' || t === 'number') return 'real';
+    // Legacy: treat 'string' as 'int' (integer encoding)
+    if (t === 'string') return 'int';
+    return 'real';
   }
 
   /**
@@ -31,13 +48,11 @@ class DataVariable {
     switch (this.type) {
       case 'int':
         return Math.floor(Number(this.currentValue));
-      case 'float':
-        return Number(this.currentValue);
-      case 'boolean':
+      case 'bool':
         return Boolean(this.currentValue);
-      case 'string':
+      case 'real':
       default:
-        return String(this.currentValue);
+        return Number(this.currentValue);
     }
   }
 
@@ -49,27 +64,26 @@ class DataVariable {
   setValue(value) {
     try {
       switch (this.type) {
-        case 'int':
+        case 'int': {
           const intValue = Number(value);
           if (isNaN(intValue)) {
             throw new Error('Not a valid integer');
           }
           this.currentValue = Math.floor(intValue);
           break;
-        case 'float':
-          const floatValue = Number(value);
-          if (isNaN(floatValue)) {
-            throw new Error('Not a valid float');
-          }
-          this.currentValue = floatValue;
-          break;
-        case 'boolean':
+        }
+        case 'bool':
           this.currentValue = Boolean(value);
           break;
-        case 'string':
-        default:
-          this.currentValue = String(value);
+        case 'real':
+        default: {
+          const realValue = Number(value);
+          if (isNaN(realValue)) {
+            throw new Error('Not a valid real number');
+          }
+          this.currentValue = realValue;
           break;
+        }
       }
       return true;
     } catch (error) {
@@ -118,12 +132,8 @@ class DataAwareTransition extends Transition {
     }
 
     try {
-      const variableNames = Object.keys(valuation);
-      const variableValues = variableNames.map(name => valuation[name]);
-      const functionBody = `return ${this.precondition};`;
-      const evaluator = new Function(...variableNames, functionBody);
-
-      return Boolean(evaluator(...variableValues));
+      const { ast } = parse(this.precondition, { isPostcondition: false });
+      return evalPre(ast, valuation);
     } catch (error) {
       console.error(`Error evaluating precondition for transition ${this.id}:`, error);
       console.error(`Precondition: ${this.precondition}`);
@@ -144,52 +154,67 @@ class DataAwareTransition extends Transition {
   
     try {
       const newValuation = { ...valuation };
-      const statements = this.postcondition.split(';');
-      
-      // First pass: Handle direct assignments
-      for (const statement of statements) {
-        if (!statement.trim()) continue;
-        
-        const assignMatch = statement.trim().match(/([a-zA-Z_][a-zA-Z0-9_]*)'\s*=\s*(.+)/);
-        if (!assignMatch) continue; // Skip non-assignments for now
-        
-        const [, variableName, expression] = assignMatch;
-        if (!(variableName in valuation)) continue;
-        
-        const expressionFunction = this.createExpressionEvaluator(expression, Object.keys(valuation));
-        newValuation[variableName] = expressionFunction(...Object.values(valuation));
-      }
-      
-      // Second pass: Handle constraint-based assignments
-      const constraintStatements = statements.filter(stmt => {
-        if (!stmt.trim()) return false;
-        return !stmt.trim().match(/^[a-zA-Z_][a-zA-Z0-9_]*'\s*=/) && 
-               stmt.trim().match(/[a-zA-Z_][a-zA-Z0-9_]*'/);
-      });
+      const { ast } = parse(this.postcondition, { isPostcondition: true });
+      const { assignments, constraints } = evalPost(ast, valuation);
 
-      if (constraintStatements.length > 0) {
-        const primedVars = new Set();
-        for (const stmt of constraintStatements) {
-          this.detectPrimedVariables(stmt).forEach(v => primedVars.add(v));
+      // Apply direct assignments
+      for (const [varName, value] of assignments) {
+        if (varName in valuation) {
+          newValuation[varName] = value;
         }
+      }
+
+      // Handle constraint-based assignments via WebPPL solver
+      if (constraints.length > 0) {
+        const primedVars = getWrittenVariables(ast);
         
         for (const variableName of primedVars) {
           if (!(variableName in valuation)) continue;
-          
           // Skip if already handled by direct assignment
-          if (statements.some(stmt => 
-            stmt.trim().match(new RegExp(`^${variableName}'\s*=`)))) {
+          if (assignments.has(variableName)) continue;
+
+          const currentValue = valuation[variableName];
+
+          // For boolean variables, try both values directly
+          if (typeof currentValue === 'boolean') {
+            const trueOk = constraints.every(c => checkConstraint(c, valuation, { ...newValuation, [variableName]: true }));
+            const falseOk = constraints.every(c => checkConstraint(c, valuation, { ...newValuation, [variableName]: false }));
+            if (trueOk) { newValuation[variableName] = true; continue; }
+            if (falseOk) { newValuation[variableName] = false; continue; }
             continue;
           }
-          
-          // Use constraint-based assignment with proper type
-          newValuation[variableName] = await this.findValueSatisfyingConstraints(
-            variableName,
-            constraintStatements,
-            valuation,
-            newValuation
-          );
-          console.log(`Found value for ${variableName}: ${newValuation[variableName]}`);
+
+          // For numeric variables, use WebPPL solver
+          if (typeof currentValue === 'number') {
+            try {
+              const combinedConstraint = constraints.map(c => constraintToString(c)).join(' && ');
+              let variableType = 'int';
+              if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
+                for (const [, variable] of window.petriApp.api.petriNet.dataVariables) {
+                  if (variable.name === variableName) {
+                    variableType = variable.type;
+                    break;
+                  }
+                }
+              }
+              
+              const result = await solveExpressionWithWebPPL(
+                combinedConstraint, 
+                newValuation, 
+                variableType === 'real' ? 'float' : 'int'
+              );
+              
+              if (result && result.success && result.newValues && result.newValues[variableName] !== undefined) {
+                if (variableType === 'int') {
+                  newValuation[variableName] = Math.floor(Number(result.newValues[variableName]));
+                } else {
+                  newValuation[variableName] = Number(result.newValues[variableName]);
+                }
+              }
+            } catch (error) {
+              console.error('[DPN] Error using WebPPL solver:', error);
+            }
+          }
         }
       }
       
@@ -202,203 +227,6 @@ class DataAwareTransition extends Transition {
     }
   }
   
-  /**
-   * Helper method to detect primed variables in an expression
-   * @param {string} expression - The expression to analyze
-   * @returns {Array<string>} Array of variable names (without primes)
-   */
-  detectPrimedVariables(expression) {
-    const primeRegex = /([a-zA-Z_][a-zA-Z0-9_]*)'/g;
-    const matches = expression.match(primeRegex) || [];
-    return matches.map(match => match.slice(0, -1));
-  }
-  
-  /**
-   * Check if a specific value satisfies all constraint statements
-   * @param {*} value - The value to check
-   * @param {string} variableName - The variable name
-   * @param {Array<string>} constraintStatements - Array of constraint expressions
-   * @param {Object} originalValuation - Original variable values
-   * @param {Object} currentValuation - Current working variable values
-   * @returns {boolean} Whether the value satisfies all constraints
-   */
-  checkValueAgainstConstraints(value, variableName, constraintStatements, originalValuation, currentValuation) {
-    const testValuation = { ...currentValuation };
-    testValuation[variableName] = value;
-    
-    for (const statement of constraintStatements) {
-      const constraintFunction = this.createConstraintEvaluator(
-        statement,
-        Object.keys(originalValuation),
-        testValuation
-      );
-      
-      try {
-        if (!constraintFunction(...Object.values(originalValuation), testValuation)) {
-          return false;
-        }
-      } catch (error) {
-        console.error(`Error evaluating constraint: ${statement}`, error);
-        return false;
-      }
-    }
-    
-    return true;
-  }
-
-  /**
-   * Create a function to evaluate a constraint with primed variables
-   * @param {string} constraintExpression - The constraint expression
-   * @param {Array<string>} variableNames - Array of variable names
-   * @param {Object} testValuation - The test valuation object containing potential new values
-   * @returns {Function} A function that evaluates the constraint
-   */
-  createConstraintEvaluator(constraintExpression, variableNames, testValuation) {
-    let processedExpression = constraintExpression.trim();
-
-    const functionBody = `
-      try {
-        ${variableNames.map(name => `const ${name}_prime = testValuation["${name}"];`).join('\n        ')}
-        
-        const result = (${processedExpression.replace(
-          new RegExp(`(^|[^\\w])([a-zA-Z_][a-zA-Z0-9_]*)'`, 'g'), 
-          (match, prefix, varName) => {
-            if (variableNames.includes(varName)) {
-              return `${prefix}${varName}_prime`;
-            }
-            return match;
-          }
-        )});
-        
-        return !!result;
-      } catch (e) {
-        console.error("Error in constraint evaluation:", e);
-        return false;
-      }
-    `;
-    
-    return new Function(...variableNames, 'testValuation', functionBody);
-  }
-
-/**
- * Find a value that satisfies all constraint statements for a variable (ASYNC)
- * @param {string} variableName - The variable name to generate a value for
- * @param {Array<string>} constraintStatements - Array of constraint expressions
- * @param {Object} originalValuation - Original variable values
- * @param {Object} currentValuation - Current working variable values
- * @returns {Promise<*>} A value that satisfies all constraints
- */
-async findValueSatisfyingConstraints(variableName, constraintStatements, originalValuation, currentValuation) {
-  const currentValue = originalValuation[variableName];
-  console.log("[DPN] Finding value for constraints", variableName, constraintStatements);
-
-  // [Section 5.2] For boolean variables, use direct constraint checking
-  // since sampling doesn't make sense for binary domains
-  if (typeof currentValue === 'boolean') {
-    if (this.checkValueAgainstConstraints(true, variableName, constraintStatements, originalValuation, currentValuation)) {
-      return true;
-    }
-    if (this.checkValueAgainstConstraints(false, variableName, constraintStatements, originalValuation, currentValuation)) {
-      return false;
-    }
-    return currentValue; // Fallback to current value
-  }
-
-  // [Section 5.2] Use WebPPL-based probabilistic approach for numeric constraints
-  // Following paper: "ui := SV(ui)" followed by "observe post(t)"
-  if (typeof currentValue === 'number') {
-    try {
-      const combinedConstraint = constraintStatements.join(' && ');
-      console.log('[DPN] Combined constraints:', combinedConstraint);
-      console.log('[DPN] Using WebPPL-based probabilistic solver (paper Section 5.2)');
-      
-      // Determine variable type for proper handling
-      let variableType = 'int'; // default fallback
-      
-      if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
-        for (const [id, variable] of window.petriApp.api.petriNet.dataVariables) {
-          if (variable.name === variableName) {
-            variableType = variable.type;
-            // Handle legacy 'number' type
-            if (variableType === 'number') {
-              variableType = 'int';
-            }
-            break;
-          }
-        }
-      }
-      
-      // [Section 5.2] Call WebPPL-based solver implementing sample+observe pattern
-      const result = await solveExpressionWithWebPPL(
-        combinedConstraint, 
-        currentValuation, 
-        variableType === 'float' ? 'float' : 'int'
-      );
-      
-      console.log('[DPN] WebPPL solver result:', result);
-      
-      if (result && result.success && result.newValues && result.newValues[variableName] !== undefined) {
-        console.log(`[DPN] WebPPL solver found value for ${variableName}: ${result.newValues[variableName]}`);
-        
-        // Ensure the result matches the expected type
-        if (variableType === 'int') {
-          return Math.floor(Number(result.newValues[variableName]));
-        } else if (variableType === 'float') {
-          return Number(result.newValues[variableName]);
-        } else {
-          return result.newValues[variableName];
-        }
-      }
-    } catch (error) {
-      console.error('[DPN] Error using WebPPL solver:', error);
-    }
-    
-    // Fallback to current value if solver fails
-    console.warn(`[DPN] Solver failed for ${variableName}, keeping current value:`, currentValue);
-    return currentValue;
-  } 
-  
-  // [Section 5.2] For string variables, use WebPPL with auto detection
-  if (typeof currentValue === 'string') {
-    try {
-      console.log('[DPN] String variable, using WebPPL solver');
-      const result = await solveExpressionWithWebPPL(
-        constraintStatements.join(' && '), 
-        currentValuation, 
-        'auto'
-      );
-      
-      if (result && result.success && result.newValues && result.newValues[variableName] !== undefined) {
-        console.log(`[DPN] WebPPL solver found value for string ${variableName}: ${result.newValues[variableName]}`);
-        return String(result.newValues[variableName]);
-      }
-    } catch (error) {
-      console.error('[DPN] Error using WebPPL solver for string:', error);
-    }
-    
-    // Fallback for strings - return current value
-    return currentValue;
-  }
-  
-  return currentValue;
-}
-
-  /**
-   * Create a function to evaluate an expression
-   * @param {string} expression - The expression to evaluate
-   * @param {Array<string>} variables - Array of variable names
-   * @returns {Function} A function that evaluates the expression
-   * @private
-   */
-  createExpressionEvaluator(expression, variables) {
-    let processedExpression = expression;
-    variables.forEach(name => {
-      const regex = new RegExp(`${name}'`, 'g');
-      processedExpression = processedExpression.replace(regex, name);
-    });
-
-    return new Function(...variables, `return (${processedExpression});`);
-  }
 }
 
 /**
@@ -855,16 +683,10 @@ class DataPetriNet extends PetriNet {
 
     if (data.dataVariables) {
       data.dataVariables.forEach((variableData) => {
-        // Handle legacy 'number' type by converting to 'int'
-        let variableType = variableData.type;
-        if (variableType === 'number') {
-          variableType = 'int';
-        }
-        
         const variable = new DataVariable(
           variableData.id,
           variableData.name,
-          variableType,
+          variableData.type, // normalizeType is called in the constructor
           variableData.currentValue,
           variableData.description
         );
@@ -1014,16 +836,13 @@ class DataPetriNet extends PetriNet {
           case 'int':
             javaType = 'java.lang.Integer';
             break;
-          case 'float':
+          case 'real':
             javaType = 'java.lang.Double';
             maxValue = '100000.0';
             break;
-          case 'boolean':
+          case 'bool':
             javaType = 'java.lang.Boolean';
             maxValue = '100000';
-            break;
-          case 'string':
-            javaType = 'java.lang.String';
             break;
         }
 
@@ -1051,30 +870,18 @@ class DataPetriNet extends PetriNet {
    * @private
    */
   extractModifiedVariables(postcondition) {
-    const modifiedVars = new Set();
-    
-    // Split by semicolon to handle multiple statements
-    const statements = postcondition.split(';');
-    
-    for (const statement of statements) {
-      if (!statement.trim()) continue;
-      
-      // Look for assignment patterns: variableName' = ...
-      const assignMatch = statement.trim().match(/^([a-zA-Z_][a-zA-Z0-9_]*)'\s*=/);
-      if (assignMatch) {
-        modifiedVars.add(assignMatch[1]);
-      } else {
-        // Look for constraint patterns: expressions containing variableName'
-        const primeMatches = statement.match(/([a-zA-Z_][a-zA-Z0-9_]*)'/g);
-        if (primeMatches) {
-          primeMatches.forEach(match => {
-            modifiedVars.add(match.slice(0, -1)); // Remove the prime
-          });
-        }
+    try {
+      const { ast } = parse(postcondition, { isPostcondition: true });
+      return Array.from(getWrittenVariables(ast));
+    } catch {
+      // Fallback to regex if parsing fails
+      const modifiedVars = new Set();
+      const primeMatches = postcondition.match(/([a-zA-Z_][a-zA-Z0-9_]*)'/g);
+      if (primeMatches) {
+        primeMatches.forEach(match => modifiedVars.add(match.slice(0, -1)));
       }
+      return Array.from(modifiedVars);
     }
-    
-    return Array.from(modifiedVars);
   }
 }
 
