@@ -58170,7 +58170,7 @@ var thunkify = require('./syntax').thunkify;
 var cps = require('./transforms/cps').cps;
 var errors = require('./errors/browser');
 var util = require('./util');
-var version = 'v0.9.15-7e385c7';
+var version = 'v0.9.15-f4e3923';
 var packages = [];
 var load = _.once(function () {
     packages.forEach(function (pkg) {
