@@ -92,12 +92,12 @@
     {
         "name": "DPN: Digital Whiteboard - Discharge",
         "description": "Real-world example: Digital transfer discharge process",
-        "path": "examples/Digital transfer: Discharge.json"
+        "path": "examples/Digital_transfer_Discharge.json"
     },
     {
         "name": "DPN: Digital Whiteboard - Transfer",
         "description": "Real-world example: Digital whiteboard transfer process",
-        "path": "examples/Digital whiteboard: Transfer.json"
+        "path": "examples/Digital_transfer_Transfer.json"
     },
     {
         "name": "DPN: Pretty Print Showcase",
