@@ -1,0 +1,101 @@
+{
+  "id": "analysis-free-choice-violation",
+  "name": "Analysis: Free-Choice Violation",
+  "description": "A shared request place chooses between two transitions, but one branch also needs an approval token. The structural dialog should report a free-choice violation.",
+  "places": [
+    {
+      "id": "p_request",
+      "position": { "x": 100, "y": 210 },
+      "label": "Request",
+      "tokens": 1,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_approval",
+      "position": { "x": 250, "y": 330 },
+      "label": "Approval",
+      "tokens": 1,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_done",
+      "position": { "x": 440, "y": 120 },
+      "label": "Done",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_review",
+      "position": { "x": 440, "y": 300 },
+      "label": "Review",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t_auto_accept",
+      "position": { "x": 270, "y": 120 },
+      "label": "Auto Accept",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_manual_review",
+      "position": { "x": 270, "y": 260 },
+      "label": "Manual Review",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_reset_done",
+      "position": { "x": 560, "y": 120 },
+      "label": "Reset Done",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_reset_review",
+      "position": { "x": 560, "y": 300 },
+      "label": "Reset Review",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    }
+  ],
+  "arcs": [
+    { "id": "a_request_auto", "source": "p_request", "target": "t_auto_accept", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_auto_done", "source": "t_auto_accept", "target": "p_done", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_request_manual", "source": "p_request", "target": "t_manual_review", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_approval_manual", "source": "p_approval", "target": "t_manual_review", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_manual_review", "source": "t_manual_review", "target": "p_review", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_done_reset", "source": "p_done", "target": "t_reset_done", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_reset_done_request", "source": "t_reset_done", "target": "p_request", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_review_reset", "source": "p_review", "target": "t_reset_review", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_reset_review_request", "source": "t_reset_review", "target": "p_request", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_reset_review_approval", "source": "t_reset_review", "target": "p_approval", "weight": 1, "type": "regular", "points": [], "label": "1" }
+  ]
+}

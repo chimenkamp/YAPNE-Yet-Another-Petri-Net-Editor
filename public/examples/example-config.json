@@ -65,6 +65,31 @@
         "path": "examples/soundness-test-p1-p3-violation-multiple.json"
     },
     {
+        "name": "=== ANALYSIS EXAMPLES ===",
+        "description": "Examples for marking graphs, coverability trees, S-components, S-coverability, and free-choice analysis",
+        "path": ""
+    },
+    {
+        "name": "ANALYSIS: S-Components and Free-Choice",
+        "description": "Two independent cyclic service cells. Shows S-components, S-coverability, and a free-choice structure.",
+        "path": "examples/analysis-s-components-free-choice.json"
+    },
+    {
+        "name": "ANALYSIS: Free-Choice Violation",
+        "description": "A shared request place branches to transitions with different presets. The structural dialog should report a free-choice violation.",
+        "path": "examples/analysis-free-choice-violation.json"
+    },
+    {
+        "name": "ANALYSIS: Unbounded Coverability Tree",
+        "description": "A generator can accumulate unbounded work. The coverability tree should show ω growth.",
+        "path": "examples/analysis-coverability-unbounded.json"
+    },
+    {
+        "name": "ANALYSIS: Deadlock Marking Graph",
+        "description": "A small net reaches a terminal marking with no enabled transitions. The marking graph should highlight the deadlock.",
+        "path": "examples/analysis-deadlock-marking-graph.json"
+    },
+    {
         "name": "=== ORIGINAL EXAMPLES ===",
         "description": "Original test cases from the repository",
         "path": ""

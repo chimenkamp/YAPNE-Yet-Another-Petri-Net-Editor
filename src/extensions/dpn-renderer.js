@@ -93,7 +93,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     }
     this.ctx.fill();
     this.ctx.strokeStyle = this.theme.transitionStroke;
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = this.theme.elementStrokeWidth;
     this.ctx.stroke();
 
     // Only draw label for non-silent transitions
@@ -143,7 +143,7 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     
     this.ctx.fill();
     this.ctx.strokeStyle = this.theme.dataTransitionStroke;
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = this.theme.elementStrokeWidth;
     this.ctx.stroke();
     
     // Only draw indicators and label for non-silent transitions

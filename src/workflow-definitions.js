@@ -401,7 +401,7 @@ export const WORKFLOW_DEFINITIONS = [
     steps: [
       {
         title: 'Open Event Log Generator',
-        description: 'Open the <strong>sidebar (File tab)</strong>, find the <strong>Generation</strong> section, and click <strong>Generate Event Log</strong> to open the log generator dialog.',
+        description: 'Open the <strong>Generation</strong> panel on the right, then click <strong>Generate Event Log</strong> to open the log generator dialog.',
         highlight: '#btn-event-log',
         position: 'right',
         editorState: {

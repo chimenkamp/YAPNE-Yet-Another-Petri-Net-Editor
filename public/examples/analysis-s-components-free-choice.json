@@ -1,0 +1,99 @@
+{
+  "id": "analysis-s-components-free-choice",
+  "name": "Analysis: S-Components and Free-Choice",
+  "description": "Two independent cyclic service cells. The structural analysis should find two S-components, all places are S-coverable, and the net is free-choice.",
+  "places": [
+    {
+      "id": "p_a_idle",
+      "position": { "x": 120, "y": 120 },
+      "label": "A Idle",
+      "tokens": 1,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_a_busy",
+      "position": { "x": 360, "y": 120 },
+      "label": "A Busy",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_b_idle",
+      "position": { "x": 120, "y": 300 },
+      "label": "B Idle",
+      "tokens": 1,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_b_busy",
+      "position": { "x": 360, "y": 300 },
+      "label": "B Busy",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t_a_start",
+      "position": { "x": 230, "y": 80 },
+      "label": "A Start",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_a_finish",
+      "position": { "x": 230, "y": 160 },
+      "label": "A Finish",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_b_start",
+      "position": { "x": 230, "y": 260 },
+      "label": "B Start",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_b_finish",
+      "position": { "x": 230, "y": 340 },
+      "label": "B Finish",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    }
+  ],
+  "arcs": [
+    { "id": "a_a_idle_start", "source": "p_a_idle", "target": "t_a_start", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_a_start_busy", "source": "t_a_start", "target": "p_a_busy", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_a_busy_finish", "source": "p_a_busy", "target": "t_a_finish", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_a_finish_idle", "source": "t_a_finish", "target": "p_a_idle", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_b_idle_start", "source": "p_b_idle", "target": "t_b_start", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_b_start_busy", "source": "t_b_start", "target": "p_b_busy", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_b_busy_finish", "source": "p_b_busy", "target": "t_b_finish", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_b_finish_idle", "source": "t_b_finish", "target": "p_b_idle", "weight": 1, "type": "regular", "points": [], "label": "1" }
+  ]
+}

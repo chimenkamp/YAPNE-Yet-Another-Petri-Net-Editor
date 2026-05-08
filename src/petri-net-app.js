@@ -11,6 +11,7 @@ import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
 import { SimulationDashboard } from './simulation-dashboard.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { VerificationPanel } from './verification-panel.js';
+import { GenerationPanel } from './generation-panel.js';
 import { DEFAULT_EDITOR_SETTINGS, loadEditorSettings, saveEditorSettings } from './editor-settings.js';
 
 class PetriNetApp {
@@ -112,6 +113,7 @@ class PetriNetApp {
     this.propsPanel = new PropertiesPanel(this);
     this.simDashboard = new SimulationDashboard(this);
     this.verifyPanel = new VerificationPanel(this);
+    this.generationPanel = new GenerationPanel(this);
 
     // Override propertiesPanel to point to the new panel's content element
     this.propertiesPanel = this.propsPanel.getContentElement();
@@ -152,13 +154,13 @@ class PetriNetApp {
   }
 
   /**
-   * Manages panel stacking layout for Properties, Simulation and Verification.
+   * Manages panel stacking layout for Properties, Simulation, Verification and Generation.
    *
    * Stacking rules:
    *  1 open  → full height
    *  2 open  → stacked vertically (top 45 vh / bottom 55 vh)
-   *  3 open  → most-recently-opened gets full height in front;
-   *            the other two stack behind it
+   *  3+ open → most-recently-opened gets full height in front;
+   *            the other panels stack behind it
    */
   _setupPanelLayout() {
     this._panelOpenOrder = [];
@@ -167,7 +169,8 @@ class PetriNetApp {
     const panels = [
       { key: 'props',  ref: () => this.propsPanel },
       { key: 'sim',    ref: () => this.simDashboard },
-      { key: 'verify', ref: () => this.verifyPanel }
+      { key: 'verify', ref: () => this.verifyPanel },
+      { key: 'generation', ref: () => this.generationPanel }
     ];
 
     const updateLayout = () => {
@@ -191,13 +194,13 @@ class PetriNetApp {
 
       // Clear all layout classes
       document.body.classList.remove(
-        'panels-open-0', 'panels-open-1', 'panels-open-2', 'panels-open-3',
+        'panels-open-0', 'panels-open-1', 'panels-open-2', 'panels-open-3', 'panels-open-4',
         'both-panels-open', 'panel-open'
       );
       for (const { ref } of panels) {
         const p = ref();
         if (p && p.panel) {
-          p.panel.classList.remove('panel-front', 'panel-stack-top', 'panel-stack-bottom');
+          p.panel.classList.remove('panel-front', 'panel-stack-top', 'panel-stack-middle', 'panel-stack-bottom');
         }
       }
 
@@ -218,6 +221,17 @@ class PetriNetApp {
         const bot   = panels.find(p => p.key === newOrder[1]);
         if (front?.ref()?.panel) front.ref().panel.classList.add('panel-front');
         if (top?.ref()?.panel)   top.ref().panel.classList.add('panel-stack-top');
+        if (bot?.ref()?.panel)   bot.ref().panel.classList.add('panel-stack-bottom');
+      }
+
+      if (openCount === 4) {
+        const front = panels.find(p => p.key === newOrder[3]);
+        const top   = panels.find(p => p.key === newOrder[0]);
+        const mid   = panels.find(p => p.key === newOrder[1]);
+        const bot   = panels.find(p => p.key === newOrder[2]);
+        if (front?.ref()?.panel) front.ref().panel.classList.add('panel-front');
+        if (top?.ref()?.panel)   top.ref().panel.classList.add('panel-stack-top');
+        if (mid?.ref()?.panel)   mid.ref().panel.classList.add('panel-stack-middle');
         if (bot?.ref()?.panel)   bot.ref().panel.classList.add('panel-stack-bottom');
       }
 

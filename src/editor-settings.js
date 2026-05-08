@@ -4,11 +4,11 @@ export const DEFAULT_EDITOR_SETTINGS = {
   zoomSensitivity: 0.05,
   panSensitivity: 1,
   snapToGrid: true,
-  gridSize: 10,
-  showGrid: false,
+  gridSize: 50,
+  showGrid: true,
   invertEditorColors: false,
   autoConnectEnabled: true,
-  autoConnectDistance: 300
+  autoConnectDistance: 110
 };
 
 function clamp(value, min, max, fallback) {

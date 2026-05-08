@@ -1,0 +1,65 @@
+{
+  "id": "analysis-coverability-unbounded",
+  "name": "Analysis: Unbounded Coverability Tree",
+  "description": "A reusable generator keeps its source token and adds backlog tokens; archived work can also accumulate. The marking graph is infinite, and the coverability tree should show ω growth.",
+  "places": [
+    {
+      "id": "p_generator",
+      "position": { "x": 120, "y": 180 },
+      "label": "Generator",
+      "tokens": 1,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_backlog",
+      "position": { "x": 370, "y": 180 },
+      "label": "Backlog",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_archive",
+      "position": { "x": 620, "y": 180 },
+      "label": "Archive",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t_generate",
+      "position": { "x": 245, "y": 180 },
+      "label": "Generate",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_archive",
+      "position": { "x": 495, "y": 180 },
+      "label": "Archive One",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    }
+  ],
+  "arcs": [
+    { "id": "a_generator_generate", "source": "p_generator", "target": "t_generate", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_generate_generator", "source": "t_generate", "target": "p_generator", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_generate_backlog", "source": "t_generate", "target": "p_backlog", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_backlog_archive", "source": "p_backlog", "target": "t_archive", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_archive_archive", "source": "t_archive", "target": "p_archive", "weight": 1, "type": "regular", "points": [], "label": "1" }
+  ]
+}

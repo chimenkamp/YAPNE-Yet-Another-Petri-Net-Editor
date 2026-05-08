@@ -1,0 +1,64 @@
+{
+  "id": "analysis-deadlock-marking-graph",
+  "name": "Analysis: Deadlock Marking Graph",
+  "description": "A small workflow reaches a waiting place with no enabled transition. The marking graph dialog should highlight the deadlock marking.",
+  "places": [
+    {
+      "id": "p_start",
+      "position": { "x": 100, "y": 200 },
+      "label": "Start",
+      "tokens": 1,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_ready",
+      "position": { "x": 320, "y": 200 },
+      "label": "Ready",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    },
+    {
+      "id": "p_waiting",
+      "position": { "x": 540, "y": 200 },
+      "label": "Waiting",
+      "tokens": 0,
+      "capacity": null,
+      "finalMarking": null,
+      "radius": 20
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t_prepare",
+      "position": { "x": 210, "y": 200 },
+      "label": "Prepare",
+      "width": 20,
+      "height": 50,
+      "isEnabled": true,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    },
+    {
+      "id": "t_commit",
+      "position": { "x": 430, "y": 200 },
+      "label": "Commit",
+      "width": 20,
+      "height": 50,
+      "isEnabled": false,
+      "priority": 1,
+      "delay": 0,
+      "silent": false
+    }
+  ],
+  "arcs": [
+    { "id": "a_start_prepare", "source": "p_start", "target": "t_prepare", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_prepare_ready", "source": "t_prepare", "target": "p_ready", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_ready_commit", "source": "p_ready", "target": "t_commit", "weight": 1, "type": "regular", "points": [], "label": "1" },
+    { "id": "a_commit_waiting", "source": "t_commit", "target": "p_waiting", "weight": 1, "type": "regular", "points": [], "label": "1" }
+  ]
+}

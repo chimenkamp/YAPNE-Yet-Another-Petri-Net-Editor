@@ -627,7 +627,21 @@ const DEFAULT_RENDERER_THEME = {
   backgroundColor: '#ffffff',
   gridColor: 'rgba(76, 86, 106, 0.25)',
   ghostColor: 'rgba(0, 0, 0, 0.3)',
-  ghostFillColor: 'rgba(255, 255, 255, 0.5)'
+  ghostFillColor: 'rgba(255, 255, 255, 0.5)',
+  gridLineWidth: 1,
+  elementStrokeWidth: 2,
+  arcLineWidth: 1.5,
+  ghostAlpha: 0.5,
+  ghostStrokeWidth: 2,
+  ghostArcLineWidth: 1.5,
+  arcPreviewColor: 'rgba(0, 0, 0, 0.5)',
+  arcPreviewLineWidth: 1.5,
+  selectionFillColor: 'rgba(70, 130, 180, 0.12)',
+  selectionBoundsColor: 'rgba(70, 130, 180, 0.85)',
+  selectionLineWidth: 2,
+  selectionBoxLineWidth: 1.5,
+  selectionBoundsLineWidth: 1.5,
+  selectionArcLineWidth: 3
 };
 
 const INVERTED_RENDERER_THEME = {
@@ -642,9 +656,23 @@ const INVERTED_RENDERER_THEME = {
   selectedColor: '#b97d4b',
   textColor: '#ffffff',
   backgroundColor: '#000000',
-  gridColor: 'rgba(179, 169, 149, 0.25)',
-  ghostColor: 'rgba(255, 255, 255, 0.3)',
-  ghostFillColor: 'rgba(0, 0, 0, 0.5)'
+  gridColor: 'rgba(205, 200, 188, 0.42)',
+  ghostColor: 'rgba(255, 255, 255, 0.72)',
+  ghostFillColor: 'rgba(255, 255, 255, 0.08)',
+  gridLineWidth: 1.35,
+  elementStrokeWidth: 2.4,
+  arcLineWidth: 2,
+  ghostAlpha: 0.85,
+  ghostStrokeWidth: 2.6,
+  ghostArcLineWidth: 2.4,
+  arcPreviewColor: 'rgba(255, 255, 255, 0.78)',
+  arcPreviewLineWidth: 2.2,
+  selectionFillColor: 'rgba(185, 125, 75, 0.24)',
+  selectionBoundsColor: 'rgba(255, 190, 125, 0.9)',
+  selectionLineWidth: 2.6,
+  selectionBoxLineWidth: 2.2,
+  selectionBoundsLineWidth: 2.2,
+  selectionArcLineWidth: 3.6
 };
 
 class PetriNetRenderer {
@@ -712,7 +740,7 @@ class PetriNetRenderer {
 
     this.ctx.save();
     this.ctx.strokeStyle = this.theme.gridColor;
-    this.ctx.lineWidth = 1 / this.zoomFactor;
+    this.ctx.lineWidth = this.theme.gridLineWidth / this.zoomFactor;
     this.ctx.beginPath();
 
     for (let x = startX; x <= endX; x += this.gridSize) {
@@ -739,7 +767,7 @@ drawPlaces() {
     
     // Base stroke
     this.ctx.strokeStyle = this.theme.placeStroke;
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = this.theme.elementStrokeWidth;
     this.ctx.stroke();
 
     // Draw final marking indicator if place has final marking
@@ -754,7 +782,7 @@ drawPlaces() {
       } else {
         this.ctx.strokeStyle = '#EBCB8B'; // Yellow - final marking not reached
       }
-      this.ctx.lineWidth = 2;
+      this.ctx.lineWidth = this.theme.elementStrokeWidth;
       this.ctx.stroke();
       
       // Draw final marking number in top-right corner
@@ -846,7 +874,7 @@ drawPlaces() {
       }
       this.ctx.fill();
       this.ctx.strokeStyle = this.theme.transitionStroke;
-      this.ctx.lineWidth = 2;
+      this.ctx.lineWidth = this.theme.elementStrokeWidth;
       this.ctx.stroke();
 
       // Only draw label for non-silent transitions
@@ -897,7 +925,7 @@ drawPlaces() {
 
       this.ctx.lineTo(end.x, end.y);
       this.ctx.strokeStyle = this.theme.arcColor;
-      this.ctx.lineWidth = 1.5;
+      this.ctx.lineWidth = this.theme.arcLineWidth;
       this.ctx.stroke();
 
       // Calculate direction for arc endings
@@ -970,7 +998,7 @@ drawPlaces() {
     this.ctx.fillStyle = this.theme.backgroundColor;
     this.ctx.fill();
     this.ctx.strokeStyle = this.theme.arcColor;
-    this.ctx.lineWidth = 1.5;
+    this.ctx.lineWidth = this.theme.arcLineWidth;
     this.ctx.stroke();
   }
 
@@ -1042,7 +1070,7 @@ drawPlaces() {
 
   drawGhostPlace(position, isGhost = true) {
     const radius = 20;
-    const alpha = isGhost ? 0.5 : 1.0;
+    const alpha = isGhost ? this.theme.ghostAlpha : 1.0;
     
     this.ctx.save();
     this.ctx.globalAlpha = alpha;
@@ -1052,7 +1080,7 @@ drawPlaces() {
     this.ctx.fillStyle = isGhost ? this.theme.ghostFillColor : this.theme.placeColor;
     this.ctx.fill();
     this.ctx.strokeStyle = isGhost ? this.theme.ghostColor : this.theme.placeStroke;
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = isGhost ? this.theme.ghostStrokeWidth : this.theme.elementStrokeWidth;
     this.ctx.stroke();
     
     this.ctx.restore();
@@ -1061,7 +1089,7 @@ drawPlaces() {
   drawGhostTransition(position, isGhost = true) {
     const width = 20;
     const height = 50;
-    const alpha = isGhost ? 0.5 : 1.0;
+    const alpha = isGhost ? this.theme.ghostAlpha : 1.0;
     
     this.ctx.save();
     this.ctx.globalAlpha = alpha;
@@ -1076,14 +1104,14 @@ drawPlaces() {
     this.ctx.fillStyle = isGhost ? this.theme.ghostFillColor : this.theme.transitionColor;
     this.ctx.fill();
     this.ctx.strokeStyle = isGhost ? this.theme.ghostColor : this.theme.transitionStroke;
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = isGhost ? this.theme.ghostStrokeWidth : this.theme.elementStrokeWidth;
     this.ctx.stroke();
     
     this.ctx.restore();
   }
 
   drawGhostArc(start, end, isGhost = true, arcType = "regular") {
-    const alpha = isGhost ? 0.5 : 1.0;
+    const alpha = isGhost ? this.theme.ghostAlpha : 1.0;
     
     this.ctx.save();
     this.ctx.globalAlpha = alpha;
@@ -1099,7 +1127,7 @@ drawPlaces() {
     this.ctx.moveTo(start.x, start.y);
     this.ctx.lineTo(end.x, end.y);
     this.ctx.strokeStyle = isGhost ? this.theme.ghostColor : this.theme.arcColor;
-    this.ctx.lineWidth = 1.5;
+    this.ctx.lineWidth = isGhost ? this.theme.ghostArcLineWidth : this.theme.arcLineWidth;
     this.ctx.stroke();
 
     // Draw appropriate ending based on type
@@ -1126,7 +1154,7 @@ drawPlaces() {
   drawGhostArrowhead(position, angle, isGhost = true) {
     const arrowSize = 10;
     const arrowAngle = Math.PI / 6; // 30 degrees
-    const alpha = isGhost ? 0.5 : 1.0;
+    const alpha = isGhost ? this.theme.ghostAlpha : 1.0;
 
     this.ctx.save();
     this.ctx.globalAlpha = alpha;
@@ -1835,7 +1863,12 @@ class PetriNetEditor {
 
         // Select the new element so the user can keep chaining
         this.selectedElement = { id: newElementId, type: newElementType };
-        this.dragOffset = { x: 0, y: 0 };
+        this.selectedElements.clear();
+        this.selectedElements.set(this._selectionKey(newElementId, newElementType), {
+          id: newElementId,
+          type: newElementType
+        });
+        this.dragOffset = null;
 
         // Clear ghost state
         this.ghostElement = null;
@@ -1913,11 +1946,10 @@ class PetriNetEditor {
 
   handleDrag(x, y) {
     if (!this.selectedElement) return;
+    if (!this.dragStart) return;
 
 
     if (this.selectedElement.type === 'arc') {
-      if (!this.dragStart) return;
-      
       const dx = x - this.dragStart.x;
       const dy = y - this.dragStart.y;
       
@@ -2310,16 +2342,17 @@ class PetriNetEditor {
   _autoConnectBoundaryNodes(selectedIds) {
     const boundary = this._getBoundaryNodes(selectedIds);
     const existingPairs = new Set(Array.from(this.petriNet.arcs.values()).map(arc => `${arc.source}->${arc.target}`));
+    const connectedElementPairs = this._getArcElementPairKeys();
 
     for (const id of boundary.starts) {
-      this._connectBoundaryNode(id, 'incoming', selectedIds, existingPairs);
+      this._connectBoundaryNode(id, 'incoming', selectedIds, existingPairs, connectedElementPairs);
     }
     for (const id of boundary.ends) {
-      this._connectBoundaryNode(id, 'outgoing', selectedIds, existingPairs);
+      this._connectBoundaryNode(id, 'outgoing', selectedIds, existingPairs, connectedElementPairs);
     }
   }
 
-  _connectBoundaryNode(id, direction, selectedIds, existingPairs) {
+  _connectBoundaryNode(id, direction, selectedIds, existingPairs, connectedElementPairs) {
     const node = this.petriNet.places.get(id) || this.petriNet.transitions.get(id);
     if (!node) return;
     const nodeType = this.petriNet.places.has(id) ? 'place' : 'transition';
@@ -2331,11 +2364,22 @@ class PetriNetEditor {
     const target = direction === 'incoming' ? id : candidate.id;
     const pairKey = `${source}->${target}`;
     if (existingPairs.has(pairKey)) return;
+    const elementPairKey = this._arcElementPairKey(source, target);
+    if (connectedElementPairs.has(elementPairKey)) return;
 
     const arc = new Arc(this.generateUUID(), source, target, 1, 'regular', [], '');
     if (this.petriNet.addArc(arc)) {
       existingPairs.add(pairKey);
+      connectedElementPairs.add(elementPairKey);
     }
+  }
+
+  _arcElementPairKey(sourceId, targetId) {
+    return [sourceId, targetId].sort().join('<->');
+  }
+
+  _getArcElementPairKeys() {
+    return new Set(Array.from(this.petriNet.arcs.values()).map(arc => this._arcElementPairKey(arc.source, arc.target)));
   }
 
   addPlace(x, y) {
@@ -2348,6 +2392,8 @@ class PetriNetEditor {
     const place = new Place(id, { x, y }, `P${this.petriNet.places.size + 1}`);
     this.petriNet.addPlace(place);
     this.selectedElement = { id, type: 'place' };
+    this.selectedElements.clear();
+    this.selectedElements.set(this._selectionKey(id, 'place'), { id, type: 'place' });
 
     if (this.callbacks.onSelect) {
       this.callbacks.onSelect(id, 'place');
@@ -2364,6 +2410,8 @@ class PetriNetEditor {
     const transition = new Transition(id, { x, y }, `T${this.petriNet.transitions.size + 1}`);
     this.petriNet.addTransition(transition);
     this.selectedElement = { id, type: 'transition' };
+    this.selectedElements.clear();
+    this.selectedElements.set(this._selectionKey(id, 'transition'), { id, type: 'transition' });
 
     if (this.callbacks.onSelect) {
       this.callbacks.onSelect(id, 'transition');
@@ -2422,8 +2470,8 @@ class PetriNetEditor {
     this.renderer.ctx.beginPath();
     this.renderer.ctx.moveTo(sourceElement.position.x, sourceElement.position.y);
     this.renderer.ctx.lineTo(x, y);
-    this.renderer.ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
-    this.renderer.ctx.lineWidth = 1.5;
+    this.renderer.ctx.strokeStyle = this.renderer.theme.arcPreviewColor;
+    this.renderer.ctx.lineWidth = this.renderer.theme.arcPreviewLineWidth;
     this.renderer.ctx.stroke();
 
 
@@ -2442,7 +2490,7 @@ class PetriNetEditor {
       y - arrowSize * Math.sin(angle + arrowAngle)
     );
     this.renderer.ctx.closePath();
-    this.renderer.ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    this.renderer.ctx.fillStyle = this.renderer.theme.arcPreviewColor;
     this.renderer.ctx.fill();
 
     // Show a ghost preview of the element that would be created when dropping in empty space
@@ -2590,7 +2638,12 @@ class PetriNetEditor {
 
       if (this.petriNet.addArc(arc)) {
         this.selectedElement = { id: newElementId, type: newElementType };
-        this.dragOffset = { x: 0, y: 0 };
+        this.selectedElements.clear();
+        this.selectedElements.set(this._selectionKey(newElementId, newElementType), {
+          id: newElementId,
+          type: newElementType
+        });
+        this.dragOffset = null;
         if (this.callbacks.onSelect) {
           this.callbacks.onSelect(newElementId, newElementType);
         }
@@ -2725,9 +2778,9 @@ class PetriNetEditor {
       const bounds = this._normalizeBounds(this.boxSelection.start, this.boxSelection.current);
       ctx.save();
       ctx.setLineDash([6, 4]);
-      ctx.fillStyle = 'rgba(70, 130, 180, 0.12)';
+      ctx.fillStyle = this.renderer.theme.selectionFillColor;
       ctx.strokeStyle = this.renderer.theme.selectedColor;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = this.renderer.theme.selectionBoxLineWidth;
       ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
       ctx.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
       ctx.restore();
@@ -2744,7 +2797,7 @@ class PetriNetEditor {
         ctx.beginPath();
         ctx.arc(place.position.x, place.position.y, place.radius + 4, 0, Math.PI * 2);
         ctx.strokeStyle = this.renderer.theme.selectedColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = this.renderer.theme.selectionLineWidth;
         ctx.stroke();
       }
     } else if (this.selectedElement.type === 'transition') {
@@ -2758,7 +2811,7 @@ class PetriNetEditor {
           transition.height + 8
         );
         ctx.strokeStyle = this.renderer.theme.selectedColor;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = this.renderer.theme.selectionLineWidth;
         ctx.stroke();
       }
     } else if (this.selectedElement.type === 'arc') {
@@ -2779,7 +2832,7 @@ class PetriNetEditor {
           }
           ctx.lineTo(end.x, end.y);
           ctx.strokeStyle = this.renderer.theme.selectedColor;
-          ctx.lineWidth = 3;
+          ctx.lineWidth = this.renderer.theme.selectionArcLineWidth;
           ctx.stroke();
         }
       }
@@ -2791,7 +2844,7 @@ class PetriNetEditor {
   _renderMultiSelection(ctx) {
     const bounds = this._getSelectionBounds(this.selectedElements);
     ctx.strokeStyle = this.renderer.theme.selectedColor;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = this.renderer.theme.selectionLineWidth;
 
     for (const item of this.selectedElements.values()) {
       if (item.type === 'place') {
@@ -2817,8 +2870,8 @@ class PetriNetEditor {
     if (bounds) {
       ctx.save();
       ctx.setLineDash([8, 5]);
-      ctx.strokeStyle = 'rgba(70, 130, 180, 0.85)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = this.renderer.theme.selectionBoundsColor;
+      ctx.lineWidth = this.renderer.theme.selectionBoundsLineWidth;
       ctx.strokeRect(
         bounds.left - 12,
         bounds.top - 12,
@@ -2876,28 +2929,31 @@ class PetriNetEditor {
   _getAutoConnectPreviewLinks(selectedIds) {
     const boundary = this._getBoundaryNodes(selectedIds);
     const existingPairs = new Set(Array.from(this.petriNet.arcs.values()).map(arc => `${arc.source}->${arc.target}`));
+    const connectedElementPairs = this._getArcElementPairKeys();
     const links = [];
 
     for (const id of boundary.starts) {
-      const link = this._getBoundaryAutoConnectLink(id, 'incoming', selectedIds, existingPairs);
+      const link = this._getBoundaryAutoConnectLink(id, 'incoming', selectedIds, existingPairs, connectedElementPairs);
       if (link) {
         links.push(link);
         existingPairs.add(`${link.from.id}->${link.to.id}`);
+        connectedElementPairs.add(this._arcElementPairKey(link.from.id, link.to.id));
       }
     }
 
     for (const id of boundary.ends) {
-      const link = this._getBoundaryAutoConnectLink(id, 'outgoing', selectedIds, existingPairs);
+      const link = this._getBoundaryAutoConnectLink(id, 'outgoing', selectedIds, existingPairs, connectedElementPairs);
       if (link) {
         links.push(link);
         existingPairs.add(`${link.from.id}->${link.to.id}`);
+        connectedElementPairs.add(this._arcElementPairKey(link.from.id, link.to.id));
       }
     }
 
     return links;
   }
 
-  _getBoundaryAutoConnectLink(id, direction, selectedIds, existingPairs) {
+  _getBoundaryAutoConnectLink(id, direction, selectedIds, existingPairs, connectedElementPairs) {
     const node = this.petriNet.places.get(id) || this.petriNet.transitions.get(id);
     if (!node) return null;
     const nodeType = this.petriNet.places.has(id) ? 'place' : 'transition';
@@ -2908,6 +2964,7 @@ class PetriNetEditor {
     const sourceId = direction === 'incoming' ? candidate.id : id;
     const targetId = direction === 'incoming' ? id : candidate.id;
     if (existingPairs.has(`${sourceId}->${targetId}`)) return null;
+    if (connectedElementPairs.has(this._arcElementPairKey(sourceId, targetId))) return null;
 
     const source = direction === 'incoming'
       ? { ...candidate }
