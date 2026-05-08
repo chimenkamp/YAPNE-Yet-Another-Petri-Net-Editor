@@ -500,7 +500,9 @@ class PNMLImporter {
           this.app.editor.app = this.app;
           this.app.editor.setOnSelectCallback(this.app.handleElementSelected.bind(this.app));
           this.app.editor.setOnChangeCallback(this.app.handleNetworkChanged.bind(this.app));
-          this.app.editor.setSnapToGrid(this.app.gridEnabled);
+          if (this.app.applyEditorSettings) {
+            this.app.applyEditorSettings(this.app.editorSettings, { persist: false });
+          }
           this.app.editor.setMode('select');
           this.app.updateActiveButton('btn-select');
       
@@ -1281,7 +1283,9 @@ class PNMLImporter {
         this.app.editor.app = this.app;
         this.app.editor.setOnSelectCallback(this.app.handleElementSelected.bind(this.app));
         this.app.editor.setOnChangeCallback(this.app.handleNetworkChanged.bind(this.app));
-        this.app.editor.setSnapToGrid(this.app.gridEnabled);
+        if (this.app.applyEditorSettings) {
+          this.app.applyEditorSettings(this.app.editorSettings, { persist: false });
+        }
         this.app.editor.setMode('select');
         this.app.updateActiveButton('btn-select');
   

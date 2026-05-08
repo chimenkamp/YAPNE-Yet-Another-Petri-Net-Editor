@@ -198,6 +198,9 @@ class DataPetriNetIntegration {
       this.app.editor.setMode(mode);
       this.app.editor.setSnapToGrid(snapToGrid, gridSize);
       this.app.editor.callbacks = callbacks;
+      if (this.app.applyEditorSettings) {
+        this.app.applyEditorSettings(this.app.editorSettings, { persist: false });
+      }
       
 
       this.app.editor.app = this.app;
@@ -378,7 +381,9 @@ async initializeUI() {
 
             integration.app.initialState = null;
             integration.app.simulationStarted = false;
-            integration.app.editor.setSnapToGrid(integration.app.gridEnabled);
+            if (integration.app.applyEditorSettings) {
+              integration.app.applyEditorSettings(integration.app.editorSettings, { persist: false });
+            }
             integration.app.editor.setMode('select');
             integration.app.updateActiveButton('btn-select');
             integration.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
