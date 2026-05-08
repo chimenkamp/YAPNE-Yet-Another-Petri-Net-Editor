@@ -868,6 +868,15 @@ class CanvasAccessibilityLayer {
               
               <dt>Delete / Backspace</dt>
               <dd>Delete focused element</dd>
+
+              <dt>Ctrl/Cmd + A</dt>
+              <dd>Select all places and transitions</dd>
+
+              <dt>Ctrl/Cmd + C</dt>
+              <dd>Copy selected places/transitions and internal arcs</dd>
+
+              <dt>Ctrl/Cmd + V</dt>
+              <dd>Paste copied selection</dd>
               
               <dt>I</dt>
               <dd>Increment tokens (place)</dd>

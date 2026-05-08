@@ -135,6 +135,7 @@ class PetriNetApp {
     this.api.setPanSensitivity(this.editorSettings.panSensitivity);
     this.api.setAutoConnectSettings(this.editorSettings.autoConnectEnabled, this.editorSettings.autoConnectDistance);
     this.api.setGridVisibility(this.gridEnabled && this.editorSettings.showGrid);
+    this.api.setEditorColorInversion(this.editorSettings.invertEditorColors);
 
     if (this.editor) {
       this.editor.setSnapToGrid(this.gridEnabled, this.editorSettings.gridSize);
@@ -669,6 +670,11 @@ initEventHandlers() {
    * Handles when an element is selected in the editor
    */
   handleElementSelected(id, type) {
+    if (type === 'selection') {
+      this.propertiesPanel.innerHTML = "<p>Multiple elements selected.</p>";
+      return;
+    }
+
     if (!id || !type) {
       this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
       return;

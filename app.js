@@ -225,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const gridSizeWrapper = document.getElementById('setting-grid-size-wrapper');
         const showGridInput = document.getElementById('setting-show-grid');
         const showGridWrapper = document.getElementById('setting-show-grid-wrapper');
+        const invertEditorColorsInput = document.getElementById('setting-invert-editor-colors');
         const autoConnectEnabledInput = document.getElementById('setting-auto-connect-enabled');
         const autoConnectDistanceInput = document.getElementById('setting-auto-connect-distance');
         const autoConnectDistanceValue = document.getElementById('setting-auto-connect-distance-value');
@@ -240,6 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
             gridSizeInput.value = Number(settings.gridSize).toFixed(0);
             gridSizeValue.textContent = `${Number(settings.gridSize).toFixed(0)} px`;
             showGridInput.checked = settings.showGrid;
+            invertEditorColorsInput.checked = settings.invertEditorColors;
             autoConnectEnabledInput.checked = settings.autoConnectEnabled;
             autoConnectDistanceInput.value = Number(settings.autoConnectDistance).toFixed(0);
             autoConnectDistanceValue.textContent = `${Number(settings.autoConnectDistance).toFixed(0)} px`;
@@ -298,6 +300,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showGridInput.addEventListener('change', () => {
             applySettings({ showGrid: showGridInput.checked });
+        });
+
+        invertEditorColorsInput.addEventListener('change', () => {
+            applySettings({ invertEditorColors: invertEditorColorsInput.checked });
         });
 
         autoConnectEnabledInput.addEventListener('change', () => {

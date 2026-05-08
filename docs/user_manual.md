@@ -16,12 +16,12 @@ The primary editing tools are located in the vertical toolbar to the left of the
 
 | Icon | Name | Key | Description |
 | :--- | :--- | :-- | :--- |
-| ✓ | Select | | Select, move, and edit elements on the canvas. |
+| ✓ | Select | | Select, move, box-select, and edit elements on the canvas. |
 | ○ | Add Place | | Add a new place to the canvas. |
 | □ | Add Transition | | Add a new standard transition to the canvas. |
 | ⊞ | Add Data Transition | | Add a new data-aware transition. |
 | → | Add Arc | `Space` | Hold to connect elements with an arc. |
-| 🗑️ | Delete | | Delete the currently selected element. |
+| 🗑️ | Delete | | Delete the currently selected element or selection. |
 | 🧹 | Clear | | Clears the entire canvas after confirmation. |
 | 🪄 | Auto-Layout | | Automatically arranges all elements on the canvas. |
 | 📏 | Toggle Snap to Grid | | Toggles snap-to-grid for precise alignment. |
@@ -32,6 +32,10 @@ The primary editing tools are located in the vertical toolbar to the left of the
 | :--- | :--- |
 | **Quick Connect** | Hold the `Space` key to temporarily switch to "Add Arc" mode. |
 | **Ghost Mode** | Select a place or transition, then hold `Shift` and move the mouse to create and place a connected element. |
+| **Box Select** | In Select mode, drag on empty canvas to select multiple places and transitions. |
+| **Select All** | Press `Ctrl/Cmd + A` to select all places and transitions. |
+| **Copy Selection** | Press `Ctrl/Cmd + C` to copy selected places/transitions and their internal arcs. |
+| **Paste Selection** | Press `Ctrl/Cmd + V` to paste the copied selection. |
 | **Pan Canvas** | Hold the middle mouse button and drag, or use `Alt/Cmd + Drag`. |
 | **Zoom Canvas** | Use the mouse scroll wheel. |
 
@@ -54,6 +58,8 @@ These controls, located at the bottom left of the canvas, help you navigate your
 
 #### 3.1.1 Creating and Managing Elements
 -   **Adding Elements:** Use the vertical toolbar to add places and transitions. Click on the canvas to place them.
+-   **Selecting Multiple Elements:** In Select mode, drag on empty canvas to draw a selection box. Moving a multi-selection keeps all selected places, transitions, and internal arcs together. The Properties panel is intentionally blank for multi-selections.
+-   **Copying Multiple Elements:** Use `Ctrl/Cmd + C` and `Ctrl/Cmd + V` to duplicate the selected elements and their internal arcs. Arcs that connect to elements outside the selection are not copied.
 -   **Connecting Elements (Arcs):** Use the "Add Arc" tool or the `Space` key to connect elements. YAPNE supports multiple arc types:
     -   **Regular Arc:** The standard arc for consuming and producing tokens.
     -   **Inhibitor Arc:** Prevents a transition from firing if the source place has sufficient tokens.
@@ -158,4 +164,3 @@ A key example is the **unsatisfiable guard condition**. A transition might be co
     -   Highlight the dead transition.
     -   Provide a reason in the overlay, such as: "Dead transition: data guard 'x > 10' is never satisfied."
     -   Display the computed range of the problematic variable(s) (e.g., "Variable 'x' was found to only have values between 0 and 5.").
-

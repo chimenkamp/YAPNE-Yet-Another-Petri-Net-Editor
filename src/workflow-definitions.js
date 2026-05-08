@@ -75,6 +75,20 @@ export const WORKFLOW_DEFINITIONS = [
         }
       },
       {
+        title: 'Select and Duplicate Groups',
+        description: 'In <strong>Select mode</strong>, drag on empty canvas to draw a selection box around multiple places and transitions. Move the group together, or use <kbd>Ctrl/Cmd+A</kbd>, <kbd>Ctrl/Cmd+C</kbd>, and <kbd>Ctrl/Cmd+V</kbd> to select all, copy, and paste selections.',
+        highlight: '#petri-canvas',
+        position: 'bottom',
+        tip: 'When auto-connect is enabled, pasted selections reconnect only from their start and end nodes.',
+        editorState: {
+          mode: 'select',
+          loadExample: 'examples/soundness-test-simple-sound.json',
+          sidebar: 'close',
+          simPanel: 'close',
+          propsPanel: 'close'
+        }
+      },
+      {
         title: 'Edit Element Properties',
         description: 'Click on any element to select it, then open the <strong>Properties</strong> panel on the right. For places: set marking, bounds, and final marking. For transitions: set guards, priority, and delay.',
         highlight: '#props-panel-toggle',

@@ -613,6 +613,40 @@ class PetriNet {
 
 
 
+const DEFAULT_RENDERER_THEME = {
+  placeColor: '#ffffff',
+  placeStroke: '#000000',
+  tokenColor: '#000000',
+  transitionColor: '#d3d3d3',
+  transitionStroke: '#000000',
+  enabledTransitionColor: '#90ee90',
+  silentTransitionColor: '#808080',
+  arcColor: '#000000',
+  selectedColor: '#4682b4',
+  textColor: '#000000',
+  backgroundColor: '#ffffff',
+  gridColor: 'rgba(76, 86, 106, 0.25)',
+  ghostColor: 'rgba(0, 0, 0, 0.3)',
+  ghostFillColor: 'rgba(255, 255, 255, 0.5)'
+};
+
+const INVERTED_RENDERER_THEME = {
+  placeColor: '#000000',
+  placeStroke: '#ffffff',
+  tokenColor: '#ffffff',
+  transitionColor: '#2c2c2c',
+  transitionStroke: '#ffffff',
+  enabledTransitionColor: '#90ee90',
+  silentTransitionColor: '#808080',
+  arcColor: '#ffffff',
+  selectedColor: '#b97d4b',
+  textColor: '#ffffff',
+  backgroundColor: '#000000',
+  gridColor: 'rgba(179, 169, 149, 0.25)',
+  ghostColor: 'rgba(255, 255, 255, 0.3)',
+  ghostFillColor: 'rgba(0, 0, 0, 0.5)'
+};
+
 class PetriNetRenderer {
   constructor(canvas, petriNet) {
     this.canvas = canvas;
@@ -630,21 +664,8 @@ class PetriNetRenderer {
     this.gridSize = 10;
 
 
-    this.theme = {
-      placeColor: '#ffffff',
-      placeStroke: '#000000',
-      tokenColor: '#000000',
-      transitionColor: '#d3d3d3',
-      transitionStroke: '#000000',
-      enabledTransitionColor: '#90ee90',
-      silentTransitionColor: '#808080',
-      arcColor: '#000000',
-      selectedColor: '#4682b4',
-      textColor: '#000000',
-      backgroundColor: '#ffffff',
-      ghostColor: 'rgba(0, 0, 0, 0.3)',
-      ghostFillColor: 'rgba(255, 255, 255, 0.5)'
-    };
+    this.invertEditorColors = false;
+    this.theme = { ...DEFAULT_RENDERER_THEME };
   }
 
   clone() {
@@ -652,6 +673,7 @@ class PetriNetRenderer {
     cloned.panOffset = { ...this.panOffset };
     cloned.zoomFactor = this.zoomFactor;
     cloned.theme = { ...this.theme };
+    cloned.invertEditorColors = this.invertEditorColors;
     return cloned;
   }
 
@@ -689,7 +711,7 @@ class PetriNetRenderer {
     const endY = Math.ceil(worldBottomRight.y / this.gridSize) * this.gridSize;
 
     this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(76, 86, 106, 0.25)';
+    this.ctx.strokeStyle = this.theme.gridColor;
     this.ctx.lineWidth = 1 / this.zoomFactor;
     this.ctx.beginPath();
 
@@ -1325,6 +1347,14 @@ screenToWorld(screenX, screenY) {
   setTheme(theme) {
     this.theme = { ...this.theme, ...theme };
   }
+
+  setColorInversion(enabled) {
+    this.invertEditorColors = Boolean(enabled);
+    this.theme = {
+      ...this.theme,
+      ...(this.invertEditorColors ? INVERTED_RENDERER_THEME : DEFAULT_RENDERER_THEME)
+    };
+  }
 }
 
 
@@ -1336,9 +1366,13 @@ class PetriNetEditor {
     this.renderer = new PetriNetRenderer(canvas, petriNet);
     this.mode = 'select';
     this.selectedElement = null;
+    this.selectedElements = new Map();
     this.arcDrawing = null;
     this.dragStart = null;
     this.dragOffset = null; // Add dragOffset property for absolute positioning
+    this.boxSelection = null;
+    this.selectionDragState = null;
+    this.clipboardSelection = null;
     this.eventListeners = new Map();
     this.gridSize = 10; // Grid size for snap to grid
     this.snapToGrid = true;
@@ -1462,7 +1496,10 @@ class PetriNetEditor {
         return;
       }
     
-      if (this.mode === 'select' && this.selectedElement) {
+      if (this.mode === 'select' && this.boxSelection) {
+        this.updateBoxSelection(worldPos.x, worldPos.y);
+        this.requestRender();
+      } else if (this.mode === 'select' && this.selectedElement) {
         this.handleDrag(worldPos.x, worldPos.y);
         this.requestRender();
       } else if (this.mode === 'addArc' && this.arcDrawing) {
@@ -1493,11 +1530,16 @@ class PetriNetEditor {
 
       if (this.mode === 'addArc' && this.arcDrawing) {
         this.completeArcDrawing(worldPos.x, worldPos.y);
+      } else if (this.mode === 'select' && this.boxSelection) {
+        this.completeBoxSelection();
+      } else if (this.mode === 'select' && this.selectionDragState?.moved) {
+        this.finalizeSelectionMove();
       }
 
 
       this.dragStart = null;
       this.dragOffset = null; // Reset dragOffset when done dragging
+      this.selectionDragState = null;
       
       this.render();
 
@@ -1530,6 +1572,28 @@ class PetriNetEditor {
 
 
     const keyDownHandler = (event) => {
+      const tag = document.activeElement?.tagName;
+      const isInputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if ((event.ctrlKey || event.metaKey) && !isInputFocused) {
+        const key = event.key.toLowerCase();
+        if (key === 'a') {
+          event.preventDefault();
+          this.selectAllElements();
+          return;
+        }
+        if (key === 'c') {
+          event.preventDefault();
+          this.copySelection();
+          return;
+        }
+        if (key === 'v') {
+          event.preventDefault();
+          this.pasteSelection();
+          return;
+        }
+      }
+
       // Delete currently selected element – delegate to deleteSelected()
       if (event.code === 'Delete' && this.selectedElement) {
         this.deleteSelected();
@@ -1691,13 +1755,14 @@ class PetriNetEditor {
    * Find the closest existing element of a given type to a position.
    * Excludes the element with excludeId.
    */
-  _findClosestElement(position, type, excludeId) {
+  _findClosestElement(position, type, excludeId, excludeIds = null) {
     let closest = null;
     let minDist = Infinity;
 
     const collection = type === 'place' ? this.petriNet.places : this.petriNet.transitions;
     for (const [id, el] of collection) {
       if (id === excludeId) continue;
+      if (excludeIds && excludeIds.has(id)) continue;
       const dx = el.position.x - position.x;
       const dy = el.position.y - position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1792,50 +1857,24 @@ class PetriNetEditor {
   }
 
   handleSelection(x, y) {
-
-    for (const [id, place] of this.petriNet.places) {
-      const dx = place.position.x - x;
-      const dy = place.position.y - y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance <= place.radius) {
-        this.selectedElement = { id, type: 'place' };
-
-        this.dragOffset = {
-          x: x - place.position.x,
-          y: y - place.position.y
-        };
-        if (this.callbacks.onSelect) {
-          this.callbacks.onSelect(id, 'place');
-        }
-        return;
+    const hitElement = this._findElementAt(x, y);
+    if (hitElement) {
+      if (!this._selectionHas(hitElement.id, hitElement.type)) {
+        this.selectElement(hitElement.id, hitElement.type, { silentRender: true, notify: false });
       }
-    }
-
-
-    for (const [id, transition] of this.petriNet.transitions) {
-      const halfWidth = transition.width / 2;
-      const halfHeight = transition.height / 2;
-
-      if (
-        x >= transition.position.x - halfWidth &&
-        x <= transition.position.x + halfWidth &&
-        y >= transition.position.y - halfHeight &&
-        y <= transition.position.y + halfHeight
-      ) {
-        this.selectedElement = { id, type: 'transition' };
-
-        this.dragOffset = {
-          x: x - transition.position.x,
-          y: y - transition.position.y
-        };
-        if (this.callbacks.onSelect) {
-          this.callbacks.onSelect(id, 'transition');
+      const element = this._getElementObject(hitElement.id, hitElement.type);
+      this.dragOffset = element ? { x: x - element.position.x, y: y - element.position.y } : null;
+      this.dragStart = { x, y };
+      this.selectionDragState = this._createSelectionDragState();
+      if (this.callbacks.onSelect) {
+        if (this.selectedElements.size > 1) {
+          this.callbacks.onSelect(null, 'selection');
+        } else {
+          this.callbacks.onSelect(hitElement.id, hitElement.type);
         }
-        return;
       }
+      return;
     }
-
 
     for (const [id, arc] of this.petriNet.arcs) {
 
@@ -1857,6 +1896,7 @@ class PetriNetEditor {
       const dotProduct = ((x - sx) * (tx - sx) + (y - sy) * (ty - sy)) / (lineLength * lineLength);
 
       if (distance < 10 && dotProduct >= 0 && dotProduct <= 1) {
+        this.clearMultiSelection();
         this.selectedElement = { id, type: 'arc' };
 
         this.dragOffset = null;
@@ -1867,15 +1907,8 @@ class PetriNetEditor {
       }
     }
 
-
-    this.selectedElement = null;
-    this.dragOffset = null;
-    this.ghostElement = null;
-    this.ghostPosition = null;
-    this.ghostChain = null;
-    if (this.callbacks.onSelect) {
-      this.callbacks.onSelect(null, null);
-    }
+    this.clearSelection({ notify: true, render: false });
+    this.startBoxSelection(x, y);
   }
 
   handleDrag(x, y) {
@@ -1891,6 +1924,27 @@ class PetriNetEditor {
 
       
       this.dragStart = { x, y };
+      return;
+    }
+
+    if (this.selectionDragState && this.selectedElements.size > 1) {
+      const anchor = this.selectionDragState.anchor;
+      const dx = x - anchor.x;
+      const dy = y - anchor.y;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+        this.selectionDragState.moved = true;
+      }
+
+      for (const [key, initial] of this.selectionDragState.initialPositions) {
+        const element = this._getElementObject(initial.id, initial.type);
+        if (!element) continue;
+        element.position.x = initial.x + dx;
+        element.position.y = initial.y + dy;
+        if (this.snapToGrid) {
+          element.position.x = Math.round(element.position.x / this.gridSize) * this.gridSize;
+          element.position.y = Math.round(element.position.y / this.gridSize) * this.gridSize;
+        }
+      }
       return;
     }
 
@@ -1923,6 +1977,364 @@ class PetriNetEditor {
           transition.position.y = Math.round(transition.position.y / this.gridSize) * this.gridSize;
         }
       }
+    }
+  }
+
+  _selectionKey(id, type) {
+    return `${type}:${id}`;
+  }
+
+  _selectionHas(id, type) {
+    return this.selectedElements.has(this._selectionKey(id, type));
+  }
+
+  _syncSelectedElementFromMultiSelection() {
+    if (this.selectedElements.size === 0) {
+      this.selectedElement = null;
+    } else if (this.selectedElements.size === 1) {
+      const first = this.selectedElements.values().next().value;
+      this.selectedElement = { id: first.id, type: first.type };
+    } else {
+      this.selectedElement = { id: null, type: 'selection' };
+    }
+  }
+
+  clearMultiSelection() {
+    this.selectedElements.clear();
+  }
+
+  clearSelection(options = {}) {
+    const { notify = true, render = true } = options;
+    this.selectedElement = null;
+    this.clearMultiSelection();
+    this.dragOffset = null;
+    this.boxSelection = null;
+    this.selectionDragState = null;
+    this.ghostElement = null;
+    this.ghostPosition = null;
+    this.ghostChain = null;
+    if (notify && this.callbacks.onSelect) {
+      this.callbacks.onSelect(null, null);
+    }
+    if (render) {
+      this.render();
+    }
+  }
+
+  setMultiSelection(elements, options = {}) {
+    const { notify = true, render = true } = options;
+    this.selectedElements.clear();
+    for (const element of elements) {
+      if (!element || !element.id || !element.type || element.type === 'arc') continue;
+      this.selectedElements.set(this._selectionKey(element.id, element.type), {
+        id: element.id,
+        type: element.type
+      });
+    }
+    this._syncSelectedElementFromMultiSelection();
+    this.dragOffset = null;
+    this.ghostElement = null;
+    this.ghostPosition = null;
+    this.ghostChain = null;
+    if (notify && this.callbacks.onSelect) {
+      if (this.selectedElements.size === 1) {
+        const first = this.selectedElements.values().next().value;
+        this.callbacks.onSelect(first.id, first.type);
+      } else if (this.selectedElements.size > 1) {
+        this.callbacks.onSelect(null, 'selection');
+      } else {
+        this.callbacks.onSelect(null, null);
+      }
+    }
+    if (render) {
+      this.render();
+    }
+  }
+
+  selectAllElements() {
+    const elements = [];
+    for (const [id] of this.petriNet.places) {
+      elements.push({ id, type: 'place' });
+    }
+    for (const [id] of this.petriNet.transitions) {
+      elements.push({ id, type: 'transition' });
+    }
+    this.setMultiSelection(elements);
+  }
+
+  startBoxSelection(x, y) {
+    this.boxSelection = {
+      start: { x, y },
+      current: { x, y }
+    };
+  }
+
+  updateBoxSelection(x, y) {
+    if (!this.boxSelection) return;
+    this.boxSelection.current = { x, y };
+  }
+
+  completeBoxSelection() {
+    if (!this.boxSelection) return;
+    const bounds = this._normalizeBounds(this.boxSelection.start, this.boxSelection.current);
+    this.boxSelection = null;
+    const selected = [];
+
+    for (const [id, place] of this.petriNet.places) {
+      if (this._pointInBounds(place.position, bounds)) {
+        selected.push({ id, type: 'place' });
+      }
+    }
+    for (const [id, transition] of this.petriNet.transitions) {
+      if (this._pointInBounds(transition.position, bounds)) {
+        selected.push({ id, type: 'transition' });
+      }
+    }
+
+    this.setMultiSelection(selected, { render: false });
+  }
+
+  _normalizeBounds(a, b) {
+    return {
+      left: Math.min(a.x, b.x),
+      right: Math.max(a.x, b.x),
+      top: Math.min(a.y, b.y),
+      bottom: Math.max(a.y, b.y)
+    };
+  }
+
+  _pointInBounds(point, bounds) {
+    return point.x >= bounds.left && point.x <= bounds.right &&
+      point.y >= bounds.top && point.y <= bounds.bottom;
+  }
+
+  _createSelectionDragState() {
+    const initialPositions = new Map();
+    for (const [key, item] of this.selectedElements) {
+      const element = this._getElementObject(item.id, item.type);
+      if (!element) continue;
+      initialPositions.set(key, {
+        id: item.id,
+        type: item.type,
+        x: element.position.x,
+        y: element.position.y
+      });
+    }
+    return {
+      anchor: { ...this.dragStart },
+      initialPositions,
+      moved: false,
+      originalSelection: new Map(this.selectedElements)
+    };
+  }
+
+  copySelection() {
+    const selectedNodes = this.selectedElements.size > 0
+      ? Array.from(this.selectedElements.values())
+      : (this.selectedElement && this.selectedElement.type !== 'arc' && this.selectedElement.type !== 'selection'
+        ? [this.selectedElement]
+        : []);
+
+    if (selectedNodes.length === 0) return false;
+
+    const selectedIds = new Set(selectedNodes.map(item => item.id));
+    const nodes = selectedNodes
+      .map(item => {
+        const element = this._getElementObject(item.id, item.type);
+        if (!element) return null;
+        return {
+          id: item.id,
+          type: item.type,
+          data: this._cloneElementData(element)
+        };
+      })
+      .filter(Boolean);
+
+    const arcs = [];
+    for (const arc of this.petriNet.arcs.values()) {
+      if (selectedIds.has(arc.source) && selectedIds.has(arc.target)) {
+        arcs.push(this._cloneArcData(arc));
+      }
+    }
+
+    this.clipboardSelection = {
+      nodes,
+      arcs,
+      boundary: this._getBoundaryNodes(new Set(nodes.map(node => node.id))),
+      pasteCount: 0
+    };
+    return true;
+  }
+
+  pasteSelection() {
+    if (!this.clipboardSelection || this.clipboardSelection.nodes.length === 0) return false;
+
+    this.clipboardSelection.pasteCount += 1;
+    const offset = 35 * this.clipboardSelection.pasteCount;
+    const idMap = new Map();
+    const pastedSelection = [];
+
+    for (const node of this.clipboardSelection.nodes) {
+      const newId = this.generateUUID();
+      idMap.set(node.id, newId);
+      const clone = this._restoreElementClone(node.data, newId, offset, node.type);
+      if (node.type === 'place') {
+        this.petriNet.addPlace(clone);
+      } else if (node.type === 'transition') {
+        this.petriNet.addTransition(clone);
+      }
+      pastedSelection.push({ id: newId, type: node.type });
+    }
+
+    for (const arcData of this.clipboardSelection.arcs) {
+      const source = idMap.get(arcData.source);
+      const target = idMap.get(arcData.target);
+      if (!source || !target) continue;
+      const arc = this._restoreArcClone(arcData, this.generateUUID(), source, target);
+      this.petriNet.addArc(arc);
+    }
+
+    this.setMultiSelection(pastedSelection, { notify: true, render: false });
+
+    if (this.autoConnectEnabled) {
+      const pastedIds = new Set(pastedSelection.map(item => item.id));
+      this._autoConnectBoundaryNodes(pastedIds);
+    }
+
+    this.render();
+    if (this.callbacks.onChange) {
+      this.callbacks.onChange();
+    }
+    return true;
+  }
+
+  finalizeSelectionMove() {
+    if (!this.autoConnectEnabled || this.selectedElements.size <= 1) return;
+    const selectedIds = new Set(Array.from(this.selectedElements.values()).map(item => item.id));
+    this._autoConnectBoundaryNodes(selectedIds);
+  }
+
+  _cloneElementData(element) {
+    const data = {};
+    for (const key of Object.keys(element)) {
+      data[key] = this._clonePlainValue(element[key]);
+    }
+    return {
+      prototype: Object.getPrototypeOf(element),
+      data
+    };
+  }
+
+  _cloneArcData(arc) {
+    return this._clonePlainValue(arc);
+  }
+
+  _clonePlainValue(value) {
+    if (value === null || typeof value !== 'object') return value;
+    if (Array.isArray(value)) {
+      return value.map(item => this._clonePlainValue(item));
+    }
+    const clone = {};
+    for (const key of Object.keys(value)) {
+      clone[key] = this._clonePlainValue(value[key]);
+    }
+    return clone;
+  }
+
+  _restoreElementClone(snapshot, id, offset, type) {
+    const clone = Object.create(snapshot.prototype || Object.prototype);
+    Object.assign(clone, this._clonePlainValue(snapshot.data));
+    clone.id = id;
+    clone.label = this._getNextPastedLabel(snapshot.data.label, type);
+    clone.position = {
+      x: (snapshot.data.position?.x || 0) + offset,
+      y: (snapshot.data.position?.y || 0) + offset
+    };
+    if (this.snapToGrid) {
+      clone.position.x = Math.round(clone.position.x / this.gridSize) * this.gridSize;
+      clone.position.y = Math.round(clone.position.y / this.gridSize) * this.gridSize;
+    }
+    return clone;
+  }
+
+  _getNextPastedLabel(label, type) {
+    const original = String(label || '');
+    if (!original.trim()) return original;
+
+    const match = original.match(/^(.*?)(\d+)$/);
+    const prefix = match ? match[1] : `${original} `;
+    let maxNumber = match ? Number(match[2]) : 1;
+    const collection = type === 'place' ? this.petriNet.places : this.petriNet.transitions;
+    const labelPattern = new RegExp(`^${this._escapeRegExp(prefix)}(\\d+)$`);
+
+    for (const element of collection.values()) {
+      const existing = String(element.label || '').match(labelPattern);
+      if (existing) {
+        maxNumber = Math.max(maxNumber, Number(existing[1]));
+      }
+    }
+
+    return `${prefix}${maxNumber + 1}`;
+  }
+
+  _escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  _restoreArcClone(arcData, id, source, target) {
+    const arc = Object.create(Arc.prototype);
+    Object.assign(arc, this._clonePlainValue(arcData));
+    arc.id = id;
+    arc.source = source;
+    arc.target = target;
+    arc.points = Array.isArray(arc.points) ? arc.points.map(point => ({ ...point })) : [];
+    return arc;
+  }
+
+  _getBoundaryNodes(selectedIds) {
+    const boundary = {
+      starts: new Set(selectedIds),
+      ends: new Set(selectedIds)
+    };
+
+    for (const arc of this.petriNet.arcs.values()) {
+      if (selectedIds.has(arc.source) && selectedIds.has(arc.target)) {
+        boundary.starts.delete(arc.target);
+        boundary.ends.delete(arc.source);
+      }
+    }
+
+    return boundary;
+  }
+
+  _autoConnectBoundaryNodes(selectedIds) {
+    const boundary = this._getBoundaryNodes(selectedIds);
+    const existingPairs = new Set(Array.from(this.petriNet.arcs.values()).map(arc => `${arc.source}->${arc.target}`));
+
+    for (const id of boundary.starts) {
+      this._connectBoundaryNode(id, 'incoming', selectedIds, existingPairs);
+    }
+    for (const id of boundary.ends) {
+      this._connectBoundaryNode(id, 'outgoing', selectedIds, existingPairs);
+    }
+  }
+
+  _connectBoundaryNode(id, direction, selectedIds, existingPairs) {
+    const node = this.petriNet.places.get(id) || this.petriNet.transitions.get(id);
+    if (!node) return;
+    const nodeType = this.petriNet.places.has(id) ? 'place' : 'transition';
+    const targetType = nodeType === 'place' ? 'transition' : 'place';
+    const candidate = this._findClosestElement(node.position, targetType, id, selectedIds);
+    if (!candidate || candidate.distance > this.autoConnectDistance) return;
+
+    const source = direction === 'incoming' ? candidate.id : id;
+    const target = direction === 'incoming' ? id : candidate.id;
+    const pairKey = `${source}->${target}`;
+    if (existingPairs.has(pairKey)) return;
+
+    const arc = new Arc(this.generateUUID(), source, target, 1, 'regular', [], '');
+    if (this.petriNet.addArc(arc)) {
+      existingPairs.add(pairKey);
     }
   }
 
@@ -2300,7 +2712,7 @@ class PetriNetEditor {
   }
 
   renderSelection() {
-    if (!this.selectedElement) return;
+    if (!this.selectedElement && !this.boxSelection) return;
 
     const ctx = this.canvas.getContext('2d');
     
@@ -2309,7 +2721,24 @@ class PetriNetEditor {
     ctx.translate(this.renderer.panOffset.x, this.renderer.panOffset.y);
     ctx.scale(this.renderer.zoomFactor, this.renderer.zoomFactor);
 
-    if (this.selectedElement.type === 'place') {
+    if (this.boxSelection) {
+      const bounds = this._normalizeBounds(this.boxSelection.start, this.boxSelection.current);
+      ctx.save();
+      ctx.setLineDash([6, 4]);
+      ctx.fillStyle = 'rgba(70, 130, 180, 0.12)';
+      ctx.strokeStyle = this.renderer.theme.selectedColor;
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+      ctx.strokeRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+
+    if (this.selectedElements.size > 1) {
+      this._renderMultiSelection(ctx);
+      this._renderSelectionAutoConnectPreview(ctx);
+    } else if (this.selectedElement.type === 'place') {
       const place = this.petriNet.places.get(this.selectedElement.id);
       if (place) {
         ctx.beginPath();
@@ -2359,6 +2788,137 @@ class PetriNetEditor {
     ctx.restore();
   }
 
+  _renderMultiSelection(ctx) {
+    const bounds = this._getSelectionBounds(this.selectedElements);
+    ctx.strokeStyle = this.renderer.theme.selectedColor;
+    ctx.lineWidth = 2;
+
+    for (const item of this.selectedElements.values()) {
+      if (item.type === 'place') {
+        const place = this.petriNet.places.get(item.id);
+        if (!place) continue;
+        ctx.beginPath();
+        ctx.arc(place.position.x, place.position.y, place.radius + 4, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (item.type === 'transition') {
+        const transition = this.petriNet.transitions.get(item.id);
+        if (!transition) continue;
+        ctx.beginPath();
+        ctx.rect(
+          transition.position.x - transition.width / 2 - 4,
+          transition.position.y - transition.height / 2 - 4,
+          transition.width + 8,
+          transition.height + 8
+        );
+        ctx.stroke();
+      }
+    }
+
+    if (bounds) {
+      ctx.save();
+      ctx.setLineDash([8, 5]);
+      ctx.strokeStyle = 'rgba(70, 130, 180, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(
+        bounds.left - 12,
+        bounds.top - 12,
+        bounds.right - bounds.left + 24,
+        bounds.bottom - bounds.top + 24
+      );
+      ctx.restore();
+    }
+  }
+
+  _getSelectionBounds(selection) {
+    let bounds = null;
+    for (const item of selection.values()) {
+      const element = this._getElementObject(item.id, item.type);
+      if (!element) continue;
+      const paddingX = item.type === 'place' ? element.radius : element.width / 2;
+      const paddingY = item.type === 'place' ? element.radius : element.height / 2;
+      const next = {
+        left: element.position.x - paddingX,
+        right: element.position.x + paddingX,
+        top: element.position.y - paddingY,
+        bottom: element.position.y + paddingY
+      };
+      if (!bounds) {
+        bounds = next;
+      } else {
+        bounds.left = Math.min(bounds.left, next.left);
+        bounds.right = Math.max(bounds.right, next.right);
+        bounds.top = Math.min(bounds.top, next.top);
+        bounds.bottom = Math.max(bounds.bottom, next.bottom);
+      }
+    }
+    return bounds;
+  }
+
+  _renderSelectionAutoConnectPreview(ctx) {
+    if (!this.autoConnectEnabled || !this.selectionDragState?.moved || this.selectedElements.size <= 1) {
+      return;
+    }
+
+    const selectedIds = new Set(Array.from(this.selectedElements.values()).map(item => item.id));
+    const links = this._getAutoConnectPreviewLinks(selectedIds);
+    if (links.length === 0) return;
+
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.globalAlpha = 0.4;
+    for (const link of links) {
+      this.renderer.drawGhostArc(link.from.position, link.to.position, true);
+      this._renderAutoConnectHighlight(link.highlight);
+    }
+    ctx.restore();
+  }
+
+  _getAutoConnectPreviewLinks(selectedIds) {
+    const boundary = this._getBoundaryNodes(selectedIds);
+    const existingPairs = new Set(Array.from(this.petriNet.arcs.values()).map(arc => `${arc.source}->${arc.target}`));
+    const links = [];
+
+    for (const id of boundary.starts) {
+      const link = this._getBoundaryAutoConnectLink(id, 'incoming', selectedIds, existingPairs);
+      if (link) {
+        links.push(link);
+        existingPairs.add(`${link.from.id}->${link.to.id}`);
+      }
+    }
+
+    for (const id of boundary.ends) {
+      const link = this._getBoundaryAutoConnectLink(id, 'outgoing', selectedIds, existingPairs);
+      if (link) {
+        links.push(link);
+        existingPairs.add(`${link.from.id}->${link.to.id}`);
+      }
+    }
+
+    return links;
+  }
+
+  _getBoundaryAutoConnectLink(id, direction, selectedIds, existingPairs) {
+    const node = this.petriNet.places.get(id) || this.petriNet.transitions.get(id);
+    if (!node) return null;
+    const nodeType = this.petriNet.places.has(id) ? 'place' : 'transition';
+    const targetType = nodeType === 'place' ? 'transition' : 'place';
+    const candidate = this._findClosestElement(node.position, targetType, id, selectedIds);
+    if (!candidate || candidate.distance > this.autoConnectDistance) return null;
+
+    const sourceId = direction === 'incoming' ? candidate.id : id;
+    const targetId = direction === 'incoming' ? id : candidate.id;
+    if (existingPairs.has(`${sourceId}->${targetId}`)) return null;
+
+    const source = direction === 'incoming'
+      ? { ...candidate }
+      : { id, type: nodeType, position: { x: node.position.x, y: node.position.y } };
+    const target = direction === 'incoming'
+      ? { id, type: nodeType, position: { x: node.position.x, y: node.position.y } }
+      : { ...candidate };
+
+    return { from: source, to: target, highlight: candidate };
+  }
+
 
   setMode(mode) {
     this.mode = mode;
@@ -2368,10 +2928,15 @@ class PetriNetEditor {
     this.ghostChain = null;
   }
 
-  selectElement(id, type) {
+  selectElement(id, type, options = {}) {
+    const { silentRender = false, notify = true } = options;
 
     if (id && type) {
       this.selectedElement = { id, type };
+      this.selectedElements.clear();
+      if (type === 'place' || type === 'transition') {
+        this.selectedElements.set(this._selectionKey(id, type), { id, type });
+      }
       
 
       if (type === 'place') {
@@ -2389,6 +2954,7 @@ class PetriNetEditor {
       }
     } else {
       this.selectedElement = null;
+      this.selectedElements.clear();
       this.dragOffset = null;
     }
 
@@ -2397,15 +2963,44 @@ class PetriNetEditor {
     this.ghostPosition = null;
     this.ghostChain = null;
 
-    this.render();
+    if (!silentRender) {
+      this.render();
+    }
 
-    if (this.callbacks.onSelect) {
+    if (notify && this.callbacks.onSelect) {
       this.callbacks.onSelect(id, type);
     }
   }
 
   deleteSelected() {
     if (!this.selectedElement) return false;
+
+    if (this.selectedElements.size > 1 || this.selectedElement.type === 'selection') {
+      const selectedIds = new Set(Array.from(this.selectedElements.values()).map(item => item.id));
+      let success = false;
+      for (const arcId of Array.from(this.petriNet.arcs.keys())) {
+        const arc = this.petriNet.arcs.get(arcId);
+        if (selectedIds.has(arc.source) || selectedIds.has(arc.target)) {
+          success = this.petriNet.removeArc(arcId) || success;
+        }
+      }
+      for (const item of Array.from(this.selectedElements.values())) {
+        if (item.type === 'place') {
+          success = this.petriNet.removePlace(item.id) || success;
+        } else if (item.type === 'transition') {
+          success = this.petriNet.removeTransition(item.id) || success;
+        }
+      }
+
+      if (success) {
+        this.clearSelection({ notify: true, render: false });
+        this.render();
+        if (this.callbacks.onChange) {
+          this.callbacks.onChange();
+        }
+      }
+      return success;
+    }
     
     let success = false;
     if (this.selectedElement.type === 'place') {
@@ -2574,6 +3169,13 @@ class PetriNetEditor {
     if (this.renderer) {
       this.showGrid = visible;
       this.renderer.setGridVisibility(visible);
+      this.render();
+    }
+  }
+
+  setEditorColorInversion(enabled) {
+    if (this.renderer) {
+      this.renderer.setColorInversion(enabled);
       this.render();
     }
   }
@@ -2981,6 +3583,14 @@ class PetriNetAPI {
   setGridVisibility(visible) {
     if (this.editor) {
       this.editor.setGridVisibility(Boolean(visible));
+      return true;
+    }
+    return false;
+  }
+
+  setEditorColorInversion(enabled) {
+    if (this.editor) {
+      this.editor.setEditorColorInversion(Boolean(enabled));
       return true;
     }
     return false;

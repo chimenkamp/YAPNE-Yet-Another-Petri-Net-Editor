@@ -6,6 +6,7 @@ export const DEFAULT_EDITOR_SETTINGS = {
   snapToGrid: true,
   gridSize: 10,
   showGrid: false,
+  invertEditorColors: false,
   autoConnectEnabled: true,
   autoConnectDistance: 300
 };
@@ -39,6 +40,7 @@ export function loadEditorSettings() {
       snapToGrid: normalizeBoolean(parsed.snapToGrid, DEFAULT_EDITOR_SETTINGS.snapToGrid),
       gridSize: clamp(parsed.gridSize, 5, 100, DEFAULT_EDITOR_SETTINGS.gridSize),
       showGrid: normalizeBoolean(parsed.showGrid, DEFAULT_EDITOR_SETTINGS.showGrid),
+      invertEditorColors: normalizeBoolean(parsed.invertEditorColors, DEFAULT_EDITOR_SETTINGS.invertEditorColors),
       autoConnectEnabled: normalizeBoolean(parsed.autoConnectEnabled, DEFAULT_EDITOR_SETTINGS.autoConnectEnabled),
       autoConnectDistance: clamp(parsed.autoConnectDistance, 50, 800, DEFAULT_EDITOR_SETTINGS.autoConnectDistance)
     };
@@ -55,6 +57,7 @@ export function saveEditorSettings(nextSettings) {
     snapToGrid: Boolean(nextSettings.snapToGrid),
     gridSize: clamp(nextSettings.gridSize, 5, 100, DEFAULT_EDITOR_SETTINGS.gridSize),
     showGrid: Boolean(nextSettings.showGrid),
+    invertEditorColors: Boolean(nextSettings.invertEditorColors),
     autoConnectEnabled: Boolean(nextSettings.autoConnectEnabled),
     autoConnectDistance: clamp(nextSettings.autoConnectDistance, 50, 800, DEFAULT_EDITOR_SETTINGS.autoConnectDistance)
   };
