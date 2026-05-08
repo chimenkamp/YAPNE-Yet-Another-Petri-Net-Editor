@@ -335,6 +335,66 @@ button:disabled {
   gap: 10px;
 }
 
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.setting-item:last-child {
+  margin-bottom: 0;
+}
+
+.setting-item label {
+  color: #E5E9F0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.setting-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.setting-control input[type="range"] {
+  flex: 1;
+}
+
+.setting-value {
+  min-width: 56px;
+  text-align: right;
+  color: #88C0D0;
+  font-variant-numeric: tabular-nums;
+}
+
+.setting-item-toggle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.setting-item-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #88C0D0;
+}
+
+.setting-item-nested {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 2px solid rgba(136, 192, 208, 0.25);
+}
+
+.setting-item-disabled {
+  opacity: 0.5;
+}
+
+.setting-item-disabled input {
+  pointer-events: none;
+}
+
 /* Button styling within sections */
 .button-group {
   display: flex;

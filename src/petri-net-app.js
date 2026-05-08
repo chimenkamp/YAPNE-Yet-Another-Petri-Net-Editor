@@ -11,6 +11,7 @@ import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
 import { SimulationDashboard } from './simulation-dashboard.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { VerificationPanel } from './verification-panel.js';
+import { DEFAULT_EDITOR_SETTINGS, loadEditorSettings, saveEditorSettings } from './editor-settings.js';
 
 class PetriNetApp {
   /**
@@ -31,6 +32,7 @@ class PetriNetApp {
     this.autoRunInterval = null;
     this.autoRunDelay = 1000;
     this.gridEnabled = true;
+    this.editorSettings = { ...DEFAULT_EDITOR_SETTINGS, ...loadEditorSettings() };
 
     this.initialState = null;
     this.simulationStarted = false;
@@ -83,7 +85,7 @@ class PetriNetApp {
     });
     this.historyDialog.init();
 
-    this.api.setZoomSensitivity(0.05);
+    this.applyEditorSettings(this.editorSettings, { persist: false });
 
     this.editor.app = this;
 
@@ -117,6 +119,35 @@ class PetriNetApp {
     // Setup panel layout management (stacking)
     this._setupPanelLayout();
 
+  }
+
+  applyEditorSettings(nextSettings = {}, options = {}) {
+    const { persist = true } = options;
+    const mergedSettings = {
+      ...this.editorSettings,
+      ...nextSettings
+    };
+
+    this.editorSettings = persist ? saveEditorSettings(mergedSettings) : mergedSettings;
+    this.gridEnabled = this.editorSettings.snapToGrid;
+
+    this.api.setZoomSensitivity(this.editorSettings.zoomSensitivity);
+    this.api.setPanSensitivity(this.editorSettings.panSensitivity);
+    this.api.setAutoConnectSettings(this.editorSettings.autoConnectEnabled, this.editorSettings.autoConnectDistance);
+    this.api.setGridVisibility(this.gridEnabled && this.editorSettings.showGrid);
+
+    if (this.editor) {
+      this.editor.setSnapToGrid(this.gridEnabled, this.editorSettings.gridSize);
+    }
+
+    const btnGrid = document.getElementById('btn-grid');
+    if (btnGrid) {
+      btnGrid.classList.toggle('active', this.gridEnabled);
+    }
+
+    document.dispatchEvent(new CustomEvent('editor-settings-changed', {
+      detail: { ...this.editorSettings }
+    }));
   }
 
   /**
@@ -434,9 +465,7 @@ initEventHandlers() {
   const btnGrid = document.getElementById("btn-grid");
   if (btnGrid) {
     const handler = () => {
-      this.gridEnabled = !this.gridEnabled;
-      this.editor.setSnapToGrid(this.gridEnabled);
-      btnGrid.classList.toggle("active", this.gridEnabled);
+      this.applyEditorSettings({ snapToGrid: !this.gridEnabled });
     };
     btnGrid.addEventListener("click", handler);
     this.appEventListeners.push(['click', handler, btnGrid]);
@@ -1439,7 +1468,7 @@ initEventHandlers() {
 
     this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
     this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
-    this.editor.setSnapToGrid(this.gridEnabled);
+    this.applyEditorSettings(this.editorSettings, { persist: false });
     this.editor.setMode("select");
     this.updateActiveButton("btn-select");
 
@@ -1582,7 +1611,7 @@ initEventHandlers() {
 
           this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
           this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
-          this.editor.setSnapToGrid(this.gridEnabled);
+          this.applyEditorSettings(this.editorSettings, { persist: false });
           this.editor.setMode("select");
           this.updateActiveButton("btn-select");
 
@@ -1733,7 +1762,7 @@ initEventHandlers() {
           // Reset all simulation and UI state
           this.initialState = null;
           this.simulationStarted = false;
-          this.editor.setSnapToGrid(this.gridEnabled);
+          this.applyEditorSettings(this.editorSettings, { persist: false });
           this.editor.setMode("select");
           this.updateActiveButton("btn-select");
           this.propertiesPanel.innerHTML = "<p>No element selected.</p>";

@@ -625,6 +625,9 @@ class PetriNetRenderer {
     this.minZoom = 0.1;
     this.maxZoom = 3.0;
     this.zoomSensitivity = 0.1; // Default zoom sensitivity
+    this.panSensitivity = 1;
+    this.showGrid = false;
+    this.gridSize = 10;
 
 
     this.theme = {
@@ -659,6 +662,10 @@ class PetriNetRenderer {
     this.ctx.save();
     this.ctx.translate(this.panOffset.x, this.panOffset.y);
     this.ctx.scale(this.zoomFactor, this.zoomFactor);
+
+    if (this.showGrid) {
+      this.drawGrid();
+    }
     
     this.drawArcs();
     this.drawPlaces();
@@ -671,6 +678,33 @@ class PetriNetRenderer {
   clear() {
     this.ctx.fillStyle = this.theme.backgroundColor;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  drawGrid() {
+    const worldTopLeft = this.screenToWorld(0, 0);
+    const worldBottomRight = this.screenToWorld(this.canvas.width, this.canvas.height);
+    const startX = Math.floor(worldTopLeft.x / this.gridSize) * this.gridSize;
+    const endX = Math.ceil(worldBottomRight.x / this.gridSize) * this.gridSize;
+    const startY = Math.floor(worldTopLeft.y / this.gridSize) * this.gridSize;
+    const endY = Math.ceil(worldBottomRight.y / this.gridSize) * this.gridSize;
+
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(76, 86, 106, 0.25)';
+    this.ctx.lineWidth = 1 / this.zoomFactor;
+    this.ctx.beginPath();
+
+    for (let x = startX; x <= endX; x += this.gridSize) {
+      this.ctx.moveTo(x, startY);
+      this.ctx.lineTo(x, endY);
+    }
+
+    for (let y = startY; y <= endY; y += this.gridSize) {
+      this.ctx.moveTo(startX, y);
+      this.ctx.lineTo(endX, y);
+    }
+
+    this.ctx.stroke();
+    this.ctx.restore();
   }
 
 drawPlaces() {
@@ -1275,6 +1309,18 @@ screenToWorld(screenX, screenY) {
     this.zoomSensitivity = sensitivity;
   }
 
+  setPanSensitivity(sensitivity) {
+    this.panSensitivity = sensitivity;
+  }
+
+  setGridVisibility(visible) {
+    this.showGrid = visible;
+  }
+
+  setGridSize(gridSize) {
+    this.gridSize = gridSize;
+  }
+
 
   setTheme(theme) {
     this.theme = { ...this.theme, ...theme };
@@ -1296,6 +1342,10 @@ class PetriNetEditor {
     this.eventListeners = new Map();
     this.gridSize = 10; // Grid size for snap to grid
     this.snapToGrid = true;
+    this.panSensitivity = 1;
+    this.showGrid = false;
+    this.autoConnectEnabled = true;
+    this.autoConnectDistance = 300;
     this.callbacks = {
       onChange: null,
       onSelect: null
@@ -1313,8 +1363,40 @@ class PetriNetEditor {
 
     this.isPanning = false;
     this.lastPanPosition = null;
+    this.pendingRenderFrame = null;
+    this.pendingRenderUpdatesEnabled = false;
+    this.pendingAfterRender = null;
 
     this.setupEventListeners();
+  }
+
+  requestRender(options = {}) {
+    const { updateEnabled = false, afterRender = null } = options;
+
+    this.pendingRenderUpdatesEnabled = this.pendingRenderUpdatesEnabled || updateEnabled;
+    if (afterRender) {
+      this.pendingAfterRender = afterRender;
+    }
+
+    if (this.pendingRenderFrame !== null) {
+      return;
+    }
+
+    const scheduleFrame = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 16));
+    this.pendingRenderFrame = scheduleFrame(() => {
+      const shouldUpdateEnabled = this.pendingRenderUpdatesEnabled;
+      const afterFrameRender = this.pendingAfterRender;
+
+      this.pendingRenderFrame = null;
+      this.pendingRenderUpdatesEnabled = false;
+      this.pendingAfterRender = null;
+
+      this.render({ updateEnabled: shouldUpdateEnabled });
+
+      if (afterFrameRender) {
+        afterFrameRender();
+      }
+    });
   }
 
   setupEventListeners() {
@@ -1363,9 +1445,9 @@ class PetriNetEditor {
       if (this.isPanning && this.lastPanPosition) {
         const dx = x - this.lastPanPosition.x;
         const dy = y - this.lastPanPosition.y;
-        this.renderer.adjustPan(dx, dy);
+        this.renderer.adjustPan(dx * this.panSensitivity, dy * this.panSensitivity);
         this.lastPanPosition = { x, y };
-        this.render();
+        this.requestRender();
         return;
       }
     
@@ -1376,17 +1458,18 @@ class PetriNetEditor {
       if (this.isShiftPressed && this.selectedElement &&
           (this.mode === 'select' || (this.mode === 'addArc' && !this.arcDrawing))) {
         this.updateGhostElement(worldPos);
-        this.render();
+        this.requestRender();
         return;
       }
     
       if (this.mode === 'select' && this.selectedElement) {
         this.handleDrag(worldPos.x, worldPos.y);
-        this.render();
+        this.requestRender();
       } else if (this.mode === 'addArc' && this.arcDrawing) {
 
-        this.render();
-        this.renderArcDrawing(worldPos.x, worldPos.y);
+        this.requestRender({
+          afterRender: () => this.renderArcDrawing(worldPos.x, worldPos.y)
+        });
       }
     };
 
@@ -1438,7 +1521,7 @@ class PetriNetEditor {
       
 
       this.renderer.adjustZoom(factor, x, y);
-      this.render();
+      this.requestRender();
 
       if (this.app && this.app.updateZoomDisplay) {
         this.app.updateZoomDisplay();
@@ -1585,7 +1668,7 @@ class PetriNetEditor {
       sourceSelection.id // exclude the source itself
     );
 
-    if (closestTarget && closestTarget.distance < 300) {
+    if (this.autoConnectEnabled && closestTarget && closestTarget.distance < this.autoConnectDistance) {
       chain.push({
         from: { id: null, type: firstGhost.type, position: { ...firstGhost.position }, isGhost: true },
         to:   { id: closestTarget.id, type: closestTarget.type, position: { ...closestTarget.position }, isGhost: false },
@@ -2105,8 +2188,19 @@ class PetriNetEditor {
     this.arcDrawing = null;
   }
 
-  render() {
-    this.petriNet.updateEnabledTransitions();
+  render(options = {}) {
+    const { updateEnabled = true } = options;
+    if (this.pendingRenderFrame !== null && updateEnabled) {
+      const cancelFrame = window.cancelAnimationFrame || window.clearTimeout;
+      cancelFrame(this.pendingRenderFrame);
+      this.pendingRenderFrame = null;
+      this.pendingRenderUpdatesEnabled = false;
+      this.pendingAfterRender = null;
+    }
+
+    if (updateEnabled) {
+      this.petriNet.updateEnabledTransitions();
+    }
     this.renderer.render();
     this.renderSelection();
     this.renderGhost();
@@ -2412,6 +2506,21 @@ class PetriNetEditor {
     this.snapToGrid = enabled;
     if (gridSize !== undefined) {
       this.gridSize = gridSize;
+      this.renderer.setGridSize(gridSize);
+    }
+    this.render();
+  }
+
+  setGridVisibility(visible) {
+    this.showGrid = visible;
+    this.renderer.setGridVisibility(visible);
+    this.render();
+  }
+
+  setAutoConnectSettings(enabled, distance) {
+    this.autoConnectEnabled = enabled;
+    if (distance !== undefined) {
+      this.autoConnectDistance = distance;
     }
   }
 
@@ -2451,6 +2560,28 @@ class PetriNetEditor {
   setZoomSensitivity(sensitivity) {
     if (this.renderer) {
       this.renderer.setZoomSensitivity(sensitivity);
+    }
+  }
+
+  setPanSensitivity(sensitivity) {
+    if (this.renderer) {
+      this.panSensitivity = sensitivity;
+      this.renderer.setPanSensitivity(sensitivity);
+    }
+  }
+
+  setGridVisibility(visible) {
+    if (this.renderer) {
+      this.showGrid = visible;
+      this.renderer.setGridVisibility(visible);
+      this.render();
+    }
+  }
+
+  setAutoConnectSettings(enabled, distance) {
+    this.autoConnectEnabled = enabled;
+    if (distance !== undefined) {
+      this.autoConnectDistance = distance;
     }
   }
 
@@ -2831,6 +2962,35 @@ class PetriNetAPI {
     
     if (this.editor) {
       this.editor.setZoomSensitivity(validSensitivity);
+      return true;
+    }
+    return false;
+  }
+
+  setPanSensitivity(sensitivity) {
+
+    const validSensitivity = Math.max(0.25, Math.min(3, sensitivity));
+
+    if (this.editor) {
+      this.editor.setPanSensitivity(validSensitivity);
+      return true;
+    }
+    return false;
+  }
+
+  setGridVisibility(visible) {
+    if (this.editor) {
+      this.editor.setGridVisibility(Boolean(visible));
+      return true;
+    }
+    return false;
+  }
+
+  setAutoConnectSettings(enabled, distance) {
+    const validDistance = Math.max(50, Math.min(800, distance));
+
+    if (this.editor) {
+      this.editor.setAutoConnectSettings(Boolean(enabled), validDistance);
       return true;
     }
     return false;

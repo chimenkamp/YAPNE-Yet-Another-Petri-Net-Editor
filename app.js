@@ -2,11 +2,13 @@ import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
 import { initializeProbabilisticExecution } from "./src/extensions/probabilistic-integration.js";
 import { initWorkflowTutorial } from "./src/workflow-tutorial.js";
 import { PythonImportDialog } from "./src/extensions/python-import-dialog.js";
+import { DEFAULT_EDITOR_SETTINGS, loadEditorSettings } from "./src/editor-settings.js";
 
 const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
+        let editorSettings = loadEditorSettings();
 
         // Sidebar tab functionality
         const tabs = document.querySelectorAll('.sidebar-tab');
@@ -136,12 +138,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.localStorage) {
                 const hasSeenHelp = localStorage.getItem('hasSeenHelpDialog');
                 if (!hasSeenHelp) {
-                    // Show help dialog on first use
                     setTimeout(() => {
                         openHelpDialog();
-                        // Mark that user has seen the help dialog
                         localStorage.setItem('hasSeenHelpDialog', 'true');
-                    }, 1000); // Small delay to let the page load completely
+                    }, 1000);
                 }
             }
         }
@@ -214,6 +214,103 @@ document.addEventListener('DOMContentLoaded', () => {
         const app = new window.PetriNetApp();
 
         window.petriApp = app;
+
+        const zoomSensitivityInput = document.getElementById('setting-zoom-sensitivity');
+        const zoomSensitivityValue = document.getElementById('setting-zoom-sensitivity-value');
+        const panSensitivityInput = document.getElementById('setting-pan-sensitivity');
+        const panSensitivityValue = document.getElementById('setting-pan-sensitivity-value');
+        const snapToGridInput = document.getElementById('setting-snap-to-grid');
+        const gridSizeInput = document.getElementById('setting-grid-size');
+        const gridSizeValue = document.getElementById('setting-grid-size-value');
+        const gridSizeWrapper = document.getElementById('setting-grid-size-wrapper');
+        const showGridInput = document.getElementById('setting-show-grid');
+        const showGridWrapper = document.getElementById('setting-show-grid-wrapper');
+        const autoConnectEnabledInput = document.getElementById('setting-auto-connect-enabled');
+        const autoConnectDistanceInput = document.getElementById('setting-auto-connect-distance');
+        const autoConnectDistanceValue = document.getElementById('setting-auto-connect-distance-value');
+        const autoConnectDistanceWrapper = document.getElementById('setting-auto-connect-distance-wrapper');
+        const resetSettingsButton = document.getElementById('btn-reset-editor-settings');
+
+        const updateSettingsDisplay = (settings) => {
+            zoomSensitivityInput.value = Number(settings.zoomSensitivity).toFixed(2);
+            zoomSensitivityValue.textContent = Number(settings.zoomSensitivity).toFixed(2);
+            panSensitivityInput.value = Number(settings.panSensitivity).toFixed(2);
+            panSensitivityValue.textContent = `${Number(settings.panSensitivity).toFixed(2)}x`;
+            snapToGridInput.checked = settings.snapToGrid;
+            gridSizeInput.value = Number(settings.gridSize).toFixed(0);
+            gridSizeValue.textContent = `${Number(settings.gridSize).toFixed(0)} px`;
+            showGridInput.checked = settings.showGrid;
+            autoConnectEnabledInput.checked = settings.autoConnectEnabled;
+            autoConnectDistanceInput.value = Number(settings.autoConnectDistance).toFixed(0);
+            autoConnectDistanceValue.textContent = `${Number(settings.autoConnectDistance).toFixed(0)} px`;
+
+            const gridControlsEnabled = settings.snapToGrid;
+            gridSizeWrapper.classList.toggle('setting-item-disabled', !gridControlsEnabled);
+            showGridWrapper.classList.toggle('setting-item-disabled', !gridControlsEnabled);
+            gridSizeInput.disabled = !gridControlsEnabled;
+            showGridInput.disabled = !gridControlsEnabled;
+
+            autoConnectDistanceWrapper.classList.toggle('setting-item-disabled', !settings.autoConnectEnabled);
+            autoConnectDistanceInput.disabled = !settings.autoConnectEnabled;
+        };
+
+        const applySettings = (nextPartialSettings, options = {}) => {
+            editorSettings = {
+                ...editorSettings,
+                ...nextPartialSettings
+            };
+            app.applyEditorSettings(editorSettings, options);
+        };
+
+        const reapplyLoadedSettings = () => {
+            applySettings(editorSettings, { persist: false });
+            if (app.resizeCanvas) {
+                app.resizeCanvas();
+            }
+        };
+
+        document.addEventListener('editor-settings-changed', (event) => {
+            editorSettings = event.detail;
+            updateSettingsDisplay(editorSettings);
+        });
+
+        updateSettingsDisplay(editorSettings);
+        reapplyLoadedSettings();
+        requestAnimationFrame(() => {
+            reapplyLoadedSettings();
+        });
+
+        zoomSensitivityInput.addEventListener('input', () => {
+            applySettings({ zoomSensitivity: Number(zoomSensitivityInput.value) });
+        });
+
+        panSensitivityInput.addEventListener('input', () => {
+            applySettings({ panSensitivity: Number(panSensitivityInput.value) });
+        });
+
+        snapToGridInput.addEventListener('change', () => {
+            applySettings({ snapToGrid: snapToGridInput.checked });
+        });
+
+        gridSizeInput.addEventListener('input', () => {
+            applySettings({ gridSize: Number(gridSizeInput.value) });
+        });
+
+        showGridInput.addEventListener('change', () => {
+            applySettings({ showGrid: showGridInput.checked });
+        });
+
+        autoConnectEnabledInput.addEventListener('change', () => {
+            applySettings({ autoConnectEnabled: autoConnectEnabledInput.checked });
+        });
+
+        autoConnectDistanceInput.addEventListener('input', () => {
+            applySettings({ autoConnectDistance: Number(autoConnectDistanceInput.value) });
+        });
+
+        resetSettingsButton.addEventListener('click', () => {
+            applySettings(DEFAULT_EDITOR_SETTINGS);
+        });
 
         // Ghost element feature enhancements
         const canvas = document.getElementById('petri-canvas');
@@ -340,6 +437,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.workflowTutorial.openDialog();
                     });
                 }
+
+                reapplyLoadedSettings();
                 
                 clearInterval(initTimer);
             }

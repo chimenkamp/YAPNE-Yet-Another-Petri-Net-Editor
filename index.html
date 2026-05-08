@@ -419,6 +419,7 @@
                 <div class="sidebar-tabs">
                     <button class="sidebar-tab active" data-tab="file">File</button>
                     <button class="sidebar-tab" data-tab="help">Help</button>
+                    <button class="sidebar-tab" data-tab="settings">Settings</button>
                 </div>
                 
                 <!-- Tab Content -->
@@ -547,6 +548,68 @@
                             </div>
                             <div class="section-content">
                                 <p>YAPNE - Yet Another Petri Net Editor</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-pane" data-tab="settings">
+                        <div id="editor-settings-section" class="sidebar-section">
+                            <div class="section-header">
+                                <div class="section-title">
+                                    <span class="section-icon">⚙️</span>
+                                    <h3>Editor Settings</h3>
+                                </div>
+                                <button class="section-toggle">▼</button>
+                            </div>
+                            <div class="section-content">
+                                <div class="setting-item">
+                                    <label for="setting-zoom-sensitivity">Zoom sensitivity</label>
+                                    <div class="setting-control">
+                                        <input type="range" id="setting-zoom-sensitivity" min="0.01" max="0.20" step="0.01" value="0.05">
+                                        <span id="setting-zoom-sensitivity-value" class="setting-value">0.05</span>
+                                    </div>
+                                </div>
+
+                                <div class="setting-item">
+                                    <label for="setting-pan-sensitivity">Pan speed</label>
+                                    <div class="setting-control">
+                                        <input type="range" id="setting-pan-sensitivity" min="0.25" max="3" step="0.05" value="1">
+                                        <span id="setting-pan-sensitivity-value" class="setting-value">1.00x</span>
+                                    </div>
+                                </div>
+
+                                <div class="setting-item setting-item-toggle">
+                                    <label for="setting-snap-to-grid">Snap elements to grid</label>
+                                    <input type="checkbox" id="setting-snap-to-grid" checked>
+                                </div>
+
+                                <div class="setting-item setting-item-nested" id="setting-grid-size-wrapper">
+                                    <label for="setting-grid-size">Grid size</label>
+                                    <div class="setting-control">
+                                        <input type="range" id="setting-grid-size" min="5" max="100" step="5" value="10">
+                                        <span id="setting-grid-size-value" class="setting-value">10 px</span>
+                                    </div>
+                                </div>
+
+                                <div class="setting-item setting-item-toggle" id="setting-show-grid-wrapper">
+                                    <label for="setting-show-grid">Show visual grid</label>
+                                    <input type="checkbox" id="setting-show-grid">
+                                </div>
+
+                                <div class="setting-item setting-item-toggle">
+                                    <label for="setting-auto-connect-enabled">Auto-connect new chained elements</label>
+                                    <input type="checkbox" id="setting-auto-connect-enabled" checked>
+                                </div>
+
+                                <div class="setting-item setting-item-nested" id="setting-auto-connect-distance-wrapper">
+                                    <label for="setting-auto-connect-distance">Auto-connect distance</label>
+                                    <div class="setting-control">
+                                        <input type="range" id="setting-auto-connect-distance" min="50" max="800" step="10" value="300">
+                                        <span id="setting-auto-connect-distance-value" class="setting-value">300 px</span>
+                                    </div>
+                                </div>
+
+                                <button id="btn-reset-editor-settings" class="help-button" style="width: 100%; margin-top: 8px;">Reset to Defaults</button>
                             </div>
                         </div>
                     </div>
