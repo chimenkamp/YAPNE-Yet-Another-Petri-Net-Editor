@@ -1,288 +1,355 @@
 # YAPNE - Yet Another Petri Net Editor
 
-⚠️ **Warning:** This software is in early development and may contain bugs.
+![YAPNE logo](docs/yapne-logo.svg)
 
-A web-based, dependency-free, editor and simulator for Petri nets and data Petri nets with features for creating, editing, simulating, and analyzing Petri net models.
+YAPNE is a browser-based editor, simulator, and analysis environment for Petri nets and Data Petri nets.
 
-Inspired by [I ❤ Petri Nets](https://www.fernuni-hagen.de/ilovepetrinets/fapra/wise23/rot/index.html)
+The project has two usable parts:
 
-## Description
+- A reusable JavaScript library in `src/` for Petri net models, rendering, editing, simulation, import/export, and extensions.
+- A Vite frontend in `index.html`, `app.js`, `styles/`, and the UI integration modules.
 
-This project provides a complete solution for working with Petri nets, including a reusable JavaScript library for Petri net operations and a web-based user interface. The editor supports visual editing, simulation, and analysis of Petri nets, as well as event log generation for process mining.
+The frontend uses the same library files that can be imported by another editor or application.
 
-## Functionalities
+Inspired by [I love Petri Nets](https://www.fernuni-hagen.de/ilovepetrinets/fapra/wise23/rot/index.html).
 
-### Core Features
-- Create and edit Petri nets with places, transitions, and arcs
-- Support for different arc types (regular, inhibitor, reset, read)
-- Assign tokens, weights, and other properties to Petri net elements
-- Pan and zoom navigation
-- Snap-to-grid functionality
-- Automatic layout of Petri net elements
+## Status
+
+This project is under active development. Some advanced features are experimental, especially probabilistic execution, WebPPL-based constraint solving, Python import, and formal verification UI flows.
+
+## Features
+
+### Editor
+
+- Canvas editor for places, transitions, and arcs.
+- Regular, inhibitor, reset, and read-style arc handling.
+- Tokens, arc weights, labels, priorities, delays, silent transitions, capacities, and final markings.
+- Pan, zoom, fit-to-canvas, reset view, grid display, snap-to-grid, and optional color inversion.
+- Multi-selection, box selection, copy/paste, delete, undo/redo, and action history.
+- Ghost element workflow for quickly creating connected places and transitions.
+- Auto-connect support for nearby compatible nodes.
+- Automatic layout using the internal BPMN-style layout algorithm.
+- Properties, simulation, and verification side panels.
+- Built-in examples and workflow tutorials.
 
 ### Simulation
-- Step-by-step simulation of Petri net execution
-- Automatic simulation with priorities and delays
-- Visual indication of enabled transitions
-- Tokens display and tracking
 
-### Data Petri Net Extension
-- Support for data variables with different types (number, string, boolean)
-- Data-aware transitions with preconditions (guards) and postconditions (updates)
-- Variable tracking and history during simulation
-- Visual indicators for data transitions
-- Expression validation
+- Step-by-step firing of enabled transitions.
+- Automatic simulation with reset to captured initial marking.
+- Enabled transition highlighting.
+- Final marking checks.
+- Deadlock detection.
+- Probabilistic step execution with uniform or weighted scheduling.
+- Data-aware simulation for Data Petri nets.
 
-### Analysis and Export
-- Export to JSON and PNML formats
-- Import from JSON format
-- Event log generation for process mining
-- Configuration options for event log simulation
-- Export event logs in CSV, JSON, and XES formats
+### Data Petri Nets
 
-### User Interface
-- Properties panel for editing element attributes
-- Template library for common Petri net patterns
-- File operations (save, load, export)
-- Fullscreen mode
-- Customizable simulation parameters
+- Data variables with `int`, `bool`, and `real` types.
+- Data-aware transitions with guards and postconditions.
+- Guard language parser, validator, evaluator, and SMT emitter.
+- Variable valuation display and reset.
+- Constraint-style postconditions with optional WebPPL solving.
+- WebPPL code generation for probabilistic DPN analysis.
+
+### Import And Export
+
+- JSON load/save for YAPNE models.
+- PNML import and export.
+- PNG export from the current canvas.
+- Event log generation.
+- Event log export as CSV, JSON, and XES.
+- Python-to-DPN import dialog and transpiler.
+
+### Verification And Analysis
+
+- Reachability and deadlock-related model inspection.
+- Soundness verification UI for the Suvorov-Lomazova approach.
+- Z3-backed SMT support for verification modules.
+- Counterexample trace visualization for verification results.
+
+### Accessibility And Settings
+
+- Editor settings stored in local storage.
+- Configurable zoom sensitivity, pan sensitivity, grid size, auto-connect distance, grid visibility, snap-to-grid, and canvas color inversion.
+- Canvas accessibility integration modules.
+
+## Run The Frontend
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Build the production bundle:
+
+```bash
+npm run build
+```
+
+Preview a production build:
+
+```bash
+npm run preview
+```
+
+`npm run build` runs `npm run bundle:webppl` first. The WebPPL bundle is used by probabilistic execution and constraint-solving features.
 
 ## Project Structure
 
-The project is structured in two main parts:
-
-### Petri Net Library (`petri-net-simulator.js`)
-A standalone JavaScript library that provides the core functionality for Petri nets:
-
-- Core classes for Petri net elements (Place, Transition, Arc)
-- PetriNet class for the model
-- PetriNetRenderer for visualization
-- PetriNetEditor for user interaction
-- PetriNetAPI for high-level operations
-
-### Extensions Architecture
-The application supports extensions that can enhance the core functionality:
-
-#### Data Petri Net Extension
-Located in the `src/extensions/` directory:
-- `dpn-model.js` - Data variables and data-aware transitions
-- `dpn-api.js` - Extended API for data Petri nets
-- `dpn-renderer.js` - Custom rendering for data transitions
-- `dpn-ui.js` - UI components for data variables management
-- `dpn-integration.js` - Main integration module
-- `variable-tracking.js` - Variable history tracking
-
-### Web Application
-Front-end components that use the library:
-
-- `app.js` - Main application logic and UI integration
-- `index.html` - Application structure and UI layout
-- `event-log-generator.js` - Module for generating event logs from Petri net simulations
-- `event-log-integration.js` - UI integration for the event log generator
-
-## Extension Integration
-
-### Integrating Extensions
-
-Extensions are integrated into the main application using a modular approach:
-
-1. **Include Extension Scripts**: Add extension scripts in the HTML file after the core library
-   ```html
-   <!-- Core library -->
-   <script src="src/petri-net-simulator.js"></script>
-   
-   <!-- Extensions -->
-   <script src="src/extensions/dpn-model.js"></script>
-   <script src="src/extensions/dpn-api.js"></script>
-   <script src="src/extensions/dpn-renderer.js"></script>
-   <script src="src/extensions/dpn-ui.js"></script>
-   <script src="src/extensions/dpn-integration.js"></script>
-   ```
-
-2. **Integration Pattern**: Each extension has an integration module that handles:
-   - Extending the core API class with new functionality
-   - Replacing or extending rendering functionality
-   - Adding new UI components
-   - Preserving compatibility with the core application
-
-3. **Initialization**: Extensions are initialized after the main application loads
-   ```javascript
-   document.addEventListener('DOMContentLoaded', () => {
-     // Wait for the main application to initialize
-     const initTimer = setInterval(() => {
-       if (window.petriApp) {
-         window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
-         clearInterval(initTimer);
-       }
-     }, 100);
-   });
-   ```
-
-### Creating New Extensions
-
-To create a new extension:
-
-1. Create JavaScript files for your extension components
-2. Extend the appropriate core classes (API, Renderer, Editor)
-3. Create an integration module that:
-   - Injects styles if needed
-   - Extends the API with new functionality
-   - Extends or replaces the renderer if needed
-   - Initializes UI components
-   - Extends application event handlers
-4. Include your extension scripts in the HTML after the core library
-5. Initialize your extension after the main application loads
-
-## API Reference
-
-### PetriNetAPI
-
-The main interface for working with Petri nets.
-
-#### Initialization
-```javascript
-// Create a new Petri net
-const api = new PetriNetAPI();
-
-// Attach to a canvas element
-const editor = api.attachEditor(canvasElement);
+```text
+.
+|-- index.html                         # Frontend shell
+|-- app.js                             # Frontend bootstrap and extension setup
+|-- src/
+|   |-- petri-net-simulator.js         # Core model, renderer, editor, and API
+|   |-- petri-net-app.js               # Main application class used by the frontend
+|   |-- event-log-generator.js         # Basic event log generation
+|   |-- properties-panel.js            # Element properties panel
+|   |-- simulation-dashboard.js        # Simulation panel
+|   |-- verification-panel.js          # Verification panel shell
+|   `-- extensions/
+|       |-- dpn-model.js               # Data Petri net model classes
+|       |-- dpn-api.js                 # Data Petri net API
+|       |-- dpn-renderer.js            # Data-aware rendering
+|       |-- dpn-ui.js                  # Data variable and expression UI
+|       |-- dpn-integration.js         # Frontend DPN integration
+|       |-- guard-language/            # Guard parser, evaluator, validator, SMT emitter
+|       |-- pnml-importer.js           # PNML import
+|       |-- png-exporter.js            # PNG export
+|       |-- probabilistic-execution.js # Probabilistic execution engine
+|       |-- webppl-code-generator.js   # WebPPL code generation
+|       |-- python-dpn-transpiler.js   # Python-to-DPN conversion
+|       `-- soundness-verification/    # Suvorov-Lomazova verification modules
+|-- styles/                            # Frontend styles
+|-- public/                            # Static assets, examples, WebPPL, Z3
+|-- docs/                              # Documentation and diagrams
+`-- tests/                             # Browser-oriented and module examples
 ```
 
-#### Petri Net Structure
-```javascript
-// Add elements
-const placeId = api.createPlace(x, y, label, tokens);
-const transitionId = api.createTransition(x, y, label);
-const arcId = api.createArc(sourceId, targetId, weight, type);
+## Library Usage
 
-// Remove elements
-api.removeElement(id);
+The core library is separate from the YAPNE frontend. Use it directly when building another editor, embedding a Petri net canvas, or generating and simulating models programmatically.
 
-// Modify elements
-api.setLabel(id, label);
-api.setPosition(id, x, y);
-api.setPlaceTokens(id, tokens);
-api.setArcWeight(id, weight);
-api.setArcType(id, type);
+### Core Petri Net API
+
+```html
+<canvas id="net"></canvas>
+<script type="module">
+  import { PetriNetAPI } from "./src/petri-net-simulator.js";
+
+  const canvas = document.getElementById("net");
+  const api = new PetriNetAPI(undefined, "Order Process");
+  const editor = api.attachEditor(canvas);
+
+  const start = api.createPlace(120, 160, "start", 1);
+  const approve = api.createTransition(260, 160, "approve");
+  const done = api.createPlace(400, 160, "done", 0, 1);
+
+  api.createArc(start, approve, 1, "regular");
+  api.createArc(approve, done, 1, "regular");
+
+  console.log(api.getEnabledTransitions());
+  api.fireTransition(approve);
+
+  const json = api.exportAsJSON();
+  const pnml = api.exportAsPNML();
+
+  editor.setMode("select");
+  editor.setSnapToGrid(true, 10);
+</script>
 ```
 
-#### Simulation
-```javascript
-// Check and fire transitions
-const enabledTransitions = api.getEnabledTransitions();
-api.fireTransition(id);
-api.autoFireEnabledTransitions(maxSteps);
+Useful core imports:
+
+```js
+import {
+  PetriNetAPI,
+  PetriNetEditor,
+  PetriNetRenderer,
+  PetriNet,
+  Place,
+  Transition,
+  Arc
+} from "./src/petri-net-simulator.js";
 ```
 
-#### Analysis
-```javascript
-// Detect deadlocks
-const deadlocks = api.detectDeadlocks();
+Common `PetriNetAPI` methods:
+
+- `attachEditor(canvasElement)`
+- `createPlace(x, y, label, tokens, finalMarking)`
+- `createTransition(x, y, label)`
+- `createArc(sourceId, targetId, weight, type)`
+- `removeElement(id)`
+- `setLabel(id, label)`
+- `setPosition(id, x, y)`
+- `setPlaceTokens(id, tokens)`
+- `setPlaceFinalMarking(id, finalMarking)`
+- `setArcWeight(id, weight)`
+- `setArcType(id, type)`
+- `getEnabledTransitions()`
+- `fireTransition(id)`
+- `autoFireEnabledTransitions(maxSteps)`
+- `detectDeadlocks()`
+- `checkFinalMarkings()`
+- `fitToCanvas(padding)`
+- `autoLayout(options)`
+- `exportAsJSON()`
+- `PetriNetAPI.importFromJSON(json)`
+- `exportAsPNML()`
+
+### Data Petri Net API
+
+```html
+<canvas id="dpn"></canvas>
+<script type="module">
+  import { DataPetriNetAPI } from "./src/extensions/dpn-api.js";
+  import { DataPetriNetRenderer } from "./src/extensions/dpn-renderer.js";
+
+  const canvas = document.getElementById("dpn");
+  const api = new DataPetriNetAPI(undefined, "Data Example");
+  const editor = api.attachEditor(canvas);
+
+  editor.renderer = new DataPetriNetRenderer(canvas, api.petriNet);
+
+  const order = api.createPlace(120, 180, "order", 1);
+  const check = api.createDataTransition(
+    280,
+    180,
+    "check",
+    "amount > 100",
+    "approved' = true"
+  );
+  const complete = api.createPlace(440, 180, "complete", 0, 1);
+
+  api.createDataVariable("amount", "int", 250);
+  api.createDataVariable("approved", "bool", false);
+  api.createArc(order, check);
+  api.createArc(check, complete);
+
+  await api.fireTransition(check);
+  console.log(api.getDataValuation());
+</script>
 ```
 
-#### Layout
-```javascript
-// Auto-layout the Petri net
-api.autoLayout({
-  horizontalSpacing: 150,
-  verticalSpacing: 100,
-  direction: 'horizontal'
-});
+Useful DPN imports:
+
+```js
+import { DataPetriNetAPI } from "./src/extensions/dpn-api.js";
+import { DataPetriNet, DataAwareTransition, DataVariable } from "./src/extensions/dpn-model.js";
+import { DataPetriNetRenderer } from "./src/extensions/dpn-renderer.js";
 ```
 
-#### Import/Export
-```javascript
-// Export as JSON
-const json = api.exportAsJSON();
+Common `DataPetriNetAPI` methods:
 
-// Import from JSON
-const newApi = PetriNetAPI.importFromJSON(json);
+- `createDataVariable(name, type, initialValue, description)`
+- `getDataVariable(id)`
+- `getDataVariables()`
+- `removeDataVariable(id)`
+- `updateDataVariableValue(id, value)`
+- `createDataTransition(x, y, label, precondition, postcondition)`
+- `setTransitionPrecondition(transitionId, precondition)`
+- `setTransitionPostcondition(transitionId, postcondition)`
+- `getDataValuation()`
+- `resetDataVariables()`
+- `fireTransition(id)`
+- `autoFireEnabledTransitions(maxSteps)`
+- `exportDataVariablesToJSON()`
+- `importDataVariablesFromJSON(json)`
+- `DataPetriNetAPI.importFromJSON(json)`
 
-// Export as PNML
-const pnml = api.exportAsPNML();
-```
+### Event Log Generation
 
-### DataPetriNetAPI (Extension)
+```js
+import { EventLogGenerator } from "./src/event-log-generator.js";
 
-Extended API for working with Data Petri Nets.
-
-```javascript
-// Create a new Data Petri Net
-const api = new DataPetriNetAPI();
-
-// Data variables
-const varId = api.createDataVariable('counter', 'number', 0, 'Counter variable');
-api.updateDataVariableValue(varId, 10);
-const variables = api.getDataVariables();
-
-// Data transitions
-const transId = api.createDataTransition(x, y, 'Process', 'counter > 0', 'counter\' = counter - 1;');
-api.setTransitionPrecondition(transId, 'counter >= 5');
-api.setTransitionPostcondition(transId, 'counter\' = counter - 1; status\' = "processed";');
-
-// Validation
-const result = api.validatePrecondition('counter > 0', ['counter', 'status']);
-```
-
-### PetriNetEditor
-
-Handles user interaction with the Petri net.
-
-```javascript
-// Set editing mode
-editor.setMode('select'); // 'select', 'addPlace', 'addTransition', 'addArc'
-
-// Selection
-editor.selectElement(id, type);
-editor.deleteSelected();
-
-// View control
-editor.resetView();
-editor.setSnapToGrid(enabled, gridSize);
-
-// Event callbacks
-editor.setOnChangeCallback(callback);
-editor.setOnSelectCallback(callback);
-```
-
-### EventLogGenerator
-
-Generates event logs from Petri net simulations.
-
-```javascript
-// Create a generator with options
-const generator = new EventLogGenerator(petriNet, {
+const generator = new EventLogGenerator(api.petriNet, {
   startTimestamp: new Date(),
-  timeUnit: 'minutes',
+  timeUnit: "minutes",
   caseArrivalRate: 10,
-  arrivalDistribution: 'exponential',
-  caseName: 'Case'
+  arrivalDistribution: "exponential",
+  transitionSelectionStrategy: "priority",
+  seed: 1234
 });
 
-// Run simulation
-const eventLog = generator.simulateCases(numCases, maxSteps);
+await generator.simulateCases(100, 1000);
 
-// Export results
 const csv = generator.exportToCSV();
 const json = generator.exportToJSON();
 const xes = generator.exportToXES();
 ```
 
-## Usage
+### Probabilistic Execution
 
-1. Include the Petri net library and extensions in your HTML:
-```html
-<script src="src/petri-net-simulator.js"></script>
-<script src="src/extensions/dpn-model.js"></script>
-<script src="src/extensions/dpn-api.js"></script>
-<script src="src/extensions/dpn-renderer.js"></script>
-<script src="src/extensions/dpn-ui.js"></script>
-<script src="src/extensions/dpn-integration.js"></script>
+```js
+import { ProbabilisticExecutionEngine } from "./src/extensions/probabilistic-execution.js";
+
+const engine = new ProbabilisticExecutionEngine({
+  scheduler: "uniform",
+  seed: 1234,
+  maxSteps: 1000
+});
+
+const stepResult = await engine.step(api.petriNet);
+const runResult = await engine.runFullSimulation(api.petriNet, {
+  validateGoal: false
+});
 ```
 
-2. Initialize the application:
-```javascript
-const app = new PetriNetApp();
+Related modules:
+
+- `src/extensions/probabilistic-event-log-generator.js`
+- `src/extensions/webppl-code-generator.js`
+- `src/extensions/probabilistic-integration.js`
+
+### Frontend Application
+
+The shipped frontend initializes `PetriNetApp` and then installs extensions in `app.js`.
+
+```js
+const app = new window.PetriNetApp();
+window.petriApp = app;
 ```
 
-3. Use the UI to create and simulate Petri nets, or programmatically interact with the API.
+For a custom frontend, import only the modules you need. A minimal editor needs `PetriNetAPI` plus a canvas. A full YAPNE-like frontend also wires `PetriNetApp`, panels, DPN integration, PNML import, PNG export, event log integration, verification UI, and probabilistic integration.
+
+## Extension Notes
+
+Extensions are plain ES modules. Most frontend integrations follow this pattern:
+
+1. Import the extension module after the core simulator.
+2. Create or replace API, renderer, or UI objects as needed.
+3. Attach the extension to the current `PetriNetApp` instance.
+4. Re-render and update side panels after model changes.
+
+The DPN integration is the main example of this pattern:
+
+```js
+import { DataPetriNetIntegration } from "./src/extensions/dpn-integration.js";
+
+window.dataPetriNetIntegration = new DataPetriNetIntegration(window.petriApp);
+```
+
+## Model Formats
+
+YAPNE JSON stores the full editor model, including places, transitions, arcs, labels, markings, final markings, and DPN data where applicable.
+
+PNML support is intended for interoperability with other Petri net tools. Some YAPNE-specific DPN and UI metadata may not have a direct PNML equivalent.
+
+## Examples
+
+Example models are stored in `public/examples/`. They include basic soundness examples, violation examples, concurrency examples, and Data Petri net models such as order processing, emergency triage, and Fibonacci.
+
+## Documentation
+
+- `docs/user_manual.md`
+- `docs/high_level_functions.txt`
+- `docs/low_level_functions.txt`
+- `docs/architecture.png`
+- `docs/data_petri_nets.png`
