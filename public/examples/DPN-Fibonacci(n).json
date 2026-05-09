@@ -109,7 +109,7 @@
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "i < n;",
+      "precondition": "i < n",
       "postcondition": ""
     },
     {
@@ -124,7 +124,7 @@
       "isEnabled": false,
       "priority": 1,
       "delay": 0,
-      "precondition": "i >= n;",
+      "precondition": "i >= n",
       "postcondition": "result' = b"
     },
     {
