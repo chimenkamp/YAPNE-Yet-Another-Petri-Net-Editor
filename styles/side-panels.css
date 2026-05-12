@@ -714,6 +714,46 @@ body.panels-open-4 .side-panel.open.panel-stack-bottom {
   grid-template-columns: 58px 1fr;
 }
 
+.analysis-component-row.selectable {
+  grid-template-columns: 110px 1fr;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.analysis-component-row.selectable.selected {
+  background: rgba(136, 192, 208, 0.1);
+}
+
+.analysis-component-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.analysis-component-select input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #88C0D0;
+}
+
+.analysis-component-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--component-color);
+  box-shadow: 0 0 0 2px rgba(236, 239, 244, 0.18);
+  flex: 0 0 auto;
+}
+
+.analysis-component-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .analysis-component-row span + span {
   grid-column: 2;
 }

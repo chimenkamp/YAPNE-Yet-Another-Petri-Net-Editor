@@ -75,26 +75,32 @@ class DataPetriNetRenderer extends PetriNetRenderer {
    * @private
    */
   drawStandardTransition(transition) {
+    const highlightColors = this.getStructuralHighlightColors(transition.id);
+    const highlightColor = highlightColors[0] || null;
 
     this.ctx.beginPath();
-    this.ctx.rect(
-      transition.position.x - transition.width / 2,
-      transition.position.y - transition.height / 2,
-      transition.width,
-      transition.height
-    );
+    const x = transition.position.x - transition.width / 2;
+    const y = transition.position.y - transition.height / 2;
+    this.ctx.rect(x, y, transition.width, transition.height);
     
     // Silent transitions are always grey
     if (transition.silent) {
       this.ctx.fillStyle = this.theme.silentTransitionColor;
     } else {
-      this.ctx.fillStyle = transition.isEnabled ?
-        this.theme.enabledTransitionColor : this.theme.transitionColor;
+      this.ctx.fillStyle = highlightColor
+        ? this.colorWithAlpha(highlightColor, 0.36)
+        : transition.isEnabled
+          ? this.theme.enabledTransitionColor
+          : this.theme.transitionColor;
     }
     this.ctx.fill();
-    this.ctx.strokeStyle = this.theme.transitionStroke;
-    this.ctx.lineWidth = this.theme.elementStrokeWidth;
-    this.ctx.stroke();
+    if (highlightColors.length) {
+      this.drawStructuralTransitionStroke(transition, highlightColors);
+    } else {
+      this.ctx.strokeStyle = this.theme.transitionStroke;
+      this.ctx.lineWidth = this.theme.elementStrokeWidth;
+      this.ctx.stroke();
+    }
 
     // Only draw label for non-silent transitions
     if (!transition.silent) {
@@ -119,6 +125,8 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     const y = transition.position.y;
     const width = transition.width;
     const height = transition.height;
+    const highlightColors = this.getStructuralHighlightColors(transition.id);
+    const highlightColor = highlightColors[0] || null;
     
 
     this.ctx.beginPath();
@@ -133,18 +141,24 @@ class DataPetriNetRenderer extends PetriNetRenderer {
     if (transition.silent) {
       this.ctx.fillStyle = this.theme.silentTransitionColor;
     } else if (transition.isEnabled) {
-      this.ctx.fillStyle = this.theme.enabledDataTransitionColor;
+      this.ctx.fillStyle = highlightColor ? this.colorWithAlpha(highlightColor, 0.36) : this.theme.enabledDataTransitionColor;
     } else {
       const isTokenEnabled = this.isTransitionTokenEnabled(transition.id);
-      this.ctx.fillStyle = isTokenEnabled ? 
-        this.theme.disabledDataTransitionColor : // Data guard is preventing firing
-        this.theme.dataTransitionColor;          // Not enabled due to tokens
+      this.ctx.fillStyle = highlightColor
+        ? this.colorWithAlpha(highlightColor, 0.36)
+        : isTokenEnabled
+          ? this.theme.disabledDataTransitionColor // Data guard is preventing firing
+          : this.theme.dataTransitionColor;        // Not enabled due to tokens
     }
     
     this.ctx.fill();
-    this.ctx.strokeStyle = this.theme.dataTransitionStroke;
-    this.ctx.lineWidth = this.theme.elementStrokeWidth;
-    this.ctx.stroke();
+    if (highlightColors.length) {
+      this.drawStructuralTransitionStroke(transition, highlightColors);
+    } else {
+      this.ctx.strokeStyle = this.theme.dataTransitionStroke;
+      this.ctx.lineWidth = this.theme.elementStrokeWidth;
+      this.ctx.stroke();
+    }
     
     // Only draw indicators and label for non-silent transitions
     if (!transition.silent) {

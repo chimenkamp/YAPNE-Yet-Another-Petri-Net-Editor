@@ -70,9 +70,14 @@
         "path": ""
     },
     {
-        "name": "ANALYSIS: S-Components and Free-Choice",
+        "name": "ANALYSIS: S-Components (Not S-Coverable)",
         "description": "Two independent cyclic service cells. Shows S-components, S-coverability, and a free-choice structure.",
-        "path": "examples/analysis-s-components-free-choice.json"
+        "path": "examples/s-components_example(1).json"
+    },
+    {
+        "name": "ANALYSIS: S-Components (S-Coverable)",
+        "description": "Two independent cyclic service cells. Shows S-components, S-coverability, and a free-choice structure.",
+        "path": "examples/s-components(2).json"
     },
     {
         "name": "ANALYSIS: Free-Choice Violation",

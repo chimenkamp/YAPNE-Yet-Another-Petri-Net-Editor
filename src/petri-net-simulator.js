@@ -641,7 +641,9 @@ const DEFAULT_RENDERER_THEME = {
   selectionLineWidth: 2,
   selectionBoxLineWidth: 1.5,
   selectionBoundsLineWidth: 1.5,
-  selectionArcLineWidth: 3
+  selectionArcLineWidth: 3,
+  structuralHighlightLineWidth: 4,
+  structuralHighlightArcLineWidth: 4
 };
 
 const INVERTED_RENDERER_THEME = {
@@ -672,7 +674,9 @@ const INVERTED_RENDERER_THEME = {
   selectionLineWidth: 2.6,
   selectionBoxLineWidth: 2.2,
   selectionBoundsLineWidth: 2.2,
-  selectionArcLineWidth: 3.6
+  selectionArcLineWidth: 3.6,
+  structuralHighlightLineWidth: 4.4,
+  structuralHighlightArcLineWidth: 4.4
 };
 
 class PetriNetRenderer {
@@ -694,6 +698,7 @@ class PetriNetRenderer {
 
     this.invertEditorColors = false;
     this.theme = { ...DEFAULT_RENDERER_THEME };
+    this.structuralHighlights = { nodes: new Map(), arcs: new Map() };
   }
 
   clone() {
@@ -702,7 +707,247 @@ class PetriNetRenderer {
     cloned.zoomFactor = this.zoomFactor;
     cloned.theme = { ...this.theme };
     cloned.invertEditorColors = this.invertEditorColors;
+    cloned.structuralHighlights = {
+      nodes: new Map(this.structuralHighlights.nodes),
+      arcs: new Map(this.structuralHighlights.arcs)
+    };
     return cloned;
+  }
+
+  setStructuralHighlights(components = []) {
+    const nodes = new Map();
+    const arcs = new Map();
+    const addColor = (map, id, color) => {
+      if (!map.has(id)) {
+        map.set(id, []);
+      }
+
+      const colors = map.get(id);
+      if (!colors.includes(color)) {
+        colors.push(color);
+      }
+    };
+
+    for (const component of components) {
+      const color = component.color || '#88C0D0';
+      const componentNodes = new Set([
+        ...(component.placeIds || []),
+        ...(component.transitionIds || [])
+      ]);
+
+      for (const id of componentNodes) {
+        addColor(nodes, id, color);
+      }
+
+      for (const [arcId, arc] of this.petriNet.arcs) {
+        if (componentNodes.has(arc.source) && componentNodes.has(arc.target)) {
+          addColor(arcs, arcId, color);
+        }
+      }
+    }
+
+    this.structuralHighlights = { nodes, arcs };
+  }
+
+  clearStructuralHighlights() {
+    this.structuralHighlights = { nodes: new Map(), arcs: new Map() };
+  }
+
+  getStructuralHighlight(id) {
+    return this.getStructuralHighlightColors(id)[0] || null;
+  }
+
+  getStructuralHighlightColors(id) {
+    const colors = this.structuralHighlights.nodes.get(id);
+    if (!colors) return [];
+    return Array.isArray(colors) ? colors : [colors];
+  }
+
+  getStructuralArcHighlight(id) {
+    return this.getStructuralArcHighlightColors(id)[0] || null;
+  }
+
+  getStructuralArcHighlightColors(id) {
+    const colors = this.structuralHighlights.arcs.get(id);
+    if (!colors) return [];
+    return Array.isArray(colors) ? colors : [colors];
+  }
+
+  colorWithAlpha(color, alpha) {
+    const hex = String(color || '').trim();
+    const shortHex = /^#([0-9a-f]{3})$/i.exec(hex);
+    const fullHex = /^#([0-9a-f]{6})$/i.exec(hex);
+
+    if (shortHex) {
+      const [, value] = shortHex;
+      const r = parseInt(value[0] + value[0], 16);
+      const g = parseInt(value[1] + value[1], 16);
+      const b = parseInt(value[2] + value[2], 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    if (fullHex) {
+      const [, value] = fullHex;
+      const r = parseInt(value.slice(0, 2), 16);
+      const g = parseInt(value.slice(2, 4), 16);
+      const b = parseInt(value.slice(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    return color;
+  }
+
+  drawSegmentedCircleStroke(x, y, radius, colors) {
+    if (!colors.length) return;
+
+    if (colors.length === 1) {
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+      this.ctx.strokeStyle = colors[0];
+      this.ctx.lineWidth = this.theme.structuralHighlightLineWidth;
+      this.ctx.stroke();
+      return;
+    }
+
+    const segments = Math.max(12, colors.length * 6);
+    const gap = 0.035;
+    this.ctx.lineWidth = this.theme.structuralHighlightLineWidth;
+    this.ctx.lineCap = 'butt';
+
+    for (let index = 0; index < segments; index += 1) {
+      const start = -Math.PI / 2 + (index / segments) * Math.PI * 2 + gap;
+      const end = -Math.PI / 2 + ((index + 1) / segments) * Math.PI * 2 - gap;
+      this.ctx.beginPath();
+      this.ctx.arc(x, y, radius, start, end);
+      this.ctx.strokeStyle = colors[index % colors.length];
+      this.ctx.stroke();
+    }
+  }
+
+  drawSegmentedRectStroke(x, y, width, height, colors) {
+    if (!colors.length) return;
+
+    if (colors.length === 1) {
+      this.ctx.strokeStyle = colors[0];
+      this.ctx.lineWidth = this.theme.structuralHighlightLineWidth;
+      this.ctx.strokeRect(x, y, width, height);
+      return;
+    }
+
+    const perimeter = (width + height) * 2;
+    const segments = Math.max(12, colors.length * 6);
+    const gap = Math.min(4, perimeter / segments * 0.18);
+    this.ctx.lineWidth = this.theme.structuralHighlightLineWidth;
+    this.ctx.lineCap = 'butt';
+
+    const pointAt = distance => {
+      const d = ((distance % perimeter) + perimeter) % perimeter;
+      if (d <= width) return { x: x + d, y };
+      if (d <= width + height) return { x: x + width, y: y + d - width };
+      if (d <= width * 2 + height) return { x: x + width - (d - width - height), y: y + height };
+      return { x, y: y + height - (d - width * 2 - height) };
+    };
+    const corners = [width, width + height, width * 2 + height];
+
+    for (let index = 0; index < segments; index += 1) {
+      const start = (index / segments) * perimeter + gap;
+      const end = ((index + 1) / segments) * perimeter - gap;
+      const points = [
+        pointAt(start),
+        ...corners.filter(corner => corner > start && corner < end).map(pointAt),
+        pointAt(end)
+      ];
+
+      this.ctx.beginPath();
+      this.ctx.moveTo(points[0].x, points[0].y);
+      for (const point of points.slice(1)) {
+        this.ctx.lineTo(point.x, point.y);
+      }
+      this.ctx.strokeStyle = colors[index % colors.length];
+      this.ctx.stroke();
+    }
+  }
+
+  drawStructuralPlaceStroke(place, colors) {
+    this.drawSegmentedCircleStroke(place.position.x, place.position.y, place.radius, colors);
+  }
+
+  drawStructuralTransitionStroke(transition, colors) {
+    this.drawSegmentedRectStroke(
+      transition.position.x - transition.width / 2,
+      transition.position.y - transition.height / 2,
+      transition.width,
+      transition.height,
+      colors
+    );
+  }
+
+  drawSegmentedPolyline(points, colors, lineWidth, dash = []) {
+    if (points.length < 2 || !colors.length) return;
+
+    if (colors.length === 1) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(points[0].x, points[0].y);
+      for (const point of points.slice(1)) {
+        this.ctx.lineTo(point.x, point.y);
+      }
+      this.ctx.strokeStyle = colors[0];
+      this.ctx.lineWidth = lineWidth;
+      this.ctx.setLineDash(dash);
+      this.ctx.stroke();
+      return;
+    }
+
+    const parts = [];
+    let totalLength = 0;
+
+    for (let index = 1; index < points.length; index += 1) {
+      const from = points[index - 1];
+      const to = points[index];
+      const length = Math.hypot(to.x - from.x, to.y - from.y);
+      if (!length) continue;
+      parts.push({ from, to, length, start: totalLength, end: totalLength + length });
+      totalLength += length;
+    }
+
+    if (!totalLength) return;
+
+    const segments = Math.max(12, colors.length * 6, Math.ceil(totalLength / 28));
+    const gap = Math.min(6, totalLength / segments * 0.16);
+
+    const pointAt = distance => {
+      const d = Math.max(0, Math.min(distance, totalLength));
+      const part = parts.find(item => d <= item.end) || parts[parts.length - 1];
+      const ratio = part.length ? (d - part.start) / part.length : 0;
+      return {
+        x: part.from.x + (part.to.x - part.from.x) * ratio,
+        y: part.from.y + (part.to.y - part.from.y) * ratio
+      };
+    };
+
+    this.ctx.lineWidth = lineWidth;
+    this.ctx.lineCap = 'butt';
+    this.ctx.setLineDash(dash);
+
+    for (let index = 0; index < segments; index += 1) {
+      const start = Math.min(totalLength, (index / segments) * totalLength + gap);
+      const end = Math.max(start, ((index + 1) / segments) * totalLength - gap);
+      const strokePoints = [
+        pointAt(start),
+        ...parts
+          .filter(part => part.end > start && part.end < end)
+          .map(part => part.to),
+        pointAt(end)
+      ];
+
+      this.ctx.beginPath();
+      this.ctx.moveTo(strokePoints[0].x, strokePoints[0].y);
+      for (const point of strokePoints.slice(1)) {
+        this.ctx.lineTo(point.x, point.y);
+      }
+      this.ctx.strokeStyle = colors[index % colors.length];
+      this.ctx.stroke();
+    }
   }
 
   render() {
@@ -759,16 +1004,23 @@ class PetriNetRenderer {
 
 drawPlaces() {
   for (const [id, place] of this.petriNet.places) {
+    const highlightColors = this.getStructuralHighlightColors(id);
+    const highlightColor = highlightColors[0] || null;
+
     // Main place circle
     this.ctx.beginPath();
     this.ctx.arc(place.position.x, place.position.y, place.radius, 0, Math.PI * 2);
-    this.ctx.fillStyle = this.theme.placeColor;
+    this.ctx.fillStyle = highlightColor ? this.colorWithAlpha(highlightColor, 0.24) : this.theme.placeColor;
     this.ctx.fill();
     
     // Base stroke
-    this.ctx.strokeStyle = this.theme.placeStroke;
-    this.ctx.lineWidth = this.theme.elementStrokeWidth;
-    this.ctx.stroke();
+    if (highlightColors.length) {
+      this.drawStructuralPlaceStroke(place, highlightColors);
+    } else {
+      this.ctx.strokeStyle = this.theme.placeStroke;
+      this.ctx.lineWidth = this.theme.elementStrokeWidth;
+      this.ctx.stroke();
+    }
 
     // Draw final marking indicator if place has final marking
     if (place.hasFinalMarking()) {
@@ -856,26 +1108,32 @@ drawPlaces() {
 
   drawTransitions() {
     for (const [id, transition] of this.petriNet.transitions) {
+      const highlightColors = this.getStructuralHighlightColors(id);
+      const highlightColor = highlightColors[0] || null;
 
       this.ctx.beginPath();
-      this.ctx.rect(
-        transition.position.x - transition.width / 2,
-        transition.position.y - transition.height / 2,
-        transition.width,
-        transition.height
-      );
+      const x = transition.position.x - transition.width / 2;
+      const y = transition.position.y - transition.height / 2;
+      this.ctx.rect(x, y, transition.width, transition.height);
       
       // Silent transitions are always grey
       if (transition.silent) {
         this.ctx.fillStyle = this.theme.silentTransitionColor;
       } else {
-        this.ctx.fillStyle = transition.isEnabled ?
-          this.theme.enabledTransitionColor : this.theme.transitionColor;
+        this.ctx.fillStyle = highlightColor
+          ? this.colorWithAlpha(highlightColor, 0.36)
+          : transition.isEnabled
+            ? this.theme.enabledTransitionColor
+            : this.theme.transitionColor;
       }
       this.ctx.fill();
-      this.ctx.strokeStyle = this.theme.transitionStroke;
-      this.ctx.lineWidth = this.theme.elementStrokeWidth;
-      this.ctx.stroke();
+      if (highlightColors.length) {
+        this.drawStructuralTransitionStroke(transition, highlightColors);
+      } else {
+        this.ctx.strokeStyle = this.theme.transitionStroke;
+        this.ctx.lineWidth = this.theme.elementStrokeWidth;
+        this.ctx.stroke();
+      }
 
       // Only draw label for non-silent transitions
       if (!transition.silent) {
@@ -902,6 +1160,8 @@ drawPlaces() {
       if (!sourceElement || !targetElement) continue;
 
       const { start, end } = this.calculateArcEndpoints(sourceElement, targetElement);
+      const highlightColors = this.getStructuralArcHighlightColors(id);
+      const highlightColor = highlightColors[0] || null;
 
       // Set line style based on arc type
       this.ctx.save();
@@ -914,19 +1174,29 @@ drawPlaces() {
       }
 
       // Draw the arc line
-      this.ctx.beginPath();
-      this.ctx.moveTo(start.x, start.y);
+      const arcPath = [start, ...(arc.points || []), end];
+      if (highlightColors.length) {
+        this.drawSegmentedPolyline(
+          arcPath,
+          highlightColors,
+          this.theme.structuralHighlightArcLineWidth,
+          arc.type === "modifier" ? [5, 5] : []
+        );
+      } else {
+        this.ctx.beginPath();
+        this.ctx.moveTo(start.x, start.y);
 
-      if (arc.points.length > 0) {
-        for (const point of arc.points) {
-          this.ctx.lineTo(point.x, point.y);
+        if (arc.points.length > 0) {
+          for (const point of arc.points) {
+            this.ctx.lineTo(point.x, point.y);
+          }
         }
-      }
 
-      this.ctx.lineTo(end.x, end.y);
-      this.ctx.strokeStyle = this.theme.arcColor;
-      this.ctx.lineWidth = this.theme.arcLineWidth;
-      this.ctx.stroke();
+        this.ctx.lineTo(end.x, end.y);
+        this.ctx.strokeStyle = this.theme.arcColor;
+        this.ctx.lineWidth = this.theme.arcLineWidth;
+        this.ctx.stroke();
+      }
 
       // Calculate direction for arc endings
       const direction = this.calculateArcDirection(
@@ -937,19 +1207,19 @@ drawPlaces() {
       // Draw different endings based on arc type
       switch (arc.type) {
         case "inhibitor":
-          this.drawInhibitorEnding(end, direction);
+          this.drawInhibitorEnding(end, direction, highlightColor);
           break;
         case "read":
-          this.drawReadArcEnding(end, direction);
+          this.drawReadArcEnding(end, direction, highlightColor);
           break;
         case "reset":
-          this.drawResetArcEnding(end, direction);
+          this.drawResetArcEnding(end, direction, highlightColor);
           break;
         case "modifier":
-          this.drawModifierArcEnding(end, direction);
+          this.drawModifierArcEnding(end, direction, highlightColor);
           break;
         default: // regular arc
-          this.drawArrowhead(end, direction);
+          this.drawArrowhead(end, direction, highlightColor);
           break;
       }
 
@@ -985,7 +1255,7 @@ drawPlaces() {
   /**
    * Draws inhibitor arc ending (hollow circle)
    */
-  drawInhibitorEnding(position, angle) {
+  drawInhibitorEnding(position, angle, color = null) {
     const circleRadius = 6;
     const offset = 10;
     
@@ -997,7 +1267,7 @@ drawPlaces() {
     this.ctx.arc(circleX, circleY, circleRadius, 0, Math.PI * 2);
     this.ctx.fillStyle = this.theme.backgroundColor;
     this.ctx.fill();
-    this.ctx.strokeStyle = this.theme.arcColor;
+    this.ctx.strokeStyle = color || this.theme.arcColor;
     this.ctx.lineWidth = this.theme.arcLineWidth;
     this.ctx.stroke();
   }
@@ -1005,12 +1275,12 @@ drawPlaces() {
   /**
    * Draws read arc ending (filled dot before arrow)
    */
-  drawReadArcEnding(position, angle) {
+  drawReadArcEnding(position, angle, color = null) {
     const dotRadius = 4;
     const dotOffset = 15;
     
     // Draw the arrow first
-    this.drawArrowhead(position, angle);
+    this.drawArrowhead(position, angle, color);
     
     // Position the dot before the arrowhead
     const dotX = position.x - Math.cos(angle) * dotOffset;
@@ -1018,16 +1288,16 @@ drawPlaces() {
     
     this.ctx.beginPath();
     this.ctx.arc(dotX, dotY, dotRadius, 0, Math.PI * 2);
-    this.ctx.fillStyle = this.theme.arcColor;
+    this.ctx.fillStyle = color || this.theme.arcColor;
     this.ctx.fill();
   }
 
   /**
    * Draws reset arc ending (double arrow or special symbol)
    */
-  drawResetArcEnding(position, angle) {
+  drawResetArcEnding(position, angle, color = null) {
     // Draw double arrowhead for reset arc
-    this.drawArrowhead(position, angle);
+    this.drawArrowhead(position, angle, color);
     
     // Draw second arrowhead slightly behind
     const offset = 8;
@@ -1035,21 +1305,21 @@ drawPlaces() {
       x: position.x - Math.cos(angle) * offset,
       y: position.y - Math.sin(angle) * offset
     };
-    this.drawArrowhead(secondPos, angle);
+    this.drawArrowhead(secondPos, angle, color);
   }
 
   /**
    * Draws modifier arc ending (dotted line with arrow)
    */
-  drawModifierArcEnding(position, angle) {
+  drawModifierArcEnding(position, angle, color = null) {
     // Just draw a regular arrowhead, the line is already dotted
-    this.drawArrowhead(position, angle);
+    this.drawArrowhead(position, angle, color);
   }
 
   /**
    * Enhanced arrowhead drawing
    */
-  drawArrowhead(position, angle) {
+  drawArrowhead(position, angle, color = null) {
     const arrowSize = 10;
     const arrowAngle = Math.PI / 6; // 30 degrees
 
@@ -1064,7 +1334,7 @@ drawPlaces() {
       position.y - arrowSize * Math.sin(angle + arrowAngle)
     );
     this.ctx.closePath();
-    this.ctx.fillStyle = this.theme.arcColor;
+    this.ctx.fillStyle = color || this.theme.arcColor;
     this.ctx.fill();
   }
 

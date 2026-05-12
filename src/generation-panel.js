@@ -7,6 +7,15 @@ import {
   renderStructuralSvg
 } from './petri-net-analysis.js';
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 /**
  * Generation Panel Module
  *
@@ -21,6 +30,7 @@ export class GenerationPanel {
     this.toggleBtn = null;
     this.stateSpaceDialog = null;
     this.structuralDialog = null;
+    this.selectedStructuralComponents = new Set();
 
     this._init();
   }
@@ -350,6 +360,32 @@ export class GenerationPanel {
     this.renderStructuralDialog();
   }
 
+  getStructuralHighlightColors() {
+    return ['#88C0D0', '#A3BE8C', '#B48EAD', '#EBCB8B', '#D08770', '#81A1C1', '#BF616A'];
+  }
+
+  labelIds(ids, elements) {
+    return ids
+      .map(id => elements.get(id)?.label || id)
+      .join(', ');
+  }
+
+  applyStructuralHighlights(analysis) {
+    const colors = this.getStructuralHighlightColors();
+    const components = analysis.sComponents
+      .map((component, index) => ({ ...component, color: colors[index % colors.length] }))
+      .filter((_, index) => this.selectedStructuralComponents.has(index));
+
+    this.app?.editor?.renderer?.setStructuralHighlights(components);
+    this.app?.editor?.render({ updateEnabled: false });
+  }
+
+  clearStructuralHighlights() {
+    this.selectedStructuralComponents.clear();
+    this.app?.editor?.renderer?.clearStructuralHighlights();
+    this.app?.editor?.render({ updateEnabled: false });
+  }
+
   renderStructuralDialog() {
     const dialog = this.structuralDialog;
     const net = this.getNet();
@@ -362,6 +398,7 @@ export class GenerationPanel {
 
     summary.innerHTML = `
       <div class="analysis-stat-card"><span>S-components</span><strong>${analysis.sComponents.length}</strong></div>
+      <div class="analysis-stat-card ${analysis.isWorkflowNet ? 'ok' : 'warn'}"><span>Workflow net</span><strong>${analysis.isWorkflowNet ? 'Yes' : 'No'}</strong></div>
       <div class="analysis-stat-card ${analysis.isSCoverable ? 'ok' : 'warn'}"><span>S-coverable</span><strong>${analysis.isSCoverable ? 'Yes' : 'No'}</strong></div>
       <div class="analysis-stat-card ${analysis.isFreeChoice ? 'ok' : 'warn'}"><span>Free-choice</span><strong>${analysis.isFreeChoice ? 'Yes' : 'No'}</strong></div>
       <div class="analysis-stat-card"><span>Uncovered places</span><strong>${analysis.uncoveredPlaces.length}</strong></div>
@@ -369,12 +406,23 @@ export class GenerationPanel {
 
     visual.innerHTML = renderStructuralSvg(analysis);
 
+    const placesById = new Map(analysis.places.map(place => [place.id, place]));
+    const transitionsById = new Map(analysis.transitions.map(transition => [transition.id, transition]));
+    const colors = this.getStructuralHighlightColors();
+    this.selectedStructuralComponents = new Set(
+      [...this.selectedStructuralComponents].filter(index => index < analysis.sComponents.length)
+    );
+
     const componentList = analysis.sComponents.length
       ? analysis.sComponents.map((component, index) => `
-        <div class="analysis-component-row">
-          <strong>S${index + 1}</strong>
-          <span>Places: ${component.placeIds.join(', ') || 'none'}</span>
-          <span>Transitions: ${component.transitionIds.join(', ') || 'none'}</span>
+        <div class="analysis-component-row selectable ${this.selectedStructuralComponents.has(index) ? 'selected' : ''}">
+          <label class="analysis-component-select">
+            <input type="checkbox" class="structural-component-checkbox" data-component-index="${index}" ${this.selectedStructuralComponents.has(index) ? 'checked' : ''}>
+            <span class="analysis-component-color" style="--component-color:${colors[index % colors.length]}"></span>
+            <strong>S${index + 1}</strong>
+          </label>
+          <span>Places: ${escapeHtml(this.labelIds(component.placeIds, placesById) || 'none')}</span>
+          <span>Transitions: ${escapeHtml(this.labelIds(component.transitionIds, transitionsById) || 'none')}${component.usesShortCircuit ? ' + short-circuit' : ''}</span>
         </div>
       `).join('')
       : '<div class="analysis-empty compact">No S-components detected in this net.</div>';
@@ -382,16 +430,27 @@ export class GenerationPanel {
     const violations = analysis.freeChoiceViolations.length
       ? analysis.freeChoiceViolations.map(item => `
         <div class="analysis-component-row warn">
-          <strong>${item.placeId} → ${item.transitionId}</strong>
-          <span>Transition preset: { ${item.inputs.join(', ') || 'none'} }</span>
+          <strong>${escapeHtml(item.placeId)} → ${escapeHtml(item.transitionId)}</strong>
+          <span>Transition preset: { ${escapeHtml(item.inputs.join(', ') || 'none')} }</span>
         </div>
       `).join('')
       : '<div class="analysis-empty compact">No free-choice violations detected.</div>';
 
+    const workflowWarning = analysis.isWorkflowNet ? '' : `
+      <div class="analysis-note warn">
+        S-components are formally defined for workflow nets. ${analysis.workflowNetIssues.map(issue => escapeHtml(issue)).join(' ')}
+      </div>
+    `;
+
     details.innerHTML = `
+      ${workflowWarning}
       <div class="analysis-two-column">
         <section>
           <h3>S-components</h3>
+          <div class="analysis-component-actions">
+            <button id="structural-show-selected" class="sim-btn sim-btn-primary" ${analysis.sComponents.length ? '' : 'disabled'}>Show in Model</button>
+            <button id="structural-clear-selected" class="sim-btn generation-secondary-btn">Clear</button>
+          </div>
           ${componentList}
         </section>
         <section>
@@ -399,12 +458,36 @@ export class GenerationPanel {
           ${violations}
           ${analysis.uncoveredPlaces.length ? `
             <div class="analysis-note warn">
-              Uncovered places: ${analysis.uncoveredPlaces.map(place => place.label || place.id).join(', ')}
+              Uncovered places: ${escapeHtml(analysis.uncoveredPlaces.map(place => place.label || place.id).join(', '))}
             </div>
           ` : ''}
         </section>
       </div>
     `;
+
+    details.querySelectorAll('.structural-component-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', event => {
+        const index = Number(event.currentTarget.dataset.componentIndex);
+        if (event.currentTarget.checked) {
+          this.selectedStructuralComponents.add(index);
+        } else {
+          this.selectedStructuralComponents.delete(index);
+        }
+        event.currentTarget.closest('.analysis-component-row')?.classList.toggle('selected', event.currentTarget.checked);
+      });
+    });
+
+    details.querySelector('#structural-show-selected')?.addEventListener('click', () => {
+      this.applyStructuralHighlights(analysis);
+    });
+
+    details.querySelector('#structural-clear-selected')?.addEventListener('click', () => {
+      details.querySelectorAll('.structural-component-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+        checkbox.closest('.analysis-component-row')?.classList.remove('selected');
+      });
+      this.clearStructuralHighlights();
+    });
   }
 
   toggle() {

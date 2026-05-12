@@ -429,71 +429,306 @@ function postset(transitionId, arcs) {
     .sort();
 }
 
-function stronglyConnectedComponents(nodes, adjacency) {
-  let index = 0;
-  const stack = [];
-  const state = new Map();
-  const components = [];
-
-  function visit(node) {
-    state.set(node, { index, lowlink: index, onStack: true });
-    index += 1;
-    stack.push(node);
-
-    for (const next of adjacency.get(node) || []) {
-      if (!state.has(next)) {
-        visit(next);
-        state.get(node).lowlink = Math.min(state.get(node).lowlink, state.get(next).lowlink);
-      } else if (state.get(next).onStack) {
-        state.get(node).lowlink = Math.min(state.get(node).lowlink, state.get(next).index);
-      }
-    }
-
-    if (state.get(node).lowlink === state.get(node).index) {
-      const component = [];
-      let item;
-      do {
-        item = stack.pop();
-        state.get(item).onStack = false;
-        component.push(item);
-      } while (item !== node);
-      components.push(component);
-    }
-  }
-
-  for (const node of nodes) {
-    if (!state.has(node)) visit(node);
-  }
-
-  return components;
+function placeAdjacentTransitions(placeId, arcs, transitionIds) {
+  return unique(arcs
+    .filter(arc => (
+      (arc.source === placeId && transitionIds.has(arc.target)) ||
+      (arc.target === placeId && transitionIds.has(arc.source))
+    ))
+    .map(arc => arc.source === placeId ? arc.target : arc.source))
+    .sort();
 }
 
-export function analyzeStructuralProperties(net) {
-  const model = getModel(net);
+function hasPath(startId, targetId, adjacency) {
+  const queue = [startId];
+  const seen = new Set(queue);
+
+  while (queue.length) {
+    const id = queue.shift();
+    if (id === targetId) return true;
+
+    for (const next of adjacency.get(id) || []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+
+  return false;
+}
+
+function analyzeWorkflowNet(model, net) {
   const nodeIds = [
     ...model.places.map(place => place.id),
     ...model.transitions.map(transition => transition.id)
   ];
   const adjacency = new Map(nodeIds.map(id => [id, []]));
+  const reverseAdjacency = new Map(nodeIds.map(id => [id, []]));
 
   for (const arc of model.arcs) {
-    if (adjacency.has(arc.source)) adjacency.get(arc.source).push(arc.target);
+    if (!adjacency.has(arc.source) || !reverseAdjacency.has(arc.target)) continue;
+    adjacency.get(arc.source).push(arc.target);
+    reverseAdjacency.get(arc.target).push(arc.source);
   }
 
-  const components = stronglyConnectedComponents(nodeIds, adjacency)
-    .filter(component => component.length > 1)
-    .map(component => {
-      const placeIds = component.filter(id => model.placeIndex.has(id));
-      const transitionIds = component.filter(id => net.transitions.has(id));
-      const isSComponent = transitionIds.length > 0 && placeIds.length > 0 && transitionIds.every(transitionId => {
-        const inPlaces = preset(transitionId, model.arcs).filter(placeId => placeIds.includes(placeId));
-        const outPlaces = postset(transitionId, model.arcs).filter(placeId => placeIds.includes(placeId));
-        return inPlaces.length === 1 && outPlaces.length === 1;
-      });
+  const sourcePlaces = model.places.filter(place => (reverseAdjacency.get(place.id) || []).length === 0);
+  const sinkPlaces = model.places.filter(place => (adjacency.get(place.id) || []).length === 0);
+  const issues = [];
 
-      return { placeIds, transitionIds, isSComponent };
-    })
-    .filter(component => component.isSComponent);
+  if (sourcePlaces.length !== 1) {
+    issues.push(`Expected exactly one source place, found ${sourcePlaces.length}.`);
+  }
+
+  if (sinkPlaces.length !== 1) {
+    issues.push(`Expected exactly one sink place, found ${sinkPlaces.length}.`);
+  }
+
+  if (sourcePlaces.length === 1 && sinkPlaces.length === 1) {
+    const sourceId = sourcePlaces[0].id;
+    const sinkId = sinkPlaces[0].id;
+    const missingFromSource = nodeIds.filter(id => !hasPath(sourceId, id, adjacency));
+    const missingToSink = nodeIds.filter(id => !hasPath(id, sinkId, adjacency));
+
+    if (missingFromSource.length) {
+      issues.push(`${missingFromSource.length} node(s) are not reachable from the source place.`);
+    }
+
+    if (missingToSink.length) {
+      issues.push(`${missingToSink.length} node(s) cannot reach the sink place.`);
+    }
+  }
+
+  return {
+    isWorkflowNet: issues.length === 0 && model.places.length > 0 && net.transitions.size > 0,
+    sourcePlace: sourcePlaces.length === 1 ? sourcePlaces[0] : null,
+    sinkPlace: sinkPlaces.length === 1 ? sinkPlaces[0] : null,
+    issues
+  };
+}
+
+function addShortCircuitTransition(model, workflowNet) {
+  if (!workflowNet.isWorkflowNet) {
+    return {
+      arcs: model.arcs,
+      transitionIds: model.transitions.map(transition => transition.id),
+      symbolicTransitionId: null
+    };
+  }
+
+  const symbolicTransitionId = '__workflow_short_circuit_transition__';
+  const arcs = [
+    ...model.arcs,
+    {
+      id: '__workflow_short_circuit_in__',
+      source: workflowNet.sinkPlace.id,
+      target: symbolicTransitionId,
+      weight: 1,
+      type: 'regular',
+      symbolic: true
+    },
+    {
+      id: '__workflow_short_circuit_out__',
+      source: symbolicTransitionId,
+      target: workflowNet.sourcePlace.id,
+      weight: 1,
+      type: 'regular',
+      symbolic: true
+    }
+  ];
+
+  return {
+    arcs,
+    transitionIds: [...model.transitions.map(transition => transition.id), symbolicTransitionId],
+    symbolicTransitionId
+  };
+}
+
+function componentKey(placeIds, transitionIds) {
+  return `${[...placeIds].sort().join('|')}::${[...transitionIds].sort().join('|')}`;
+}
+
+function normalizeSComponent(placeIds, transitionIds, symbolicTransitionId) {
+  const realTransitionIds = transitionIds.filter(id => id !== symbolicTransitionId).sort();
+
+  return {
+    placeIds: placeIds.sort(),
+    transitionIds: realTransitionIds,
+    usesShortCircuit: transitionIds.includes(symbolicTransitionId),
+    isSComponent: realTransitionIds.length > 0 && placeIds.length > 0
+  };
+}
+
+function isStronglyConnectedSubnet(placeIds, transitionIds, arcs) {
+  const nodeIds = [...placeIds, ...transitionIds];
+  if (!nodeIds.length) return false;
+
+  const nodeSet = new Set(nodeIds);
+  const adjacency = new Map(nodeIds.map(id => [id, []]));
+
+  for (const arc of arcs) {
+    if (!nodeSet.has(arc.source) || !nodeSet.has(arc.target)) continue;
+    adjacency.get(arc.source).push(arc.target);
+  }
+
+  return nodeIds.every(from => nodeIds.every(to => hasPath(from, to, adjacency)));
+}
+
+function expandStateMachineComponents(initialPlaceIds, model, regularArcs, transitionIds, symbolicTransitionId) {
+  const components = [];
+  const seenStates = new Set();
+  const transitionSet = new Set(transitionIds);
+  const placeSet = new Set(model.places.map(place => place.id));
+
+  function stateKey(placeIds) {
+    return [...placeIds].sort().join('|');
+  }
+
+  function closePlacesOverTransitions(placeIds) {
+    const closedTransitionIds = new Set();
+
+    for (const placeId of placeIds) {
+      for (const transitionId of placeAdjacentTransitions(placeId, regularArcs, transitionSet)) {
+        closedTransitionIds.add(transitionId);
+      }
+    }
+
+    return closedTransitionIds;
+  }
+
+  function visit(placeIds) {
+    const key = stateKey(placeIds);
+    if (seenStates.has(key)) return;
+    seenStates.add(key);
+
+    const closedTransitionIds = closePlacesOverTransitions(placeIds);
+    const missingPlaceChoices = [];
+
+    for (const transitionId of closedTransitionIds) {
+      const inputPlaces = preset(transitionId, regularArcs).filter(id => placeSet.has(id));
+      const outputPlaces = postset(transitionId, regularArcs).filter(id => placeSet.has(id));
+      const selectedInputs = inputPlaces.filter(id => placeIds.has(id));
+      const selectedOutputs = outputPlaces.filter(id => placeIds.has(id));
+
+      if (selectedInputs.length > 1 || selectedOutputs.length > 1) return;
+      if (!selectedInputs.length) {
+        if (!inputPlaces.length) return;
+        missingPlaceChoices.push(inputPlaces);
+      }
+      if (!selectedOutputs.length) {
+        if (!outputPlaces.length) return;
+        missingPlaceChoices.push(outputPlaces);
+      }
+    }
+
+    if (missingPlaceChoices.length) {
+      const nextChoices = missingPlaceChoices[0].filter(placeId => !placeIds.has(placeId));
+      for (const placeId of nextChoices) {
+        visit(new Set([...placeIds, placeId]));
+      }
+      return;
+    }
+
+    const placeList = [...placeIds].sort();
+    const transitionList = [...closedTransitionIds].sort();
+    if (!isStronglyConnectedSubnet(placeList, transitionList, regularArcs)) return;
+
+    const component = normalizeSComponent(placeList, transitionList, symbolicTransitionId);
+    if (component.isSComponent) components.push(component);
+  }
+
+  visit(new Set(initialPlaceIds));
+  return components;
+}
+
+function findStateMachineCycles(model, arcs, transitionIds, symbolicTransitionId) {
+  const regularArcs = arcs.filter(arc => arc.type === 'regular');
+  const transitionEdges = [];
+
+  for (const transitionId of transitionIds) {
+    const inputPlaces = preset(transitionId, regularArcs);
+    const outputPlaces = postset(transitionId, regularArcs);
+
+    for (const inputPlaceId of inputPlaces) {
+      for (const outputPlaceId of outputPlaces) {
+        if (!model.placeIndex.has(inputPlaceId) || !model.placeIndex.has(outputPlaceId)) continue;
+        transitionEdges.push({ from: inputPlaceId, to: outputPlaceId, transitionId });
+      }
+    }
+  }
+
+  const edgesByPlace = new Map(model.places.map(place => [place.id, []]));
+  for (const edge of transitionEdges) {
+    edgesByPlace.get(edge.from)?.push(edge);
+  }
+
+  const components = [];
+  const seen = new Set();
+  const maxDepth = Math.max(1, model.places.length);
+
+  function addComponent(placePath) {
+    const placeIds = unique(placePath);
+
+    for (const component of expandStateMachineComponents(
+      placeIds,
+      model,
+      regularArcs,
+      transitionIds,
+      symbolicTransitionId
+    )) {
+      const key = componentKey(component.placeIds, [
+        ...component.transitionIds,
+        ...(component.usesShortCircuit ? [symbolicTransitionId] : [])
+      ]);
+      if (seen.has(key)) continue;
+
+      seen.add(key);
+      components.push(component);
+    }
+  }
+
+  function visit(startPlaceId, currentPlaceId, placePath, usedTransitions) {
+    if (placePath.length > maxDepth + 1) return;
+
+    for (const edge of edgesByPlace.get(currentPlaceId) || []) {
+      if (usedTransitions.has(edge.transitionId)) continue;
+
+      if (edge.to === startPlaceId) {
+        addComponent(placePath);
+        continue;
+      }
+
+      if (placePath.includes(edge.to)) continue;
+
+      visit(
+        startPlaceId,
+        edge.to,
+        [...placePath, edge.to],
+        new Set([...usedTransitions, edge.transitionId])
+      );
+    }
+  }
+
+  for (const place of model.places) {
+    visit(place.id, place.id, [place.id], new Set());
+  }
+
+  return components.sort((a, b) => {
+    if (a.usesShortCircuit !== b.usesShortCircuit) return a.usesShortCircuit ? -1 : 1;
+    if (b.placeIds.length !== a.placeIds.length) return b.placeIds.length - a.placeIds.length;
+    return a.placeIds.join('|').localeCompare(b.placeIds.join('|'));
+  });
+}
+
+export function analyzeStructuralProperties(net) {
+  const model = getModel(net);
+  const workflowNet = analyzeWorkflowNet(model, net);
+  const shortCircuited = addShortCircuitTransition(model, workflowNet);
+  const components = findStateMachineCycles(
+    model,
+    shortCircuited.arcs,
+    shortCircuited.transitionIds,
+    shortCircuited.symbolicTransitionId
+  );
 
   const coveredPlaces = new Set(components.flatMap(component => component.placeIds));
   const uncoveredPlaces = model.places.filter(place => !coveredPlaces.has(place.id));
@@ -530,6 +765,11 @@ export function analyzeStructuralProperties(net) {
     coveredPlaces: Array.from(coveredPlaces),
     uncoveredPlaces,
     isSCoverable: model.places.length > 0 && uncoveredPlaces.length === 0,
+    isWorkflowNet: workflowNet.isWorkflowNet,
+    workflowNetIssues: workflowNet.issues,
+    workflowSourcePlace: workflowNet.sourcePlace,
+    workflowSinkPlace: workflowNet.sinkPlace,
+    shortCircuitTransitionId: shortCircuited.symbolicTransitionId,
     isFreeChoice: freeChoiceViolations.length === 0,
     freeChoiceViolations
   };

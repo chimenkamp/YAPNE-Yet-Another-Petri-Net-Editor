@@ -4,6 +4,8 @@
 
 YAPNE is a browser-based editor, simulator, and analysis environment for Petri nets and Data Petri nets.
 
+Live Version: [YAPNE](https://chimenkamp.github.io/YAPNE-Yet-Another-Petri-Net-Editor/)
+
 The project has two usable parts:
 
 - A reusable JavaScript library in `src/` for Petri net models, rendering, editing, simulation, import/export, and extensions.
