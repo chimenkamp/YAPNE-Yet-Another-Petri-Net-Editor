@@ -410,10 +410,15 @@ class PNMLImporter {
               placeData.position || { x: 100, y: 100 },
               placeData.label,
               placeData.tokens,
-              placeData.capacity
+              placeData.capacity,
+              placeData.finalMarking ?? null,
+              placeData.fusionSet || ""
             );
             newAPI.petriNet.places.set(placeData.id, place);
           });
+          if (typeof newAPI.petriNet.syncAllFusionSetTokens === 'function') {
+            newAPI.petriNet.syncAllFusionSetTokens();
+          }
       
           await this.showProgress(dialog, 'Creating transitions...', 70);
       
@@ -656,7 +661,8 @@ class PNMLImporter {
             label: this.getTextContent(place.querySelector('name text')) || place.getAttribute('id'),
             tokens: parseInt(this.getTextContent(place.querySelector('initialMarking text')) || '0'),
             position: this.getPosition(place),
-            capacity: null
+            capacity: null,
+            fusionSet: this.getTextContent(place.querySelector('toolspecific[tool="YAPNE"] fusionSet')) || ''
             };
           const finalMarkingElement = place.querySelector('finalMarking text');
           if (finalMarkingElement) {
@@ -1195,10 +1201,15 @@ class PNMLImporter {
             placeData.position || { x: 100, y: 100 },
             placeData.label,
             placeData.tokens,
-            placeData.capacity
+            placeData.capacity,
+            placeData.finalMarking ?? null,
+            placeData.fusionSet || ""
           );
           newAPI.petriNet.places.set(placeData.id, place);
         });
+        if (typeof newAPI.petriNet.syncAllFusionSetTokens === 'function') {
+          newAPI.petriNet.syncAllFusionSetTokens();
+        }
   
         await this.showProgress(dialog, 'Creating transitions...', 70);
   

@@ -371,6 +371,7 @@ async initializeUI() {
 
             // Ensure editor also references the new petriNet
             integration.app.editor.petriNet = newPetriNet;
+            newPetriNet.applyViewLayout?.(newPetriNet.activeViewId, integration.app.editor.renderer, { saveCurrent: false });
 
             integration.app.editor.app = integration.app;
             integration.app.editor.setOnSelectCallback(integration.app.handleElementSelected.bind(integration.app));
@@ -387,6 +388,7 @@ async initializeUI() {
             integration.app.editor.setMode('select');
             integration.app.updateActiveButton('btn-select');
             integration.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
+            integration.app.viewsPanel?.refresh();
 
             integration.app.editor.render();
             integration.app.updateTokensDisplay();

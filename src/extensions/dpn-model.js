@@ -359,11 +359,12 @@ class DataPetriNet extends PetriNet {
     for (const arc of incomingArcs) {
       const place = this.places.get(arc.source);
       if (!place) continue;
+      const markingKey = this.getPlaceMarkingKey(arc.source);
 
       if (arc.type === "regular") {
-        place.removeTokens(arc.weight);
+        this.addMarkingTokens(markingKey, -arc.weight);
       } else if (arc.type === "reset") {
-        place.tokens = 0;
+        this.setMarkingTokens(markingKey, 0);
       }
     }
 
@@ -371,7 +372,7 @@ class DataPetriNet extends PetriNet {
       const place = this.places.get(arc.target);
       if (!place) continue;
 
-      place.addTokens(arc.weight);
+      this.addMarkingTokens(this.getPlaceMarkingKey(arc.target), arc.weight);
     }
 
     // Handle data updates (this is now async)
@@ -400,21 +401,26 @@ class DataPetriNet extends PetriNet {
     const incomingArcs2 = Array.from(this.arcs.values())
       .filter(arc => arc.target === trans2Id && arc.type === "regular");
 
-    // Check if they share any input places
-    const inputPlaces1 = new Set(incomingArcs1.map(arc => arc.source));
-    const inputPlaces2 = new Set(incomingArcs2.map(arc => arc.source));
+    // Check if they share any input marking, including fusion sets
+    const inputPlaces1 = new Set(incomingArcs1.map(arc => this.getPlaceMarkingKey(arc.source)));
+    const inputPlaces2 = new Set(incomingArcs2.map(arc => this.getPlaceMarkingKey(arc.source)));
 
-    for (const placeId of inputPlaces1) {
-      if (inputPlaces2.has(placeId)) {
+    for (const markingKey of inputPlaces1) {
+      if (inputPlaces2.has(markingKey)) {
         // Check if there are enough tokens to fire both
+        const placeId = this.getPlaceIdsForMarkingKey(markingKey)[0];
         const place = this.places.get(placeId);
         if (!place) continue;
 
         // Calculate total token requirement
-        const weight1 = incomingArcs1.find(arc => arc.source === placeId)?.weight || 0;
-        const weight2 = incomingArcs2.find(arc => arc.source === placeId)?.weight || 0;
+        const weight1 = incomingArcs1
+          .filter(arc => this.getPlaceMarkingKey(arc.source) === markingKey)
+          .reduce((sum, arc) => sum + arc.weight, 0);
+        const weight2 = incomingArcs2
+          .filter(arc => this.getPlaceMarkingKey(arc.source) === markingKey)
+          .reduce((sum, arc) => sum + arc.weight, 0);
 
-        if (place.tokens < weight1 + weight2) {
+        if (this.getPlaceTokens(placeId) < weight1 + weight2) {
           return true; // Conflict: not enough tokens for both
         }
       }
@@ -435,17 +441,18 @@ class DataPetriNet extends PetriNet {
     }
 
     // Group transitions by their input places to identify conflict sets
-    const conflictGroups = new Map(); // placeId -> array of transition IDs
+    const conflictGroups = new Map(); // markingKey -> array of transition IDs
 
     for (const transId of enabledTransitionIds) {
       const incomingArcs = Array.from(this.arcs.values())
         .filter(arc => arc.target === transId && arc.type === "regular");
 
       for (const arc of incomingArcs) {
-        if (!conflictGroups.has(arc.source)) {
-          conflictGroups.set(arc.source, []);
+        const markingKey = this.getPlaceMarkingKey(arc.source);
+        if (!conflictGroups.has(markingKey)) {
+          conflictGroups.set(markingKey, []);
         }
-        conflictGroups.get(arc.source).push({
+        conflictGroups.get(markingKey).push({
           transitionId: transId,
           weight: arc.weight
         });
@@ -455,17 +462,18 @@ class DataPetriNet extends PetriNet {
     // Find transitions that are actually in conflict
     const toFire = new Set(enabledTransitionIds);
 
-    for (const [placeId, transitions] of conflictGroups) {
+    for (const [markingKey, transitions] of conflictGroups) {
       if (transitions.length <= 1) continue;
 
-      const place = this.places.get(placeId);
-      if (!place) continue;
+      const placeId = this.getPlaceIdsForMarkingKey(markingKey)[0];
+      if (!placeId) continue;
+      const tokens = this.getPlaceTokens(placeId);
 
       // Calculate total token requirement
       const totalRequired = transitions.reduce((sum, t) => sum + t.weight, 0);
 
       // If there's a conflict (not enough tokens for all)
-      if (place.tokens < totalRequired) {
+      if (tokens < totalRequired) {
         // Group by priority and weight
         const transitionDetails = transitions.map(t => {
           const transition = this.transitions.get(t.transitionId);
@@ -486,7 +494,7 @@ class DataPetriNet extends PetriNet {
         });
 
         // Select transitions until we run out of tokens
-        let availableTokens = place.tokens;
+        let availableTokens = tokens;
         const selected = [];
 
         for (const trans of transitionDetails) {
@@ -528,7 +536,7 @@ class DataPetriNet extends PetriNet {
     const valuation = this.getDataValuation();
 
     // Phase 1: Collect all arc operations (token consumption and production)
-    const tokenDeltas = new Map(); // placeId -> delta (positive for production, negative for consumption)
+    const tokenDeltas = new Map(); // markingKey -> delta (positive for production, negative for consumption)
 
     for (const transitionId of transitionsToFire) {
       const incomingArcs = Array.from(this.arcs.values())
@@ -540,13 +548,14 @@ class DataPetriNet extends PetriNet {
       for (const arc of incomingArcs) {
         const place = this.places.get(arc.source);
         if (!place) continue;
+        const markingKey = this.getPlaceMarkingKey(arc.source);
 
         if (arc.type === "regular") {
-          const currentDelta = tokenDeltas.get(arc.source) || 0;
-          tokenDeltas.set(arc.source, currentDelta - arc.weight);
+          const currentDelta = tokenDeltas.get(markingKey) || 0;
+          tokenDeltas.set(markingKey, currentDelta - arc.weight);
         } else if (arc.type === "reset") {
           // Reset arcs set tokens to 0 (overrides any delta)
-          tokenDeltas.set(arc.source, -place.tokens);
+          tokenDeltas.set(markingKey, -this.getPlaceTokens(arc.source));
         }
       }
 
@@ -555,23 +564,15 @@ class DataPetriNet extends PetriNet {
         const place = this.places.get(arc.target);
         if (!place) continue;
 
-        const currentDelta = tokenDeltas.get(arc.target) || 0;
-        tokenDeltas.set(arc.target, currentDelta + arc.weight);
+        const markingKey = this.getPlaceMarkingKey(arc.target);
+        const currentDelta = tokenDeltas.get(markingKey) || 0;
+        tokenDeltas.set(markingKey, currentDelta + arc.weight);
       }
     }
 
     // Phase 2: Apply all token changes atomically
-    for (const [placeId, delta] of tokenDeltas) {
-      const place = this.places.get(placeId);
-      if (!place) continue;
-
-      place.tokens += delta;
-      // Ensure tokens don't go negative (safety check)
-      if (place.tokens < 0) place.tokens = 0;
-      // Ensure we don't exceed capacity
-      if (place.capacity !== null && place.tokens > place.capacity) {
-        place.tokens = place.capacity;
-      }
+    for (const [markingKey, delta] of tokenDeltas) {
+      this.addMarkingTokens(markingKey, delta);
     }
 
     // Phase 3: Handle data updates for all fired transitions
@@ -609,7 +610,9 @@ class DataPetriNet extends PetriNet {
       places: Array.from(this.places.values()),
       transitions: Array.from(this.transitions.values()),
       arcs: Array.from(this.arcs.values()),
-      dataVariables: Array.from(this.dataVariables.values())
+      dataVariables: Array.from(this.dataVariables.values()),
+      views: this.serializeViews(),
+      activeViewId: this.activeViewId
     });
   }
 
@@ -629,10 +632,12 @@ class DataPetriNet extends PetriNet {
         placeData.label,
         placeData.tokens,
         placeData.capacity,
-        placeData.finalMarking || null
+        placeData.finalMarking ?? null,
+        placeData.fusionSet || ""
       );
       net.places.set(place.id, place);
     });
+    net.syncAllFusionSetTokens();
 
     data.transitions.forEach((transitionData) => {
       // Only create DataAwareTransition if it has precondition or postcondition
@@ -680,6 +685,9 @@ class DataPetriNet extends PetriNet {
       );
       net.arcs.set(arc.id, arc);
     });
+
+    net.importViews(data.views, data.activeViewId);
+    net.applyViewLayout(net.activeViewId, null, { saveCurrent: false });
 
     if (data.dataVariables) {
       data.dataVariables.forEach((variableData) => {
@@ -749,6 +757,13 @@ class DataPetriNet extends PetriNet {
             <capacity>
                <text>${place.capacity}</text>
             </capacity>`;
+      }
+
+      if (place.fusionSet) {
+        pnml += `
+            <toolspecific tool="YAPNE" version="1.0">
+               <fusionSet>${this.escapeXML(place.fusionSet)}</fusionSet>
+            </toolspecific>`;
       }
       
       pnml += `

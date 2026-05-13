@@ -10,6 +10,7 @@ import HistoryDialog from './history-dialog.js';
 import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
 import { SimulationDashboard } from './simulation-dashboard.js';
 import { PropertiesPanel } from './properties-panel.js';
+import { ViewsPanel } from './views-panel.js';
 import { VerificationPanel } from './verification-panel.js';
 import { GenerationPanel } from './generation-panel.js';
 import { DEFAULT_EDITOR_SETTINGS, loadEditorSettings, saveEditorSettings } from './editor-settings.js';
@@ -111,6 +112,7 @@ class PetriNetApp {
 
     // ── Initialize new side panels ──
     this.propsPanel = new PropertiesPanel(this);
+    this.viewsPanel = new ViewsPanel(this);
     this.simDashboard = new SimulationDashboard(this);
     this.verifyPanel = new VerificationPanel(this);
     this.generationPanel = new GenerationPanel(this);
@@ -168,6 +170,7 @@ class PetriNetApp {
 
     const panels = [
       { key: 'props',  ref: () => this.propsPanel },
+      { key: 'views',  ref: () => this.viewsPanel },
       { key: 'sim',    ref: () => this.simDashboard },
       { key: 'verify', ref: () => this.verifyPanel },
       { key: 'generation', ref: () => this.generationPanel }
@@ -195,6 +198,7 @@ class PetriNetApp {
       // Clear all layout classes
       document.body.classList.remove(
         'panels-open-0', 'panels-open-1', 'panels-open-2', 'panels-open-3', 'panels-open-4',
+        'panels-open-5',
         'both-panels-open', 'panel-open'
       );
       for (const { ref } of panels) {
@@ -226,6 +230,17 @@ class PetriNetApp {
 
       if (openCount === 4) {
         const front = panels.find(p => p.key === newOrder[3]);
+        const top   = panels.find(p => p.key === newOrder[0]);
+        const mid   = panels.find(p => p.key === newOrder[1]);
+        const bot   = panels.find(p => p.key === newOrder[2]);
+        if (front?.ref()?.panel) front.ref().panel.classList.add('panel-front');
+        if (top?.ref()?.panel)   top.ref().panel.classList.add('panel-stack-top');
+        if (mid?.ref()?.panel)   mid.ref().panel.classList.add('panel-stack-middle');
+        if (bot?.ref()?.panel)   bot.ref().panel.classList.add('panel-stack-bottom');
+      }
+
+      if (openCount >= 5) {
+        const front = panels.find(p => p.key === newOrder[openCount - 1]);
         const top   = panels.find(p => p.key === newOrder[0]);
         const mid   = panels.find(p => p.key === newOrder[1]);
         const bot   = panels.find(p => p.key === newOrder[2]);
@@ -286,6 +301,9 @@ class PetriNetApp {
       if (place) {
         place.tokens = initialTokens;
       }
+    }
+    if (typeof this.api.petriNet.syncAllFusionSetTokens === 'function') {
+      this.api.petriNet.syncAllFusionSetTokens();
     }
 
     // Restore data variables if they exist
@@ -684,6 +702,7 @@ initEventHandlers() {
    * Handles when an element is selected in the editor
    */
   handleElementSelected(id, type) {
+    this.viewsPanel?.refresh();
     if (type === 'selection') {
       this.propertiesPanel.innerHTML = "<p>Multiple elements selected.</p>";
       return;
@@ -721,6 +740,12 @@ initEventHandlers() {
       <div class="form-group">
         <label for="place-tokens">Tokens</label>
         <input type="number" id="place-tokens" value="${place.tokens}" min="0">
+        ${place.fusionSet ? '<small>Shared by every place in this fusion set</small>' : ''}
+      </div>
+      <div class="form-group">
+        <label for="place-fusion-set">Fusion Set</label>
+        <input type="text" id="place-fusion-set" value="${place.fusionSet || ''}" placeholder="Leave empty for ordinary place">
+        <small>Places with the same fusion set name share one marking.</small>
       </div>
       <div class="form-group">
         <label for="place-capacity">Capacity (0 for unlimited)</label>
@@ -760,6 +785,20 @@ initEventHandlers() {
           this.updateFinalMarkingDisplay(); 
           this.editor.render();
           this._takeSnapshot(`Set tokens ${place.label} to ${value}`);
+        }
+      });
+    }
+
+    const fusionSetInput = document.getElementById("place-fusion-set");
+    if (fusionSetInput) {
+      fusionSetInput.addEventListener("change", (e) => {
+        const fusionSet = e.target.value.trim();
+        if (this.api.setPlaceFusionSet(id, fusionSet)) {
+          this.updateTokensDisplay();
+          this.updateFinalMarkingDisplay();
+          this.editor.render();
+          this._takeSnapshot(fusionSet ? `Assign fusion set ${fusionSet}` : 'Remove fusion set');
+          this.showPlaceProperties(id);
         }
       });
     }
@@ -1131,6 +1170,7 @@ initEventHandlers() {
     if (this.simDashboard) {
       this.simDashboard.refresh();
     }
+    this.viewsPanel?.refresh();
 
     // Record a snapshot for undo on every change (unless we're mid-restore)
     if (!this._isRestoring) {
@@ -1195,8 +1235,11 @@ initEventHandlers() {
       // 3. Rebuild from snapshot using the imported classes directly
       if (data.places) {
         for (const pd of data.places) {
-          const place = new Place(pd.id, pd.position, pd.label, pd.tokens, pd.capacity, pd.finalMarking);
+          const place = new Place(pd.id, pd.position, pd.label, pd.tokens, pd.capacity, pd.finalMarking, pd.fusionSet || '');
           net.places.set(place.id, place);
+        }
+        if (typeof net.syncAllFusionSetTokens === 'function') {
+          net.syncAllFusionSetTokens();
         }
       }
       if (data.transitions) {
@@ -1223,6 +1266,11 @@ initEventHandlers() {
         }
       }
 
+      if (typeof net.importViews === 'function') {
+        net.importViews(data.views, data.activeViewId);
+        net.applyViewLayout(net.activeViewId, this.editor.renderer, { saveCurrent: false });
+      }
+
       // 3b. Restore data variables (DPN)
       if (data.dataVariables && net.dataVariables) {
         net.dataVariables.clear();
@@ -1239,6 +1287,7 @@ initEventHandlers() {
       this.editor.render();
       this.updateTokensDisplay();
       this.updateFinalMarkingDisplay();
+      this.viewsPanel?.refresh();
       this.propertiesPanel.innerHTML = '<p>No element selected.</p>';
     } finally {
       this._isRestoring = false;
@@ -1475,6 +1524,7 @@ initEventHandlers() {
 
     this.api = PetriNetAPI.importFromJSON(json);
     this.editor = this.api.attachEditor(this.canvas);
+    this.api.petriNet.applyViewLayout?.(this.api.petriNet.activeViewId, this.editor.renderer, { saveCurrent: false });
 
     // IMPORTANT: Re-establish the app reference after reset
     this.editor.app = this;
@@ -1616,6 +1666,7 @@ initEventHandlers() {
         try {
           this.api = new PetriNetAPI();
           this.editor = this.api.attachEditor(this.canvas);
+          this.api.petriNet.applyViewLayout?.(this.api.petriNet.activeViewId, this.editor.renderer, { saveCurrent: false });
 
           this.editor.app = this;
 
@@ -1758,6 +1809,7 @@ initEventHandlers() {
           // Create completely new API and editor instances
           this.api = PetriNetAPI.importFromJSON(json);
           this.editor = this.api.attachEditor(this.canvas);
+          this.api.petriNet.applyViewLayout?.(this.api.petriNet.activeViewId, this.editor.renderer, { saveCurrent: false });
 
           // CRITICAL FIX: Ensure all references point to the new petriNet
           // The editor and renderer must both reference the same new PetriNet instance
@@ -1786,6 +1838,7 @@ initEventHandlers() {
           this.editor.setMode("select");
           this.updateActiveButton("btn-select");
           this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
+          this.viewsPanel?.refresh();
 
           // Force immediate render
           this.editor.render();

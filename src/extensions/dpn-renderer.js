@@ -57,7 +57,10 @@ class DataPetriNetRenderer extends PetriNetRenderer {
    * Override the drawTransitions method to handle data-aware transitions
    */
   drawTransitions() {
-    for (const [id, transition] of this.petriNet.transitions.entries()) {
+    const transitions = this.petriNet.getVisibleTransitions
+      ? this.petriNet.getVisibleTransitions()
+      : Array.from(this.petriNet.transitions.entries());
+    for (const [id, transition] of transitions) {
 
       const isDataAware = typeof transition.evaluatePrecondition === 'function';
       
@@ -276,7 +279,10 @@ class DataPetriNetRenderer extends PetriNetRenderer {
       this._overlayCacheKey = cacheKey;
       this._overlayCache = [];
 
-      for (const [, transition] of this.petriNet.transitions) {
+      const transitions = this.petriNet.getVisibleTransitions
+        ? this.petriNet.getVisibleTransitions()
+        : Array.from(this.petriNet.transitions.entries());
+      for (const [, transition] of transitions) {
         const isDataAware = typeof transition.evaluatePrecondition === 'function';
         if (!isDataAware) continue;
         if (!transition.precondition && !transition.postcondition) continue;

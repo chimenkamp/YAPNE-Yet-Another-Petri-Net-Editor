@@ -60,16 +60,20 @@ body.panel-open .side-panel-toggle {
   top: 60px;
 }
 
-.sim-toggle {
+.views-toggle {
   top: 110px;
 }
 
-.verify-toggle {
+.sim-toggle {
   top: 160px;
 }
 
-.generation-toggle {
+.verify-toggle {
   top: 210px;
+}
+
+.generation-toggle {
+  top: 260px;
 }
 
 /* ─── Side Panel Base ─── */
@@ -112,6 +116,11 @@ body.panel-open .side-panel-toggle {
 }
 
 .generation-panel {
+  top: 0;
+  height: 100vh;
+}
+
+.views-panel {
   top: 0;
   height: 100vh;
 }
@@ -175,6 +184,34 @@ body.panels-open-4 .side-panel.open.panel-stack-middle {
 }
 
 body.panels-open-4 .side-panel.open.panel-stack-bottom {
+  top: 66vh;
+  height: 34vh;
+  z-index: 400;
+  border-top: 2px solid #81A1C1;
+}
+
+body.panels-open-5 .side-panel.open.panel-front {
+  height: 100vh;
+  top: 0;
+  z-index: 410;
+}
+
+body.panels-open-5 .side-panel.open.panel-stack-top {
+  height: 32vh;
+  top: 0;
+  z-index: 400;
+  border-bottom: 1px solid #4C566A;
+}
+
+body.panels-open-5 .side-panel.open.panel-stack-middle {
+  height: 34vh;
+  top: 32vh;
+  z-index: 400;
+  border-top: 2px solid #81A1C1;
+  border-bottom: 1px solid #4C566A;
+}
+
+body.panels-open-5 .side-panel.open.panel-stack-bottom {
   top: 66vh;
   height: 34vh;
   z-index: 400;
@@ -1251,6 +1288,105 @@ body.panels-open-4 .side-panel.open.panel-stack-bottom {
   border-color: #88C0D0;
   outline: none;
   box-shadow: 0 0 0 2px rgba(136, 192, 208, 0.2);
+}
+
+/* ─── Views Panel ─── */
+.views-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.views-actions .sim-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.views-hint {
+  color: #AEB6C2;
+  font-size: 12px;
+  margin: 2px 0 0;
+}
+
+.views-list {
+  display: grid;
+  gap: 8px;
+}
+
+.views-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: stretch;
+  background: #3B4252;
+  border: 1px solid #4C566A;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.views-row.active {
+  border-color: #88C0D0;
+  box-shadow: 0 0 0 1px rgba(136, 192, 208, 0.2);
+}
+
+.views-open {
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: #E5E9F0;
+  text-align: left;
+  padding: 9px 10px;
+  cursor: pointer;
+}
+
+.views-open:hover {
+  background: rgba(76, 86, 106, 0.65);
+}
+
+.views-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views-meta {
+  display: block;
+  color: #AEB6C2;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.views-row-actions {
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid #4C566A;
+}
+
+.views-icon-btn {
+  width: 30px;
+  border: none;
+  border-left: 1px solid rgba(76, 86, 106, 0.6);
+  background: rgba(46, 52, 64, 0.55);
+  color: #D8DEE9;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.views-icon-btn:hover:not(:disabled) {
+  background: #4C566A;
+  color: #ECEFF4;
+}
+
+.views-icon-btn.danger:hover:not(:disabled) {
+  background: rgba(191, 97, 106, 0.35);
+  color: #ECEFF4;
+}
+
+.views-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* ─── Hide old sidebar when new panels are active ─── */

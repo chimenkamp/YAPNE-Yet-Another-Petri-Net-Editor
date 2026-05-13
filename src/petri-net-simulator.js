@@ -17,11 +17,12 @@ class PetriNetElement {
 }
 
 class Place extends PetriNetElement {
-  constructor(id, position, label = "", tokens = 0, capacity = null, finalMarking = null) {
+  constructor(id, position, label = "", tokens = 0, capacity = null, finalMarking = null, fusionSet = "") {
     super(id, position, label);
     this.tokens = tokens;
     this.capacity = capacity;
     this.finalMarking = finalMarking;
+    this.fusionSet = fusionSet;
     this.radius = 20;
   }
 
@@ -92,6 +93,7 @@ class Arc {
   }
 }
 
+const MAIN_VIEW_ID = 'main';
 
 class PetriNet {
   constructor(id, name = "New Petri Net", description = "") {
@@ -101,6 +103,360 @@ class PetriNet {
     this.transitions = new Map();
     this.arcs = new Map();
     this.description = description;
+    this.views = new Map();
+    this.activeViewId = MAIN_VIEW_ID;
+    this.ensureDefaultView();
+  }
+
+  createDefaultView() {
+    return {
+      id: MAIN_VIEW_ID,
+      name: 'Main',
+      folderId: null,
+      includeAll: true,
+      elementIds: [],
+      arcIds: [],
+      layout: {},
+      viewport: {
+        panOffset: { x: 0, y: 0 },
+        zoomFactor: 1
+      }
+    };
+  }
+
+  ensureDefaultView() {
+    if (!this.views) this.views = new Map();
+    if (!(this.views instanceof Map)) {
+      this.views = new Map(Object.entries(this.views));
+    }
+    if (!this.views.has(MAIN_VIEW_ID)) {
+      this.views.set(MAIN_VIEW_ID, this.createDefaultView());
+    }
+    if (!this.activeViewId || !this.views.has(this.activeViewId)) {
+      this.activeViewId = MAIN_VIEW_ID;
+    }
+    return this.views.get(MAIN_VIEW_ID);
+  }
+
+  normalizeView(view) {
+    const fallback = this.createDefaultView();
+    return {
+      ...fallback,
+      ...view,
+      id: view?.id || this.generateViewId(),
+      name: String(view?.name || 'View'),
+      folderId: view?.folderId || null,
+      includeAll: Boolean(view?.includeAll),
+      elementIds: Array.isArray(view?.elementIds) ? Array.from(new Set(view.elementIds)) : [],
+      arcIds: Array.isArray(view?.arcIds) ? Array.from(new Set(view.arcIds)) : [],
+      layout: view?.layout && typeof view.layout === 'object' ? { ...view.layout } : {},
+      viewport: {
+        panOffset: {
+          x: Number(view?.viewport?.panOffset?.x) || 0,
+          y: Number(view?.viewport?.panOffset?.y) || 0
+        },
+        zoomFactor: Number(view?.viewport?.zoomFactor) || 1
+      }
+    };
+  }
+
+  generateViewId() {
+    return `view-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+  }
+
+  importViews(views = [], activeViewId = MAIN_VIEW_ID) {
+    this.views = new Map();
+    this.views.set(MAIN_VIEW_ID, this.createDefaultView());
+
+    if (Array.isArray(views)) {
+      for (const viewData of views) {
+        const view = this.normalizeView(viewData);
+        this.views.set(view.id, view);
+      }
+    }
+
+    const main = this.views.get(MAIN_VIEW_ID);
+    main.includeAll = true;
+    main.name = main.name || 'Main';
+    this.activeViewId = this.views.has(activeViewId) ? activeViewId : MAIN_VIEW_ID;
+  }
+
+  serializeViews() {
+    this.saveActiveViewLayout();
+    this.ensureDefaultView();
+    return Array.from(this.views.values()).map(view => ({
+      id: view.id,
+      name: view.name,
+      folderId: view.folderId || null,
+      includeAll: Boolean(view.includeAll),
+      elementIds: Array.from(new Set(view.elementIds || [])),
+      arcIds: Array.from(new Set(view.arcIds || [])),
+      layout: { ...(view.layout || {}) },
+      viewport: {
+        panOffset: {
+          x: Number(view.viewport?.panOffset?.x) || 0,
+          y: Number(view.viewport?.panOffset?.y) || 0
+        },
+        zoomFactor: Number(view.viewport?.zoomFactor) || 1
+      }
+    }));
+  }
+
+  getActiveView() {
+    this.ensureDefaultView();
+    return this.views.get(this.activeViewId) || this.views.get(MAIN_VIEW_ID);
+  }
+
+  isMainViewActive() {
+    return this.getActiveView()?.id === MAIN_VIEW_ID;
+  }
+
+  getView(id) {
+    this.ensureDefaultView();
+    return this.views.get(id);
+  }
+
+  getViews() {
+    this.ensureDefaultView();
+    return Array.from(this.views.values());
+  }
+
+  getNodeIdsForView(view = this.getActiveView()) {
+    if (!view || view.includeAll) {
+      return new Set([
+        ...this.places.keys(),
+        ...this.transitions.keys()
+      ]);
+    }
+    return new Set(view.elementIds || []);
+  }
+
+  getArcIdsForView(view = this.getActiveView()) {
+    if (!view || view.includeAll) {
+      return new Set(this.arcs.keys());
+    }
+    return new Set(view.arcIds || []);
+  }
+
+  isElementVisibleInActiveView(id) {
+    return this.getNodeIdsForView().has(id);
+  }
+
+  isArcVisibleInActiveView(arcOrId) {
+    const arc = typeof arcOrId === 'string' ? this.arcs.get(arcOrId) : arcOrId;
+    if (!arc) return false;
+    const view = this.getActiveView();
+    if (!view || view.includeAll) return true;
+    return this.getArcIdsForView(view).has(arc.id)
+      && this.isElementVisibleInActiveView(arc.source)
+      && this.isElementVisibleInActiveView(arc.target);
+  }
+
+  getVisiblePlaces() {
+    const ids = this.getNodeIdsForView();
+    return Array.from(this.places.entries()).filter(([id]) => ids.has(id));
+  }
+
+  getVisibleTransitions() {
+    const ids = this.getNodeIdsForView();
+    return Array.from(this.transitions.entries()).filter(([id]) => ids.has(id));
+  }
+
+  getVisibleArcs() {
+    return Array.from(this.arcs.entries()).filter(([, arc]) => this.isArcVisibleInActiveView(arc));
+  }
+
+  saveActiveViewLayout(renderer = null) {
+    const view = this.getActiveView();
+    if (!view) return;
+    const nodeIds = this.getNodeIdsForView(view);
+    view.layout = view.layout || {};
+
+    for (const id of nodeIds) {
+      const element = this.places.get(id) || this.transitions.get(id);
+      if (!element?.position) continue;
+      view.layout[id] = {
+        x: element.position.x,
+        y: element.position.y
+      };
+    }
+
+    if (renderer) {
+      view.viewport = {
+        panOffset: { ...renderer.panOffset },
+        zoomFactor: renderer.zoomFactor
+      };
+    }
+  }
+
+  applyActiveViewLayout(renderer = null) {
+    this.applyViewLayout(this.activeViewId, renderer, { saveCurrent: false });
+  }
+
+  applyViewLayout(viewId, renderer = null, options = {}) {
+    const { saveCurrent = true } = options;
+    this.ensureDefaultView();
+    const target = this.views.get(viewId) || this.views.get(MAIN_VIEW_ID);
+    if (saveCurrent) {
+      this.saveActiveViewLayout(renderer);
+    }
+
+    this.activeViewId = target.id;
+    target.layout = target.layout || {};
+    const nodeIds = this.getNodeIdsForView(target);
+    for (const id of nodeIds) {
+      const element = this.places.get(id) || this.transitions.get(id);
+      if (!element) continue;
+      if (!target.layout[id]) {
+        target.layout[id] = { ...element.position };
+      }
+      element.position = { ...target.layout[id] };
+    }
+
+    if (renderer && target.viewport) {
+      renderer.panOffset = { ...(target.viewport.panOffset || { x: 0, y: 0 }) };
+      renderer.zoomFactor = Number(target.viewport.zoomFactor) || 1;
+    }
+  }
+
+  addElementsToView(viewId, elementIds = [], arcIds = []) {
+    const view = this.views.get(viewId);
+    if (!view || view.includeAll) return false;
+
+    const elements = new Set(view.elementIds || []);
+    const arcs = new Set(view.arcIds || []);
+
+    for (const id of elementIds) {
+      if (this.places.has(id) || this.transitions.has(id)) {
+        elements.add(id);
+        const element = this.places.get(id) || this.transitions.get(id);
+        if (element?.position) {
+          view.layout[id] = view.layout[id] || { ...element.position };
+        }
+      }
+    }
+
+    for (const id of arcIds) {
+      if (this.arcs.has(id)) arcs.add(id);
+    }
+
+    view.elementIds = Array.from(elements);
+    view.arcIds = Array.from(arcs);
+    return true;
+  }
+
+  addElementsToActiveView(elementIds = [], arcIds = []) {
+    return this.addElementsToView(this.activeViewId, elementIds, arcIds);
+  }
+
+  recordElementInActiveView(id) {
+    const view = this.getActiveView();
+    if (!view || view.includeAll) return;
+    this.addElementsToView(view.id, [id], []);
+  }
+
+  recordArcInActiveView(id) {
+    const view = this.getActiveView();
+    if (!view || view.includeAll) return;
+    this.addElementsToView(view.id, [], [id]);
+  }
+
+  getInternalArcIds(elementIds) {
+    const ids = new Set(elementIds);
+    return Array.from(this.arcs.values())
+      .filter(arc => ids.has(arc.source) && ids.has(arc.target))
+      .map(arc => arc.id);
+  }
+
+  getTransitionNeighborhood(transitionIds = []) {
+    const elementIds = new Set();
+    const arcIds = new Set();
+
+    for (const transitionId of transitionIds) {
+      if (!this.transitions.has(transitionId)) continue;
+      elementIds.add(transitionId);
+      for (const arc of this.arcs.values()) {
+        if (arc.source === transitionId || arc.target === transitionId) {
+          arcIds.add(arc.id);
+          if (this.places.has(arc.source) || this.transitions.has(arc.source)) {
+            elementIds.add(arc.source);
+          }
+          if (this.places.has(arc.target) || this.transitions.has(arc.target)) {
+            elementIds.add(arc.target);
+          }
+        }
+      }
+    }
+
+    return {
+      elementIds: Array.from(elementIds),
+      arcIds: Array.from(arcIds)
+    };
+  }
+
+  createView(name, elementIds = [], arcIds = [], options = {}) {
+    this.ensureDefaultView();
+    const id = options.id || this.generateViewId();
+    const nodeIds = Array.from(new Set(elementIds.filter(elementId =>
+      this.places.has(elementId) || this.transitions.has(elementId)
+    )));
+    const edgeIds = Array.from(new Set([
+      ...arcIds.filter(arcId => this.arcs.has(arcId)),
+      ...(options.includeInternalArcs ? this.getInternalArcIds(nodeIds) : [])
+    ]));
+    const layout = {};
+    for (const nodeId of nodeIds) {
+      const element = this.places.get(nodeId) || this.transitions.get(nodeId);
+      if (element?.position) {
+        layout[nodeId] = { ...element.position };
+      }
+    }
+
+    const view = this.normalizeView({
+      id,
+      name: name || `View ${this.views.size}`,
+      folderId: options.folderId || null,
+      includeAll: false,
+      elementIds: nodeIds,
+      arcIds: edgeIds,
+      layout,
+      viewport: options.viewport || {
+        panOffset: { x: 0, y: 0 },
+        zoomFactor: 1
+      }
+    });
+    this.views.set(view.id, view);
+    return view;
+  }
+
+  renameView(viewId, name) {
+    const view = this.views.get(viewId);
+    if (!view) return false;
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return false;
+    view.name = cleanName;
+    return true;
+  }
+
+  deleteView(viewId) {
+    if (viewId === MAIN_VIEW_ID || !this.views.has(viewId)) return false;
+    this.views.delete(viewId);
+    if (this.activeViewId === viewId) {
+      this.activeViewId = MAIN_VIEW_ID;
+    }
+    return true;
+  }
+
+  removeIdsFromViews(ids) {
+    const idSet = new Set(ids);
+    for (const view of this.views.values()) {
+      if (view.includeAll) continue;
+      view.elementIds = (view.elementIds || []).filter(id => !idSet.has(id));
+      view.arcIds = (view.arcIds || []).filter(id => !idSet.has(id));
+      for (const id of idSet) {
+        delete view.layout?.[id];
+      }
+    }
   }
 
 
@@ -113,13 +469,19 @@ class PetriNet {
   }
 
   removePlace(id) {
+    const removedArcIds = [];
 
     this.arcs.forEach((arc, arcId) => {
       if (arc.source === id || arc.target === id) {
         this.arcs.delete(arcId);
+        removedArcIds.push(arcId);
       }
     });
-    return this.places.delete(id);
+    const removed = this.places.delete(id);
+    if (removed) {
+      this.removeIdsFromViews([id, ...removedArcIds]);
+    }
+    return removed;
   }
 
   addTransition(transition) {
@@ -131,13 +493,19 @@ class PetriNet {
   }
 
   removeTransition(id) {
+    const removedArcIds = [];
 
     this.arcs.forEach((arc, arcId) => {
       if (arc.source === id || arc.target === id) {
         this.arcs.delete(arcId);
+        removedArcIds.push(arcId);
       }
     });
-    return this.transitions.delete(id);
+    const removed = this.transitions.delete(id);
+    if (removed) {
+      this.removeIdsFromViews([id, ...removedArcIds]);
+    }
+    return removed;
   }
 
   addArc(arc) {
@@ -166,9 +534,138 @@ class PetriNet {
   }
 
   removeArc(id) {
-    return this.arcs.delete(id);
+    const removed = this.arcs.delete(id);
+    if (removed) {
+      this.removeIdsFromViews([id]);
+    }
+    return removed;
   }
 
+  normalizeFusionSetName(name) {
+    return String(name || '').trim();
+  }
+
+  getFusionSetName(placeOrId) {
+    const place = typeof placeOrId === 'string' ? this.places.get(placeOrId) : placeOrId;
+    return this.normalizeFusionSetName(place?.fusionSet);
+  }
+
+  getPlaceMarkingKey(placeId) {
+    const fusionSet = this.getFusionSetName(placeId);
+    return fusionSet ? `fusion:${fusionSet}` : `place:${placeId}`;
+  }
+
+  getPlaceIdsForMarkingKey(markingKey) {
+    if (!markingKey.startsWith('fusion:')) {
+      return [markingKey.slice('place:'.length)];
+    }
+
+    const fusionSet = markingKey.slice('fusion:'.length);
+    return Array.from(this.places.values())
+      .filter(place => this.getFusionSetName(place) === fusionSet)
+      .map(place => place.id);
+  }
+
+  getFusionSetMembers(fusionSet) {
+    const normalized = this.normalizeFusionSetName(fusionSet);
+    if (!normalized) return [];
+    return Array.from(this.places.values())
+      .filter(place => this.getFusionSetName(place) === normalized);
+  }
+
+  getPlaceTokens(placeId) {
+    const markingKey = this.getPlaceMarkingKey(placeId);
+    const ids = this.getPlaceIdsForMarkingKey(markingKey);
+    const place = ids.map(id => this.places.get(id)).find(Boolean);
+    return place ? Number(place.tokens) || 0 : 0;
+  }
+
+  setPlaceTokens(placeId, tokens) {
+    const place = this.places.get(placeId);
+    if (!place) return false;
+    this.setMarkingTokens(this.getPlaceMarkingKey(placeId), Math.max(0, Number(tokens) || 0));
+    return true;
+  }
+
+  setMarkingTokens(markingKey, tokens) {
+    const safeTokens = Math.max(0, Number(tokens) || 0);
+    for (const placeId of this.getPlaceIdsForMarkingKey(markingKey)) {
+      const place = this.places.get(placeId);
+      if (place) {
+        place.tokens = safeTokens;
+      }
+    }
+  }
+
+  addMarkingTokens(markingKey, delta) {
+    const ids = this.getPlaceIdsForMarkingKey(markingKey);
+    const firstPlace = ids.map(id => this.places.get(id)).find(Boolean);
+    if (!firstPlace) return;
+
+    const capacity = this.getMarkingCapacity(markingKey);
+    let nextTokens = (Number(firstPlace.tokens) || 0) + delta;
+    if (nextTokens < 0) nextTokens = 0;
+    if (capacity !== null && nextTokens > capacity) nextTokens = capacity;
+    this.setMarkingTokens(markingKey, nextTokens);
+  }
+
+  getMarkingCapacity(markingKey) {
+    const capacities = this.getPlaceIdsForMarkingKey(markingKey)
+      .map(id => this.places.get(id)?.capacity)
+      .filter(capacity => capacity !== null && capacity !== undefined);
+    return capacities.length ? Math.min(...capacities) : null;
+  }
+
+  getFusionGroups() {
+    const groups = new Map();
+    for (const place of this.places.values()) {
+      const fusionSet = this.getFusionSetName(place);
+      if (!fusionSet) continue;
+      if (!groups.has(fusionSet)) groups.set(fusionSet, []);
+      groups.get(fusionSet).push(place);
+    }
+    return groups;
+  }
+
+  syncFusionSetTokens(fusionSet) {
+    const members = this.getFusionSetMembers(fusionSet);
+    if (members.length <= 1) return;
+    const tokens = Number(members[0].tokens) || 0;
+    for (const place of members) {
+      place.tokens = tokens;
+    }
+  }
+
+  syncAllFusionSetTokens() {
+    for (const fusionSet of this.getFusionGroups().keys()) {
+      this.syncFusionSetTokens(fusionSet);
+    }
+  }
+
+  setPlaceFusionSet(placeId, fusionSet) {
+    const place = this.places.get(placeId);
+    if (!place) return false;
+
+    const previousKey = this.getPlaceMarkingKey(placeId);
+    const previousTokens = this.getPlaceTokens(placeId);
+    place.fusionSet = this.normalizeFusionSetName(fusionSet);
+
+    if (place.fusionSet) {
+      const members = this.getFusionSetMembers(place.fusionSet);
+      const existingMember = members.find(member => member.id !== placeId);
+      const tokens = existingMember ? (Number(existingMember.tokens) || 0) : previousTokens;
+      this.setMarkingTokens(this.getPlaceMarkingKey(placeId), tokens);
+    } else {
+      place.tokens = previousTokens;
+    }
+
+    if (previousKey.startsWith('fusion:')) {
+      const previousSet = previousKey.slice('fusion:'.length);
+      this.syncFusionSetTokens(previousSet);
+    }
+
+    return true;
+  }
 
   updateEnabledTransitions() {
     for (const [id, transition] of this.transitions) {
@@ -179,19 +676,26 @@ class PetriNet {
   isTransitionEnabled(transitionId) {
     const incomingArcs = Array.from(this.arcs.values())
       .filter(arc => arc.target === transitionId);
+    const regularRequirements = new Map();
 
     for (const arc of incomingArcs) {
       const place = this.places.get(arc.source);
       if (!place) continue;
+      const markingKey = this.getPlaceMarkingKey(arc.source);
+      const tokens = this.getPlaceTokens(arc.source);
 
       if (arc.type === "inhibitor") {
 
-        if (place.tokens >= arc.weight) return false;
+        if (tokens >= arc.weight) return false;
       } else if (arc.type === "regular") {
-
-        if (place.tokens < arc.weight) return false;
+        regularRequirements.set(markingKey, (regularRequirements.get(markingKey) || 0) + arc.weight);
       }
 
+    }
+
+    for (const [markingKey, requiredTokens] of regularRequirements) {
+      const placeId = this.getPlaceIdsForMarkingKey(markingKey)[0];
+      if (this.getPlaceTokens(placeId) < requiredTokens) return false;
     }
 
     return true;
@@ -212,11 +716,12 @@ class PetriNet {
     for (const arc of incomingArcs) {
       const place = this.places.get(arc.source);
       if (!place) continue;
+      const markingKey = this.getPlaceMarkingKey(arc.source);
 
       if (arc.type === "regular") {
-        place.removeTokens(arc.weight);
+        this.addMarkingTokens(markingKey, -arc.weight);
       } else if (arc.type === "reset") {
-        place.tokens = 0;
+        this.setMarkingTokens(markingKey, 0);
       }
 
     }
@@ -226,7 +731,7 @@ class PetriNet {
       const place = this.places.get(arc.target);
       if (!place) continue;
 
-      place.addTokens(arc.weight);
+      this.addMarkingTokens(this.getPlaceMarkingKey(arc.target), arc.weight);
     }
 
     return true;
@@ -244,21 +749,26 @@ class PetriNet {
     const incomingArcs2 = Array.from(this.arcs.values())
       .filter(arc => arc.target === trans2Id && arc.type === "regular");
 
-    // Check if they share any input places
-    const inputPlaces1 = new Set(incomingArcs1.map(arc => arc.source));
-    const inputPlaces2 = new Set(incomingArcs2.map(arc => arc.source));
+    // Check if they share any input marking, including fusion sets
+    const inputPlaces1 = new Set(incomingArcs1.map(arc => this.getPlaceMarkingKey(arc.source)));
+    const inputPlaces2 = new Set(incomingArcs2.map(arc => this.getPlaceMarkingKey(arc.source)));
 
-    for (const placeId of inputPlaces1) {
-      if (inputPlaces2.has(placeId)) {
+    for (const markingKey of inputPlaces1) {
+      if (inputPlaces2.has(markingKey)) {
         // Check if there are enough tokens to fire both
+        const placeId = this.getPlaceIdsForMarkingKey(markingKey)[0];
         const place = this.places.get(placeId);
         if (!place) continue;
 
         // Calculate total token requirement
-        const weight1 = incomingArcs1.find(arc => arc.source === placeId)?.weight || 0;
-        const weight2 = incomingArcs2.find(arc => arc.source === placeId)?.weight || 0;
+        const weight1 = incomingArcs1
+          .filter(arc => this.getPlaceMarkingKey(arc.source) === markingKey)
+          .reduce((sum, arc) => sum + arc.weight, 0);
+        const weight2 = incomingArcs2
+          .filter(arc => this.getPlaceMarkingKey(arc.source) === markingKey)
+          .reduce((sum, arc) => sum + arc.weight, 0);
 
-        if (place.tokens < weight1 + weight2) {
+        if (this.getPlaceTokens(placeId) < weight1 + weight2) {
           return true; // Conflict: not enough tokens for both
         }
       }
@@ -286,10 +796,11 @@ class PetriNet {
         .filter(arc => arc.target === transId && arc.type === "regular");
 
       for (const arc of incomingArcs) {
-        if (!conflictGroups.has(arc.source)) {
-          conflictGroups.set(arc.source, []);
+        const markingKey = this.getPlaceMarkingKey(arc.source);
+        if (!conflictGroups.has(markingKey)) {
+          conflictGroups.set(markingKey, []);
         }
-        conflictGroups.get(arc.source).push({
+        conflictGroups.get(markingKey).push({
           transitionId: transId,
           weight: arc.weight
         });
@@ -299,17 +810,18 @@ class PetriNet {
     // Find transitions that are actually in conflict
     const toFire = new Set(enabledTransitionIds);
 
-    for (const [placeId, transitions] of conflictGroups) {
+    for (const [markingKey, transitions] of conflictGroups) {
       if (transitions.length <= 1) continue;
 
-      const place = this.places.get(placeId);
-      if (!place) continue;
+      const placeId = this.getPlaceIdsForMarkingKey(markingKey)[0];
+      if (!placeId) continue;
+      const tokens = this.getPlaceTokens(placeId);
 
       // Calculate total token requirement
       const totalRequired = transitions.reduce((sum, t) => sum + t.weight, 0);
 
       // If there's a conflict (not enough tokens for all)
-      if (place.tokens < totalRequired) {
+      if (tokens < totalRequired) {
         // Group by priority and weight
         const transitionDetails = transitions.map(t => {
           const transition = this.transitions.get(t.transitionId);
@@ -330,7 +842,7 @@ class PetriNet {
         });
 
         // Select transitions until we run out of tokens
-        let availableTokens = place.tokens;
+        let availableTokens = tokens;
         const selected = [];
 
         for (const trans of transitionDetails) {
@@ -370,7 +882,7 @@ class PetriNet {
     }
 
     // Phase 1: Collect all arc operations (token consumption and production)
-    const tokenDeltas = new Map(); // placeId -> delta (positive for production, negative for consumption)
+    const tokenDeltas = new Map(); // markingKey -> delta (positive for production, negative for consumption)
 
     for (const transitionId of transitionsToFire) {
       const incomingArcs = Array.from(this.arcs.values())
@@ -382,13 +894,14 @@ class PetriNet {
       for (const arc of incomingArcs) {
         const place = this.places.get(arc.source);
         if (!place) continue;
+        const markingKey = this.getPlaceMarkingKey(arc.source);
 
         if (arc.type === "regular") {
-          const currentDelta = tokenDeltas.get(arc.source) || 0;
-          tokenDeltas.set(arc.source, currentDelta - arc.weight);
+          const currentDelta = tokenDeltas.get(markingKey) || 0;
+          tokenDeltas.set(markingKey, currentDelta - arc.weight);
         } else if (arc.type === "reset") {
           // Reset arcs set tokens to 0 (overrides any delta)
-          tokenDeltas.set(arc.source, -place.tokens);
+          tokenDeltas.set(markingKey, -this.getPlaceTokens(arc.source));
         }
       }
 
@@ -397,23 +910,15 @@ class PetriNet {
         const place = this.places.get(arc.target);
         if (!place) continue;
 
-        const currentDelta = tokenDeltas.get(arc.target) || 0;
-        tokenDeltas.set(arc.target, currentDelta + arc.weight);
+        const markingKey = this.getPlaceMarkingKey(arc.target);
+        const currentDelta = tokenDeltas.get(markingKey) || 0;
+        tokenDeltas.set(markingKey, currentDelta + arc.weight);
       }
     }
 
     // Phase 2: Apply all token changes atomically
-    for (const [placeId, delta] of tokenDeltas) {
-      const place = this.places.get(placeId);
-      if (!place) continue;
-
-      place.tokens += delta;
-      // Ensure tokens don't go negative (safety check)
-      if (place.tokens < 0) place.tokens = 0;
-      // Ensure we don't exceed capacity
-      if (place.capacity !== null && place.tokens > place.capacity) {
-        place.tokens = place.capacity;
-      }
+    for (const [markingKey, delta] of tokenDeltas) {
+      this.addMarkingTokens(markingKey, delta);
     }
 
     return true;
@@ -463,7 +968,9 @@ class PetriNet {
       description: this.description,
       places: Array.from(this.places.values()),
       transitions: Array.from(this.transitions.values()),
-      arcs: Array.from(this.arcs.values())
+      arcs: Array.from(this.arcs.values()),
+      views: this.serializeViews(),
+      activeViewId: this.activeViewId
     });
   }
 
@@ -479,10 +986,12 @@ class PetriNet {
         placeData.label,
         placeData.tokens,
         placeData.capacity,
-        placeData.finalMarking || null
+        placeData.finalMarking ?? null,
+        placeData.fusionSet || ""
       );
       net.places.set(place.id, place);
     });
+    net.syncAllFusionSetTokens();
 
 
     data.transitions.forEach((transitionData) => {
@@ -512,6 +1021,9 @@ class PetriNet {
       );
       net.arcs.set(arc.id, arc);
     });
+
+    net.importViews(data.views, data.activeViewId);
+    net.applyViewLayout(net.activeViewId, null, { saveCurrent: false });
 
     return net;
   }
@@ -553,7 +1065,10 @@ class PetriNet {
         </initialMarking>
         <graphics>
           <position x="${place.position.x}" y="${place.position.y}"/>
-        </graphics>
+        </graphics>${place.fusionSet ? `
+        <toolspecific tool="YAPNE" version="1.0">
+          <fusionSet>${this.escapeXML(place.fusionSet)}</fusionSet>
+        </toolspecific>` : ''}
       </place>`;
     }
 
@@ -712,6 +1227,10 @@ class PetriNetRenderer {
       arcs: new Map(this.structuralHighlights.arcs)
     };
     return cloned;
+  }
+
+  getElementPosition(element) {
+    return element?.position || { x: 0, y: 0 };
   }
 
   setStructuralHighlights(components = []) {
@@ -951,6 +1470,9 @@ class PetriNetRenderer {
   }
 
   render() {
+    if (this.petriNet.saveActiveViewLayout) {
+      this.petriNet.saveActiveViewLayout(this);
+    }
     this.clear();
     
 
@@ -1003,7 +1525,8 @@ class PetriNetRenderer {
   }
 
 drawPlaces() {
-  for (const [id, place] of this.petriNet.places) {
+  const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+  for (const [id, place] of places) {
     const highlightColors = this.getStructuralHighlightColors(id);
     const highlightColor = highlightColors[0] || null;
 
@@ -1059,6 +1582,10 @@ drawPlaces() {
     // Draw tokens (keep existing drawTokens call)
     this.drawTokens(place);
 
+    if (this.petriNet.getFusionSetName && this.petriNet.getFusionSetName(place)) {
+      this.drawFusionTag(place, this.petriNet.getFusionSetName(place));
+    }
+
     // Draw label (keep existing label drawing)
     this.ctx.fillStyle = this.theme.textColor;
     this.ctx.font = '12px Arial';
@@ -1066,6 +1593,46 @@ drawPlaces() {
     this.ctx.fillText(place.label, place.position.x, place.position.y + place.radius + 15);
   }
 }
+
+  drawFusionTag(place, fusionSet) {
+    const tagText = `F:${fusionSet}`;
+    const x = place.position.x + place.radius + 8;
+    const y = place.position.y - place.radius - 12;
+
+    this.ctx.save();
+    this.ctx.font = '11px Arial';
+    const paddingX = 6;
+    const paddingY = 3;
+    const width = this.ctx.measureText(tagText).width + paddingX * 2;
+    const height = 18;
+
+    this.ctx.fillStyle = this.invertEditorColors ? 'rgba(94, 129, 172, 0.88)' : 'rgba(136, 192, 208, 0.9)';
+    this.ctx.strokeStyle = this.invertEditorColors ? '#D8DEE9' : '#5E81AC';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.drawRoundedRectPath(x, y, width, height, 4);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    this.ctx.fillStyle = this.invertEditorColors ? '#ECEFF4' : '#2E3440';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(tagText, x + paddingX, y + height / 2 + paddingY - 2);
+    this.ctx.restore();
+  }
+
+  drawRoundedRectPath(x, y, width, height, radius) {
+    const r = Math.min(radius, width / 2, height / 2);
+    this.ctx.moveTo(x + r, y);
+    this.ctx.lineTo(x + width - r, y);
+    this.ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    this.ctx.lineTo(x + width, y + height - r);
+    this.ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    this.ctx.lineTo(x + r, y + height);
+    this.ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    this.ctx.lineTo(x, y + r);
+    this.ctx.quadraticCurveTo(x, y, x + r, y);
+  }
 
   drawTokens(place) {
     const { x, y } = place.position;
@@ -1107,7 +1674,8 @@ drawPlaces() {
   }
 
   drawTransitions() {
-    for (const [id, transition] of this.petriNet.transitions) {
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [id, transition] of transitions) {
       const highlightColors = this.getStructuralHighlightColors(id);
       const highlightColor = highlightColors[0] || null;
 
@@ -1150,7 +1718,8 @@ drawPlaces() {
   }
 
   drawArcs() {
-    for (const [id, arc] of this.petriNet.arcs) {
+    const arcs = this.petriNet.getVisibleArcs ? this.petriNet.getVisibleArcs() : Array.from(this.petriNet.arcs);
+    for (const [id, arc] of arcs) {
       let sourceElement;
       let targetElement;
 
@@ -1904,7 +2473,7 @@ class PetriNetEditor {
           event.preventDefault();
           const place = this.petriNet.places.get(this.selectedElement.id);
           if (place) {
-            place.addTokens(1);
+            this.petriNet.addMarkingTokens(this.petriNet.getPlaceMarkingKey(this.selectedElement.id), 1);
             if (this.callbacks.onChange) {
               this.callbacks.onChange();
             }
@@ -1914,8 +2483,8 @@ class PetriNetEditor {
         } else if (event.code === 'ArrowDown') {
           event.preventDefault();
           const place = this.petriNet.places.get(this.selectedElement.id);
-          if (place && place.tokens > 0) {
-            place.removeTokens(1);
+          if (place && this.petriNet.getPlaceTokens(this.selectedElement.id) > 0) {
+            this.petriNet.addMarkingTokens(this.petriNet.getPlaceMarkingKey(this.selectedElement.id), -1);
             if (this.callbacks.onChange) {
               this.callbacks.onChange();
             }
@@ -2057,7 +2626,9 @@ class PetriNetEditor {
     let closest = null;
     let minDist = Infinity;
 
-    const collection = type === 'place' ? this.petriNet.places : this.petriNet.transitions;
+    const collection = type === 'place'
+      ? (this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places))
+      : (this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions));
     for (const [id, el] of collection) {
       if (id === excludeId) continue;
       if (excludeIds && excludeIds.has(id)) continue;
@@ -2089,6 +2660,7 @@ class PetriNetEditor {
         `P${this.petriNet.places.size + 1}`
       );
       this.petriNet.addPlace(newPlace);
+      this.petriNet.recordElementInActiveView?.(newElementId);
     } else if (this.ghostElement.type === 'transition') {
       newElementId = this.generateUUID();
       const newTransition = new Transition(
@@ -2097,6 +2669,7 @@ class PetriNetEditor {
         `T${this.petriNet.transitions.size + 1}`
       );
       this.petriNet.addTransition(newTransition);
+      this.petriNet.recordElementInActiveView?.(newElementId);
     }
 
     // Create arc between selected element and new element
@@ -2113,6 +2686,7 @@ class PetriNetEditor {
       );
 
       if (this.petriNet.addArc(arc)) {
+        this.petriNet.recordArcInActiveView?.(arcId);
         // If ghost chain has a second link (auto-connect to closest element), materialize it
         if (this.ghostChain && this.ghostChain.length > 1) {
           const secondLink = this.ghostChain[1];
@@ -2127,7 +2701,9 @@ class PetriNetEditor {
               [],
               ""
             );
-            this.petriNet.addArc(chainArc);
+            if (this.petriNet.addArc(chainArc)) {
+              this.petriNet.recordArcInActiveView?.(chainArcId);
+            }
           }
         }
 
@@ -2179,7 +2755,8 @@ class PetriNetEditor {
       return;
     }
 
-    for (const [id, arc] of this.petriNet.arcs) {
+    const arcs = this.petriNet.getVisibleArcs ? this.petriNet.getVisibleArcs() : Array.from(this.petriNet.arcs);
+    for (const [id, arc] of arcs) {
 
       const sourceElement = this.petriNet.places.get(arc.source) || this.petriNet.transitions.get(arc.source);
       const targetElement = this.petriNet.places.get(arc.target) || this.petriNet.transitions.get(arc.target);
@@ -2355,10 +2932,12 @@ class PetriNetEditor {
 
   selectAllElements() {
     const elements = [];
-    for (const [id] of this.petriNet.places) {
+    const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [id] of places) {
       elements.push({ id, type: 'place' });
     }
-    for (const [id] of this.petriNet.transitions) {
+    for (const [id] of transitions) {
       elements.push({ id, type: 'transition' });
     }
     this.setMultiSelection(elements);
@@ -2382,12 +2961,14 @@ class PetriNetEditor {
     this.boxSelection = null;
     const selected = [];
 
-    for (const [id, place] of this.petriNet.places) {
+    const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [id, place] of places) {
       if (this._pointInBounds(place.position, bounds)) {
         selected.push({ id, type: 'place' });
       }
     }
-    for (const [id, transition] of this.petriNet.transitions) {
+    for (const [id, transition] of transitions) {
       if (this._pointInBounds(transition.position, bounds)) {
         selected.push({ id, type: 'transition' });
       }
@@ -2485,6 +3066,7 @@ class PetriNetEditor {
       } else if (node.type === 'transition') {
         this.petriNet.addTransition(clone);
       }
+      this.petriNet.recordElementInActiveView?.(newId);
       pastedSelection.push({ id: newId, type: node.type });
     }
 
@@ -2494,6 +3076,7 @@ class PetriNetEditor {
       if (!source || !target) continue;
       const arc = this._restoreArcClone(arcData, this.generateUUID(), source, target);
       this.petriNet.addArc(arc);
+      this.petriNet.recordArcInActiveView?.(arc.id);
     }
 
     this.setMultiSelection(pastedSelection, { notify: true, render: false });
@@ -2641,6 +3224,7 @@ class PetriNetEditor {
     if (this.petriNet.addArc(arc)) {
       existingPairs.add(pairKey);
       connectedElementPairs.add(elementPairKey);
+      this.petriNet.recordArcInActiveView?.(arc.id);
     }
   }
 
@@ -2661,6 +3245,7 @@ class PetriNetEditor {
     const id = this.generateUUID();
     const place = new Place(id, { x, y }, `P${this.petriNet.places.size + 1}`);
     this.petriNet.addPlace(place);
+    this.petriNet.recordElementInActiveView?.(id);
     this.selectedElement = { id, type: 'place' };
     this.selectedElements.clear();
     this.selectedElements.set(this._selectionKey(id, 'place'), { id, type: 'place' });
@@ -2679,6 +3264,7 @@ class PetriNetEditor {
     const id = this.generateUUID();
     const transition = new Transition(id, { x, y }, `T${this.petriNet.transitions.size + 1}`);
     this.petriNet.addTransition(transition);
+    this.petriNet.recordElementInActiveView?.(id);
     this.selectedElement = { id, type: 'transition' };
     this.selectedElements.clear();
     this.selectedElements.set(this._selectionKey(id, 'transition'), { id, type: 'transition' });
@@ -2690,7 +3276,9 @@ class PetriNetEditor {
 
   startArcDrawing(x, y) {
 
-    for (const [id, place] of this.petriNet.places) {
+    const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [id, place] of places) {
       const dx = place.position.x - x;
       const dy = place.position.y - y;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -2701,7 +3289,7 @@ class PetriNetEditor {
       }
     }
 
-    for (const [id, transition] of this.petriNet.transitions) {
+    for (const [id, transition] of transitions) {
       const halfWidth = transition.width / 2;
       const halfHeight = transition.height / 2;
 
@@ -2785,14 +3373,16 @@ class PetriNetEditor {
    * Returns { id, type } or null.
    */
   _findElementAt(x, y) {
-    for (const [id, place] of this.petriNet.places) {
+    const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [id, place] of places) {
       const dx = place.position.x - x;
       const dy = place.position.y - y;
       if (Math.sqrt(dx * dx + dy * dy) <= place.radius) {
         return { id, type: 'place' };
       }
     }
-    for (const [id, transition] of this.petriNet.transitions) {
+    for (const [id, transition] of transitions) {
       const hw = transition.width / 2;
       const hh = transition.height / 2;
       if (x >= transition.position.x - hw && x <= transition.position.x + hw &&
@@ -2811,7 +3401,9 @@ class PetriNetEditor {
     let targetType = null;
 
 
-    for (const [id, place] of this.petriNet.places) {
+    const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [id, place] of places) {
       const dx = place.position.x - x;
       const dy = place.position.y - y;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -2825,7 +3417,7 @@ class PetriNetEditor {
 
 
     if (!targetId) {
-      for (const [id, transition] of this.petriNet.transitions) {
+      for (const [id, transition] of transitions) {
         const halfWidth = transition.width / 2;
         const halfHeight = transition.height / 2;
 
@@ -2859,6 +3451,7 @@ class PetriNetEditor {
       );
 
       if (this.petriNet.addArc(arc)) {
+        this.petriNet.recordArcInActiveView?.(arcId);
         this.selectedElement = { id: arcId, type: 'arc' };
         if (this.callbacks.onSelect) {
           this.callbacks.onSelect(arcId, 'arc');
@@ -2884,6 +3477,7 @@ class PetriNetEditor {
           `T${this.petriNet.transitions.size + 1}`
         );
         this.petriNet.addTransition(newTransition);
+        this.petriNet.recordElementInActiveView?.(newElementId);
       } else {
         newElementId = this.generateUUID();
         newElementType = 'place';
@@ -2893,6 +3487,7 @@ class PetriNetEditor {
           `P${this.petriNet.places.size + 1}`
         );
         this.petriNet.addPlace(newPlace);
+        this.petriNet.recordElementInActiveView?.(newElementId);
       }
 
       const arcId = this.generateUUID();
@@ -2907,6 +3502,7 @@ class PetriNetEditor {
       );
 
       if (this.petriNet.addArc(arc)) {
+        this.petriNet.recordArcInActiveView?.(arcId);
         this.selectedElement = { id: newElementId, type: newElementType };
         this.selectedElements.clear();
         this.selectedElements.set(this._selectionKey(newElementId, newElementType), {
@@ -3064,6 +3660,7 @@ class PetriNetEditor {
     } else if (this.selectedElement.type === 'place') {
       const place = this.petriNet.places.get(this.selectedElement.id);
       if (place) {
+        this._renderFusionSelectionAuras(ctx, place);
         ctx.beginPath();
         ctx.arc(place.position.x, place.position.y, place.radius + 4, 0, Math.PI * 2);
         ctx.strokeStyle = this.renderer.theme.selectedColor;
@@ -3108,6 +3705,23 @@ class PetriNetEditor {
       }
     }
     
+    ctx.restore();
+  }
+
+  _renderFusionSelectionAuras(ctx, selectedPlace) {
+    const fusionSet = this.petriNet.getFusionSetName?.(selectedPlace);
+    if (!fusionSet) return;
+
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    for (const member of this.petriNet.getFusionSetMembers(fusionSet)) {
+      if (member.id === selectedPlace.id) continue;
+      ctx.beginPath();
+      ctx.arc(member.position.x, member.position.y, member.radius + 7, 0, Math.PI * 2);
+      ctx.strokeStyle = '#B48EAD';
+      ctx.lineWidth = this.renderer.theme.selectionLineWidth;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -3359,10 +3973,7 @@ class PetriNetEditor {
   }
 
   updatePlaceTokens(id, tokens) {
-    const place = this.petriNet.places.get(id);
-    if (!place) return false;
-
-    place.tokens = tokens;
+    if (!this.petriNet.setPlaceTokens(id, tokens)) return false;
     this.render();
 
     if (this.callbacks.onChange) {
@@ -3586,6 +4197,7 @@ class PetriNetAPI {
     const id = this.generateUUID();
     const place = new Place(id, { x, y }, label || `P${this.petriNet.places.size + 1}`, tokens, null, finalMarking);
     this.petriNet.addPlace(place);
+    this.petriNet.recordElementInActiveView?.(id);
     if (this.editor) this.editor.render();
     return id;
   }
@@ -3640,6 +4252,7 @@ class PetriNetAPI {
       label || `T${this.petriNet.transitions.size + 1}`
     );
     this.petriNet.addTransition(transition);
+    this.petriNet.recordElementInActiveView?.(id);
     if (this.editor) this.editor.render();
     return id;
   }
@@ -3649,6 +4262,7 @@ class PetriNetAPI {
     const arc = new Arc(id, sourceId, targetId, weight, type);
 
     if (this.petriNet.addArc(arc)) {
+      this.petriNet.recordArcInActiveView?.(id);
       if (this.editor) this.editor.render();
       return id;
     }
@@ -3714,12 +4328,98 @@ class PetriNetAPI {
   }
 
   setPlaceTokens(id, tokens) {
-    const place = this.petriNet.places.get(id);
-    if (!place) return false;
-
-    place.tokens = tokens;
+    if (!this.petriNet.setPlaceTokens(id, tokens)) return false;
     if (this.editor) this.editor.render();
     return true;
+  }
+
+  setPlaceFusionSet(id, fusionSet) {
+    if (!this.petriNet.setPlaceFusionSet(id, fusionSet)) return false;
+    if (this.editor) this.editor.render();
+    return true;
+  }
+
+  getViews() {
+    return this.petriNet.getViews();
+  }
+
+  getActiveView() {
+    return this.petriNet.getActiveView();
+  }
+
+  switchView(viewId) {
+    if (!this.editor || !this.petriNet.getView(viewId)) return false;
+    this.petriNet.applyViewLayout(viewId, this.editor.renderer);
+    this.editor.clearSelection({ notify: true, render: false });
+    this.editor.render();
+    return true;
+  }
+
+  createView(name, elementIds = [], arcIds = [], options = {}) {
+    const view = this.petriNet.createView(name, elementIds, arcIds, options);
+    if (this.editor) {
+      this.petriNet.applyViewLayout(view.id, this.editor.renderer);
+      this.editor.clearSelection({ notify: true, render: false });
+      this.editor.render();
+    }
+    return view;
+  }
+
+  createViewFromSelection(name = '') {
+    if (!this.editor) return null;
+    const selected = this.editor.selectedElements.size > 0
+      ? Array.from(this.editor.selectedElements.values())
+      : (this.editor.selectedElement && this.editor.selectedElement.type !== 'arc' && this.editor.selectedElement.type !== 'selection'
+        ? [this.editor.selectedElement]
+        : []);
+    const elementIds = selected.map(item => item.id);
+    if (elementIds.length === 0) return null;
+    const arcIds = this.petriNet.getInternalArcIds(elementIds);
+    return this.createView(name || `View ${this.petriNet.views.size}`, elementIds, arcIds);
+  }
+
+  createViewFromSelectedTransitions(name = '') {
+    if (!this.editor) return null;
+    const transitions = this.editor.selectedElements.size > 0
+      ? Array.from(this.editor.selectedElements.values()).filter(item => item.type === 'transition').map(item => item.id)
+      : (this.editor.selectedElement?.type === 'transition' ? [this.editor.selectedElement.id] : []);
+    if (transitions.length === 0) return null;
+    const neighborhood = this.petriNet.getTransitionNeighborhood(transitions);
+    return this.createView(name || `Transition View ${this.petriNet.views.size}`, neighborhood.elementIds, neighborhood.arcIds);
+  }
+
+  addSelectionToActiveView() {
+    if (!this.editor) return false;
+    const selected = this.editor.selectedElements.size > 0
+      ? Array.from(this.editor.selectedElements.values())
+      : (this.editor.selectedElement && this.editor.selectedElement.type !== 'arc' && this.editor.selectedElement.type !== 'selection'
+        ? [this.editor.selectedElement]
+        : []);
+    const elementIds = selected.map(item => item.id);
+    if (elementIds.length === 0) return false;
+    const arcIds = this.petriNet.getInternalArcIds(elementIds);
+    const success = this.petriNet.addElementsToActiveView(elementIds, arcIds);
+    if (success) this.editor.render();
+    return success;
+  }
+
+  renameView(viewId, name) {
+    const success = this.petriNet.renameView(viewId, name);
+    if (success && this.editor) this.editor.render();
+    return success;
+  }
+
+  deleteView(viewId) {
+    const wasActive = this.petriNet.activeViewId === viewId;
+    const success = this.petriNet.deleteView(viewId);
+    if (success && this.editor) {
+      if (wasActive) {
+        this.petriNet.applyViewLayout(MAIN_VIEW_ID, this.editor.renderer);
+      }
+      this.editor.clearSelection({ notify: true, render: false });
+      this.editor.render();
+    }
+    return success;
   }
 
   setArcWeight(id, weight) {
@@ -3798,7 +4498,9 @@ class PetriNetAPI {
     let hasElements = false;
 
     // Check places
-    for (const [, place] of this.petriNet.places) {
+    const places = this.petriNet.getVisiblePlaces ? this.petriNet.getVisiblePlaces() : Array.from(this.petriNet.places);
+    const transitions = this.petriNet.getVisibleTransitions ? this.petriNet.getVisibleTransitions() : Array.from(this.petriNet.transitions);
+    for (const [, place] of places) {
       hasElements = true;
       minX = Math.min(minX, place.position.x - place.radius);
       minY = Math.min(minY, place.position.y - place.radius);
@@ -3807,7 +4509,7 @@ class PetriNetAPI {
     }
 
     // Check transitions
-    for (const [, transition] of this.petriNet.transitions) {
+    for (const [, transition] of transitions) {
       hasElements = true;
       minX = Math.min(minX, transition.position.x - transition.width / 2);
       minY = Math.min(minY, transition.position.y - transition.height / 2);
