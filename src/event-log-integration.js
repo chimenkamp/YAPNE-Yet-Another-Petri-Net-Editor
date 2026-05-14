@@ -1,6 +1,7 @@
 import { PetriNet } from './petri-net-simulator.js';
 import { DataPetriNet } from './extensions/dpn-model.js';
 import { ProbabilisticEventLogGenerator } from './extensions/probabilistic-event-log-generator.js';
+import { getConstraintSolver } from './extensions/probabilistic-execution.js';
 
 /**
  * Event Log Generator Integration
@@ -239,10 +240,10 @@ class EventLogIntegration {
             
             <div class="webppl-code-preview">
               <div class="webppl-code-preview-header">
-                <span>WebPPL Constraint Solver Code</span>
+                <span>Active WebPPL Program</span>
                 <span class="badge" id="webppl-status-badge">Active</span>
               </div>
-              <pre id="webppl-code-display">// Waiting for first constraint solve...</pre>
+              <pre id="webppl-code-display">// Waiting for generated WebPPL program...</pre>
             </div>
           </div>
           <div class="generation-progress-footer">
@@ -280,7 +281,7 @@ class EventLogIntegration {
       document.getElementById('progress-steps').textContent = '0';
       document.getElementById('progress-total-events').textContent = '0';
       document.getElementById('progress-webppl-calls').textContent = '0';
-      document.getElementById('webppl-code-display').textContent = '// Waiting for first constraint solve...';
+      document.getElementById('webppl-code-display').textContent = '// Waiting for generated WebPPL program...';
       document.getElementById('webppl-status-badge').textContent = 'Initializing';
     }
     
@@ -310,24 +311,13 @@ class EventLogIntegration {
       document.getElementById('progress-webppl-calls').textContent = webpplCalls || '0';
       
       if (webpplCode) {
-        document.getElementById('webppl-code-display').textContent = this.truncateWebPPLCode(webpplCode);
+        document.getElementById('webppl-code-display').textContent = webpplCode;
         document.getElementById('webppl-status-badge').textContent = 'Solving';
       }
       
       if (status) {
         document.getElementById('webppl-status-badge').textContent = status;
       }
-    }
-    
-    /**
-     * Truncate WebPPL code for display (show first ~15 lines)
-     */
-    truncateWebPPLCode(code) {
-      const lines = code.split('\n');
-      if (lines.length > 15) {
-        return lines.slice(0, 15).join('\n') + '\n// ... (truncated)';
-      }
-      return code;
     }
     
     /**
@@ -486,6 +476,10 @@ class EventLogIntegration {
     }
     
     async runSimulation() {
+      let constraintSolver = null;
+      let originalSolveConstraint = null;
+      let originalOnWebPPLCall = null;
+
       try {
         // Collect options from UI
         const options = this.collectOptions();
@@ -545,28 +539,48 @@ class EventLogIntegration {
         try {
           const sampleCode = this.eventLogGenerator.generateWebPPLCode({ includeComments: true });
           lastWebPPLCode = sampleCode;
-          document.getElementById('webppl-code-display').textContent = this.truncateWebPPLCode(sampleCode);
+          document.getElementById('webppl-code-display').textContent = sampleCode;
         } catch (e) {
           // If code generation fails, show a placeholder
           lastWebPPLCode = '// WebPPL code generation unavailable for this net type';
+          document.getElementById('webppl-code-display').textContent = lastWebPPLCode;
         }
         
-        // Hook into the engine's constraint solver to capture WebPPL code
-        const engine = this.eventLogGenerator.engine;
-        if (engine && engine.constraintSolver) {
-          const originalSolve = engine.constraintSolver.solveConstraint.bind(engine.constraintSolver);
-          engine.constraintSolver.solveConstraint = async (...args) => {
-            webpplCallCount++;
-            // Generate sample WebPPL code for display
-            const [expression, currentValues, primedVars, varBounds, mode] = args;
-            if (engine.constraintSolver.generateWebPPLSolverCode) {
-              lastWebPPLCode = engine.constraintSolver.generateWebPPLSolverCode(
-                expression, currentValues, primedVars, varBounds, mode
-              );
-            }
-            return originalSolve(...args);
-          };
-        }
+        // DPN postconditions use the module-level WebPPL constraint solver.
+        // Hook that solver directly so the progress panel reflects real WebPPL runs.
+        constraintSolver = getConstraintSolver();
+        originalSolveConstraint = constraintSolver.solveConstraint;
+        originalOnWebPPLCall = constraintSolver.onWebPPLCall;
+        const initialWebPPLCallCount = constraintSolver.webPPLCallCount || 0;
+
+        constraintSolver.onWebPPLCall = (event) => {
+          if (typeof originalOnWebPPLCall === 'function') {
+            originalOnWebPPLCall(event);
+          }
+          webpplCallCount = Math.max(0, (event.callCount || 0) - initialWebPPLCallCount);
+          lastWebPPLCode = event.code || lastWebPPLCode;
+        };
+
+        constraintSolver.solveConstraint = async (...args) => {
+          const [expression, currentValues, solveOptions = {}] = args;
+          try {
+            const primedVars = constraintSolver.extractPrimedVariables(expression);
+            const varBounds = constraintSolver.inferBoundsFromConstraint(expression, currentValues, primedVars);
+            lastWebPPLCode = constraintSolver.generateWebPPLSolverCode(
+              expression,
+              currentValues,
+              primedVars,
+              varBounds,
+              solveOptions.mode ?? 'auto'
+            );
+          } catch (error) {
+            console.warn('[EventLog] Unable to render WebPPL solver preview:', error);
+          }
+
+          const result = await originalSolveConstraint.call(constraintSolver, ...args);
+          webpplCallCount = Math.max(0, (constraintSolver.webPPLCallCount || 0) - initialWebPPLCallCount);
+          return result;
+        };
         
         // Run probabilistic simulation with progress callbacks
         this.eventLog = await this.eventLogGenerator.generateCases(
@@ -641,6 +655,11 @@ class EventLogIntegration {
         
         console.error('Error running simulation:', error);
         alert('An error occurred while running the simulation: ' + error.message);
+      } finally {
+        if (constraintSolver && originalSolveConstraint) {
+          constraintSolver.solveConstraint = originalSolveConstraint;
+          constraintSolver.onWebPPLCall = originalOnWebPPLCall;
+        }
       }
     }
     /**

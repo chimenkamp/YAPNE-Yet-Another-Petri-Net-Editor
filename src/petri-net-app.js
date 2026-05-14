@@ -361,6 +361,12 @@ initEventHandlers() {
   // Clear any existing app-level event listeners first
   this.cleanupAppEventListeners();
 
+  const commitPropertiesInputOnCanvasMouseDown = () => {
+    this.commitFocusedPropertiesInput();
+  };
+  this.canvas.addEventListener("mousedown", commitPropertiesInputOnCanvasMouseDown, true);
+  this.appEventListeners.push(['mousedown', commitPropertiesInputOnCanvasMouseDown, this.canvas, true]);
+
   const btnSelect = document.getElementById("btn-select");
   if (btnSelect) {
     const handler = () => {
@@ -668,6 +674,25 @@ initEventHandlers() {
     this.appEventListeners.push(['click', handler, btnExportPnml]);
   }
 }
+
+  commitFocusedPropertiesInput() {
+    const activeElement = document.activeElement;
+    const isEditablePropertyField =
+      activeElement instanceof HTMLInputElement ||
+      activeElement instanceof HTMLTextAreaElement ||
+      activeElement instanceof HTMLSelectElement;
+
+    if (!isEditablePropertyField || activeElement.disabled) return;
+
+    const isInCurrentPropertiesPanel =
+      this.propertiesPanel?.contains(activeElement) ||
+      this.propsPanel?.panel?.contains(activeElement);
+
+    if (!isInCurrentPropertiesPanel) return;
+
+    activeElement.dispatchEvent(new Event('change', { bubbles: true }));
+    activeElement.blur();
+  }
 
   /**
    * Updates the active state of toolbar buttons
@@ -1561,8 +1586,8 @@ initEventHandlers() {
    * Clean up all app-level event listeners
    */
   cleanupAppEventListeners() {
-    this.appEventListeners?.forEach(([eventType, handler, element]) => {
-      element.removeEventListener(eventType, handler);
+    this.appEventListeners?.forEach(([eventType, handler, element, options]) => {
+      element.removeEventListener(eventType, handler, options);
     });
     this.appEventListeners = [];
   }
