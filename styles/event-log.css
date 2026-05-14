@@ -339,10 +339,13 @@
   .generation-progress-container {
     background-color: #3B4252; /* nord1 */
     width: 90%;
-    max-width: 700px;
+    max-width: 900px;
+    max-height: 90vh;
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .generation-progress-header {
@@ -376,6 +379,7 @@
 
   .generation-progress-body {
     padding: 20px;
+    overflow: auto;
   }
 
   .progress-status {
@@ -498,14 +502,13 @@
   .webppl-code-preview pre {
     margin: 0;
     padding: 15px;
-    max-height: 200px;
-    overflow-y: auto;
+    max-height: 320px;
+    overflow: auto;
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     font-size: 12px;
     line-height: 1.5;
     color: #D8DEE9; /* nord4 */
-    white-space: pre-wrap;
-    word-wrap: break-word;
+    white-space: pre;
   }
 
   .webppl-code-preview pre .comment {

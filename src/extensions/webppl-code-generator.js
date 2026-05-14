@@ -692,8 +692,7 @@ simulateDPN()`;
         
         let translated = expr.replace(/;/g, '').trim();
         
-        // Replace logical operators
-        translated = translated.replace(/&&/g, ' && ').replace(/\|\|/g, ' || ');
+        translated = this.translateLogicalOperators(translated);
         
         // Sort variables by length descending to avoid partial replacements
         const sortedVars = [...dataVariables].sort((a, b) => b.name.length - a.name.length);
@@ -719,32 +718,20 @@ simulateDPN()`;
         if (!postcondition || constraintUpdates.length === 0) {
             return 'true';
         }
-        
-        let translated = postcondition;
-        
-        // First: Replace primed variables with _prime suffix
-        // This must happen before unprimed replacement to avoid nested substitution
-        constraintUpdates.forEach(u => {
-            const primedRegex = new RegExp(`\\b${u.variable}'`, 'g');
-            translated = translated.replace(primedRegex, `${u.variable}_prime`);
-        });
-        
-        // Second: Replace unprimed variables with state.valuation lookups
-        // Sort by length descending to avoid partial replacements (e.g., 'x' matching in 'xy')
-        const sortedVars = [...dataVariables].sort((a, b) => b.name.length - a.name.length);
-        sortedVars.forEach(v => {
-            // Match variable name NOT followed by prime (') and NOT already _prime
-            const regex = new RegExp(`\\b${v.name}\\b(?!['_])`, 'g');
-            translated = translated.replace(regex, `state.valuation['${v.name}']`);
-        });
-        
-        // Remove assignment statements (keep only constraints)
-        const parts = translated.split(/[;&]/);
-        const constraints = parts
-            .map(p => p.trim())
-            .filter(p => p && !p.includes(':=') && !p.match(/^[a-zA-Z_][a-zA-Z0-9_]*_prime\s*=\s*/));
-        
-        return constraints.length > 0 ? constraints.join(' && ') : 'true';
+
+        const constrainedVariables = new Set(constraintUpdates.map(update => update.variable));
+        const constraintParts = this.splitPostconditionParts(postcondition)
+            .filter(part => {
+                const hasComparison = /[<>]=?|==|!=/.test(part);
+                if (!hasComparison) return false;
+                return Array.from(constrainedVariables).some(varName => {
+                    const primedRegex = new RegExp(`\\b${varName}'`, 'g');
+                    return primedRegex.test(part);
+                });
+            })
+            .map(part => this.translateConstraintPart(part, dataVariables, constraintUpdates));
+
+        return constraintParts.length > 0 ? constraintParts.join(' && ') : 'true';
     }
 
     /**
@@ -763,7 +750,7 @@ simulateDPN()`;
             return updates;
         }
         
-        const statements = postcondition.split(/[;&]/);
+        const statements = this.splitPostconditionParts(postcondition);
         
         for (const stmt of statements) {
             const trimmed = stmt.trim();
@@ -774,25 +761,16 @@ simulateDPN()`;
             if (assignmentMatch) {
                 const varName = assignmentMatch[1];
                 const expression = assignmentMatch[2].trim();
-                
-                // Check if this is a constraint (contains comparison operators)
-                const isConstraint = /[<>=!]/.test(expression) && !/^[^<>=!]+$/.test(expression);
-                
-                if (isConstraint) {
-                    updates.push({
-                        variable: varName,
-                        expression: expression,
-                        isConstraint: true
-                    });
-                } else {
-                    // Translate the deterministic expression
-                    const translatedExpr = this.translateExpression(expression, dataVariables, 'state.valuation');
-                    updates.push({
-                        variable: varName,
-                        expression: translatedExpr,
-                        isConstraint: false
-                    });
-                }
+
+                // Equality in DPN postconditions is an assignment to the primed
+                // variable. The right-hand side may itself be a Boolean
+                // comparison, e.g. flag' = amount >= threshold.
+                const translatedExpr = this.translateExpression(expression, dataVariables, 'state.valuation');
+                updates.push({
+                    variable: varName,
+                    expression: translatedExpr,
+                    isConstraint: false
+                });
             }
             
             // Check for constraint-style postconditions like "x' >= 10 && x' <= 1000"
@@ -812,6 +790,55 @@ simulateDPN()`;
         }
         
         return updates;
+    }
+
+    /**
+     * Split top-level postcondition clauses written as semicolon-, &&-, or
+     * guard-language "and"-separated updates/constraints.
+     *
+     * @private
+     */
+    splitPostconditionParts(postcondition) {
+        return postcondition
+            .split(/\s+(?:and|&&)\s+|;/i)
+            .map(part => part.trim())
+            .filter(Boolean);
+    }
+
+    /**
+     * Translate guard-language logical words to WebPPL/JavaScript operators.
+     *
+     * @private
+     */
+    translateLogicalOperators(expression) {
+        return expression
+            .replace(/\band\b/gi, ' && ')
+            .replace(/\bor\b/gi, ' || ')
+            .replace(/\bnot\b/gi, ' ! ')
+            .replace(/&&/g, ' && ')
+            .replace(/\|\|/g, ' || ');
+    }
+
+    /**
+     * Translate a single postcondition constraint clause to WebPPL.
+     *
+     * @private
+     */
+    translateConstraintPart(part, dataVariables, constraintUpdates) {
+        let translated = this.translateLogicalOperators(part);
+
+        constraintUpdates.forEach(update => {
+            const primedRegex = new RegExp(`\\b${update.variable}'`, 'g');
+            translated = translated.replace(primedRegex, `${update.variable}_prime`);
+        });
+
+        const sortedVars = [...dataVariables].sort((a, b) => b.name.length - a.name.length);
+        sortedVars.forEach(variable => {
+            const regex = new RegExp(`\\b${variable.name}\\b(?!['_])`, 'g');
+            translated = translated.replace(regex, `state.valuation['${variable.name}']`);
+        });
+
+        return translated;
     }
 
     /**

@@ -813,6 +813,9 @@ class WebPPLConstraintSolver {
         this.maxRetries = options.maxRetries ?? 100;
         this.defaultBounds = options.defaultBounds ?? { min: 0, max: 1000 };
         this._webppl = null;
+        this.webPPLCallCount = 0;
+        this.lastWebPPLCode = '';
+        this.onWebPPLCall = null;
     }
 
     /**
@@ -1007,6 +1010,20 @@ class WebPPLConstraintSolver {
     async solveWithWebPPL(webppl, constraintExpression, currentValues, primedVars, varBounds, mode) {
         // Generate WebPPL code
         const code = this.generateWebPPLSolverCode(constraintExpression, currentValues, primedVars, varBounds, mode);
+        this.webPPLCallCount += 1;
+        this.lastWebPPLCode = code;
+
+        if (typeof this.onWebPPLCall === 'function') {
+            this.onWebPPLCall({
+                callCount: this.webPPLCallCount,
+                code,
+                constraintExpression,
+                currentValues,
+                primedVars,
+                varBounds,
+                mode
+            });
+        }
         
         return new Promise((resolve, reject) => {
             try {
