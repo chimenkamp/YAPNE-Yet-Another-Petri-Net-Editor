@@ -111,6 +111,7 @@ export class ViewsPanel {
           <button class="sim-btn sim-btn-primary" data-action="create-selection">Selection View</button>
           <button class="sim-btn sim-btn-secondary" data-action="create-transition">Transition View</button>
           <button class="sim-btn sim-btn-secondary" data-action="add-selection">Add Selection</button>
+          <button class="sim-btn sim-btn-secondary" data-action="remove-selection">Remove from View</button>
           <p class="views-hint">${selected} selected element${selected === 1 ? '' : 's'}</p>
         </div>
       </div>
@@ -173,6 +174,8 @@ export class ViewsPanel {
       this._createTransitionView();
     } else if (action === 'add-selection') {
       this._addSelection();
+    } else if (action === 'remove-selection') {
+      this._removeSelection();
     } else if (action === 'rename') {
       this._renameView(viewId);
     } else if (action === 'delete') {
@@ -215,10 +218,19 @@ export class ViewsPanel {
 
   _addSelection() {
     if (!this.app.api.addSelectionToActiveView()) {
-      window.alert('Open a child view and select one or more places/transitions first.');
+      window.alert('Select one or more places/transitions, switch to a child view, then add the selection.');
       return;
     }
     this.app._takeSnapshot?.('Add selection to view');
+    this.refresh();
+  }
+
+  _removeSelection() {
+    if (!this.app.api.removeSelectionFromActiveView()) {
+      window.alert('Open a child view and select one or more visible elements first.');
+      return;
+    }
+    this.app._takeSnapshot?.('Remove selection from view');
     this.refresh();
   }
 

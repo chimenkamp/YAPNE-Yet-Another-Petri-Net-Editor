@@ -349,6 +349,30 @@ class PetriNet {
     return this.addElementsToView(this.activeViewId, elementIds, arcIds);
   }
 
+  removeElementsFromView(viewId, elementIds = [], arcIds = []) {
+    const view = this.views.get(viewId);
+    if (!view || view.includeAll) return false;
+
+    const nodesToRemove = new Set(elementIds);
+    const arcsToRemove = new Set(arcIds);
+    for (const arc of this.arcs.values()) {
+      if (nodesToRemove.has(arc.source) || nodesToRemove.has(arc.target)) {
+        arcsToRemove.add(arc.id);
+      }
+    }
+
+    view.elementIds = (view.elementIds || []).filter(id => !nodesToRemove.has(id));
+    view.arcIds = (view.arcIds || []).filter(id => !arcsToRemove.has(id));
+    for (const id of nodesToRemove) {
+      delete view.layout?.[id];
+    }
+    return nodesToRemove.size > 0 || arcsToRemove.size > 0;
+  }
+
+  removeElementsFromActiveView(elementIds = [], arcIds = []) {
+    return this.removeElementsFromView(this.activeViewId, elementIds, arcIds);
+  }
+
   recordElementInActiveView(id) {
     const view = this.getActiveView();
     if (!view || view.includeAll) return;
@@ -2461,6 +2485,16 @@ class PetriNetEditor {
         }
       }
 
+      if (event.shiftKey && event.code === 'Delete' && this.selectedElement && !this.petriNet.isMainViewActive?.()) {
+        event.preventDefault();
+        if (this.app?.api?.removeSelectionFromActiveView) {
+          this.app.api.removeSelectionFromActiveView();
+          this.app._takeSnapshot?.('Remove selection from view');
+          this.app.viewsPanel?.refresh();
+        }
+        return;
+      }
+
       // Delete currently selected element – delegate to deleteSelected()
       if (event.code === 'Delete' && this.selectedElement) {
         this.deleteSelected();
@@ -3659,7 +3693,7 @@ class PetriNetEditor {
       this._renderSelectionAutoConnectPreview(ctx);
     } else if (this.selectedElement.type === 'place') {
       const place = this.petriNet.places.get(this.selectedElement.id);
-      if (place) {
+      if (place && this.petriNet.isElementVisibleInActiveView?.(this.selectedElement.id) !== false) {
         this._renderFusionSelectionAuras(ctx, place);
         ctx.beginPath();
         ctx.arc(place.position.x, place.position.y, place.radius + 4, 0, Math.PI * 2);
@@ -3669,7 +3703,7 @@ class PetriNetEditor {
       }
     } else if (this.selectedElement.type === 'transition') {
       const transition = this.petriNet.transitions.get(this.selectedElement.id);
-      if (transition) {
+      if (transition && this.petriNet.isElementVisibleInActiveView?.(this.selectedElement.id) !== false) {
         ctx.beginPath();
         ctx.rect(
           transition.position.x - transition.width / 2 - 4,
@@ -3683,7 +3717,7 @@ class PetriNetEditor {
       }
     } else if (this.selectedElement.type === 'arc') {
       const arc = this.petriNet.arcs.get(this.selectedElement.id);
-      if (arc) {
+      if (arc && this.petriNet.isArcVisibleInActiveView?.(arc) !== false) {
         const sourceElement = this.petriNet.places.get(arc.source) || this.petriNet.transitions.get(arc.source);
         const targetElement = this.petriNet.places.get(arc.target) || this.petriNet.transitions.get(arc.target);
 
@@ -3716,6 +3750,7 @@ class PetriNetEditor {
     ctx.setLineDash([5, 4]);
     for (const member of this.petriNet.getFusionSetMembers(fusionSet)) {
       if (member.id === selectedPlace.id) continue;
+      if (this.petriNet.isElementVisibleInActiveView?.(member.id) === false) continue;
       ctx.beginPath();
       ctx.arc(member.position.x, member.position.y, member.radius + 7, 0, Math.PI * 2);
       ctx.strokeStyle = '#B48EAD';
@@ -3731,6 +3766,7 @@ class PetriNetEditor {
     ctx.lineWidth = this.renderer.theme.selectionLineWidth;
 
     for (const item of this.selectedElements.values()) {
+      if (this.petriNet.isElementVisibleInActiveView?.(item.id) === false) continue;
       if (item.type === 'place') {
         const place = this.petriNet.places.get(item.id);
         if (!place) continue;
@@ -3769,6 +3805,7 @@ class PetriNetEditor {
   _getSelectionBounds(selection) {
     let bounds = null;
     for (const item of selection.values()) {
+      if (this.petriNet.isElementVisibleInActiveView?.(item.id) === false) continue;
       const element = this._getElementObject(item.id, item.type);
       if (!element) continue;
       const paddingX = item.type === 'place' ? element.radius : element.width / 2;
@@ -4350,7 +4387,7 @@ class PetriNetAPI {
   switchView(viewId) {
     if (!this.editor || !this.petriNet.getView(viewId)) return false;
     this.petriNet.applyViewLayout(viewId, this.editor.renderer);
-    this.editor.clearSelection({ notify: true, render: false });
+    this.editor.renderer.invalidateOverlayCache?.();
     this.editor.render();
     return true;
   }
@@ -4400,6 +4437,32 @@ class PetriNetAPI {
     const arcIds = this.petriNet.getInternalArcIds(elementIds);
     const success = this.petriNet.addElementsToActiveView(elementIds, arcIds);
     if (success) this.editor.render();
+    return success;
+  }
+
+  removeSelectionFromActiveView() {
+    if (!this.editor || this.petriNet.isMainViewActive()) return false;
+    const elementIds = [];
+    const arcIds = [];
+
+    if (this.editor.selectedElements.size > 0) {
+      for (const item of this.editor.selectedElements.values()) {
+        if (item.type === 'place' || item.type === 'transition') elementIds.push(item.id);
+      }
+    } else if (this.editor.selectedElement) {
+      if (this.editor.selectedElement.type === 'place' || this.editor.selectedElement.type === 'transition') {
+        elementIds.push(this.editor.selectedElement.id);
+      } else if (this.editor.selectedElement.type === 'arc') {
+        arcIds.push(this.editor.selectedElement.id);
+      }
+    }
+
+    if (elementIds.length === 0 && arcIds.length === 0) return false;
+    const success = this.petriNet.removeElementsFromActiveView(elementIds, arcIds);
+    if (success) {
+      this.editor.clearSelection({ notify: true, render: false });
+      this.editor.render();
+    }
     return success;
   }
 
