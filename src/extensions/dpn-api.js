@@ -10,13 +10,14 @@ class DataPetriNetAPI extends PetriNetAPI {
    * @param {string} name - Name of the net
    * @param {string} description - Description of the net
    */
-  constructor(id, name, description) {
-    super(id, name, description);
+  constructor(id, name, description, options = {}) {
+    super(id, name, description, options);
 
     this.petriNet = new DataPetriNet(
       id || this.generateUUID(),
       name || "New Data Petri Net",
-      description || ""
+      description || "",
+      options
     );
   }
 
