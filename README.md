@@ -195,6 +195,8 @@ Common `PetriNetAPI` methods:
 - `setPlaceFinalMarking(id, finalMarking)`
 - `setArcWeight(id, weight)`
 - `setArcType(id, type)`
+- `getArcSemantics()`
+- `setArcSemantics(options)`
 - `getEnabledTransitions()`
 - `fireTransition(id)`
 - `autoFireEnabledTransitions(maxSteps)`
@@ -205,6 +207,18 @@ Common `PetriNetAPI` methods:
 - `exportAsJSON()`
 - `PetriNetAPI.importFromJSON(json)`
 - `exportAsPNML()`
+
+### Arc Semantics
+
+YAPNE's default simulation semantics follow the standard weighted P/T firing rule described by Murata: regular place-to-transition arcs require and consume their weight, and regular transition-to-place arcs produce their weight. Capacity is strict by default, so a transition is not enabled if firing it would overflow an output place.
+
+Special arcs are interpreted as place-transition predicates/effects independent of drawing direction:
+
+- `inhibitor`: enabled only when the connected place has zero tokens; weight is ignored by default.
+- `read`: enabled when the connected place has at least the arc weight; no tokens are consumed.
+- `reset`: imposes no enabledness predicate and resets the connected place during firing.
+
+When several arcs connect the same place and transition, YAPNE evaluates all enabledness predicates at the start of the firing. Firing uses the normal form `consume regular inputs -> reset places -> produce regular outputs`, so behavior does not depend on arc creation order. The semantics are configurable through `api.setArcSemantics(options)` / `petriNet.setArcSemantics(options)`, for example `{ capacityRule: "clamp" }` to restore the old output-clamping behavior or `{ inhibitorUsesWeight: true }` for threshold-style inhibitor arcs.
 
 ### Data Petri Net API
 
