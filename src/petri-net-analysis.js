@@ -34,7 +34,8 @@ function getModel(net) {
     }
   }
 
-  return { places, transitions, arcs, placeIndex, incomingByTransition, outgoingByTransition };
+  const arcSemantics = net.getArcSemantics?.() || { resetOrder: 'consume-reset-produce' };
+  return { places, transitions, arcs, placeIndex, incomingByTransition, outgoingByTransition, arcSemantics };
 }
 
 function formatMarking(marking, places, compact = false) {
@@ -58,19 +59,75 @@ function getOutgoing(arcs, transitionId) {
   return arcs.filter(arc => arc.source === transitionId);
 }
 
-function isTransitionEnabled(marking, transitionId, model) {
-  const incoming = model.incomingByTransition.get(transitionId) || [];
+function arcWeight(arc) {
+  const weight = Number(arc.weight);
+  return Number.isFinite(weight) && weight > 0 ? weight : 1;
+}
 
-  for (const arc of incoming) {
-    const placeIdx = model.placeIndex.get(arc.source);
-    if (placeIdx === undefined) continue;
+function addWeight(map, index, weight) {
+  map.set(index, (map.get(index) || 0) + weight);
+}
 
-    const tokens = marking[placeIdx];
-    if (arc.type === 'inhibitor') {
-      if (tokens === OMEGA || tokens >= arc.weight) return false;
-    } else if (arc.type === 'regular') {
-      if (tokens !== OMEGA && tokens < arc.weight) return false;
+function maxWeight(map, index, weight) {
+  map.set(index, Math.max(map.get(index) || 0, weight));
+}
+
+function getTransitionEffects(transitionId, model) {
+  const effects = {
+    consumption: new Map(),
+    production: new Map(),
+    reads: new Map(),
+    inhibitors: new Map(),
+    resets: new Set()
+  };
+
+  for (const arc of model.arcs) {
+    const sourcePlaceIdx = model.placeIndex.get(arc.source);
+    const targetPlaceIdx = model.placeIndex.get(arc.target);
+    const sourceIsTransition = arc.source === transitionId;
+    const targetIsTransition = arc.target === transitionId;
+    const weight = arcWeight(arc);
+
+    if (arc.type === 'regular') {
+      if (targetIsTransition && sourcePlaceIdx !== undefined) {
+        addWeight(effects.consumption, sourcePlaceIdx, weight);
+      } else if (sourceIsTransition && targetPlaceIdx !== undefined) {
+        addWeight(effects.production, targetPlaceIdx, weight);
+      }
+      continue;
     }
+
+    const placeIdx = sourcePlaceIdx !== undefined ? sourcePlaceIdx : targetPlaceIdx;
+    if (placeIdx === undefined || (!sourceIsTransition && !targetIsTransition)) continue;
+
+    if (arc.type === 'inhibitor') {
+      effects.inhibitors.set(placeIdx, 1);
+    } else if (arc.type === 'read') {
+      maxWeight(effects.reads, placeIdx, weight);
+    } else if (arc.type === 'reset') {
+      effects.resets.add(placeIdx);
+    }
+  }
+
+  return effects;
+}
+
+function isTransitionEnabled(marking, transitionId, model) {
+  const effects = getTransitionEffects(transitionId, model);
+
+  for (const [placeIdx, threshold] of effects.inhibitors) {
+    const tokens = marking[placeIdx];
+    if (tokens === OMEGA || tokens >= threshold) return false;
+  }
+
+  for (const [placeIdx, requiredTokens] of effects.reads) {
+    const tokens = marking[placeIdx];
+    if (tokens !== OMEGA && tokens < requiredTokens) return false;
+  }
+
+  for (const [placeIdx, requiredTokens] of effects.consumption) {
+    const tokens = marking[placeIdx];
+    if (tokens !== OMEGA && tokens < requiredTokens) return false;
   }
 
   return true;
@@ -78,26 +135,33 @@ function isTransitionEnabled(marking, transitionId, model) {
 
 function fireTransition(marking, transitionId, model, useOmega = false) {
   const next = [...marking];
-  const incoming = model.incomingByTransition.get(transitionId) || getIncoming(model.arcs, transitionId);
-  const outgoing = model.outgoingByTransition.get(transitionId) || getOutgoing(model.arcs, transitionId);
+  const effects = getTransitionEffects(transitionId, model);
 
-  for (const arc of incoming) {
-    const placeIdx = model.placeIndex.get(arc.source);
-    if (placeIdx === undefined) continue;
+  const placeIndexes = new Set([
+    ...effects.consumption.keys(),
+    ...effects.production.keys(),
+    ...effects.resets
+  ]);
 
-    if (arc.type === 'regular' && next[placeIdx] !== OMEGA) {
-      next[placeIdx] -= arc.weight;
-    } else if (arc.type === 'reset') {
-      next[placeIdx] = 0;
+  for (const placeIdx of placeIndexes) {
+    const consumed = effects.consumption.get(placeIdx) || 0;
+    const produced = effects.production.get(placeIdx) || 0;
+    const resets = effects.resets.has(placeIdx);
+    const resetOrder = model.arcSemantics?.resetOrder || 'consume-reset-produce';
+
+    if (resetOrder === 'reset-consume-produce') {
+      if (resets) next[placeIdx] = 0;
+      if (next[placeIdx] !== OMEGA) next[placeIdx] -= consumed;
+      if (!(useOmega && next[placeIdx] === OMEGA)) next[placeIdx] += produced;
+    } else if (resetOrder === 'consume-produce-reset') {
+      if (next[placeIdx] !== OMEGA) next[placeIdx] -= consumed;
+      if (!(useOmega && next[placeIdx] === OMEGA)) next[placeIdx] += produced;
+      if (resets) next[placeIdx] = 0;
+    } else {
+      if (next[placeIdx] !== OMEGA) next[placeIdx] -= consumed;
+      if (resets) next[placeIdx] = 0;
+      if (!(useOmega && next[placeIdx] === OMEGA)) next[placeIdx] += produced;
     }
-  }
-
-  for (const arc of outgoing) {
-    const placeIdx = model.placeIndex.get(arc.target);
-    if (placeIdx === undefined) continue;
-
-    if (useOmega && next[placeIdx] === OMEGA) continue;
-    next[placeIdx] += arc.weight;
   }
 
   return next;
