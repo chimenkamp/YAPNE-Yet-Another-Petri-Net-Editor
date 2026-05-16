@@ -92,15 +92,38 @@ class Arc {
   }
 }
 
+const DEFAULT_ARC_SEMANTICS = {
+  specialArcsBidirectional: true,
+  inhibitorUsesWeight: false,
+  capacityRule: "strict",
+  resetOrder: "consume-reset-produce"
+};
+
 
 class PetriNet {
-  constructor(id, name = "New Petri Net", description = "") {
+  constructor(id, name = "New Petri Net", description = "", options = {}) {
     this.id = id;
     this.name = name;
     this.places = new Map();
     this.transitions = new Map();
     this.arcs = new Map();
     this.description = description;
+    this.arcSemantics = {
+      ...DEFAULT_ARC_SEMANTICS,
+      ...(options.arcSemantics || {})
+    };
+  }
+
+  getArcSemantics() {
+    return { ...this.arcSemantics };
+  }
+
+  setArcSemantics(options = {}) {
+    this.arcSemantics = {
+      ...this.arcSemantics,
+      ...options
+    };
+    this.updateEnabledTransitions();
   }
 
 
@@ -176,25 +199,148 @@ class PetriNet {
     }
   }
 
-  isTransitionEnabled(transitionId) {
-    const incomingArcs = Array.from(this.arcs.values())
-      .filter(arc => arc.target === transitionId);
+  getArcWeight(arc) {
+    const weight = Number(arc.weight);
+    return Number.isFinite(weight) && weight > 0 ? weight : 1;
+  }
 
-    for (const arc of incomingArcs) {
-      const place = this.places.get(arc.source);
-      if (!place) continue;
+  addWeight(map, placeId, weight) {
+    map.set(placeId, (map.get(placeId) || 0) + weight);
+  }
 
-      if (arc.type === "inhibitor") {
+  maxWeight(map, placeId, weight) {
+    map.set(placeId, Math.max(map.get(placeId) || 0, weight));
+  }
 
-        if (place.tokens >= arc.weight) return false;
-      } else if (arc.type === "regular") {
+  getTransitionArcEffects(transitionId) {
+    const effects = {
+      consumption: new Map(),
+      production: new Map(),
+      reads: new Map(),
+      inhibitors: new Map(),
+      resets: new Set()
+    };
 
-        if (place.tokens < arc.weight) return false;
+    for (const arc of this.arcs.values()) {
+      const sourceIsPlace = this.places.has(arc.source);
+      const targetIsPlace = this.places.has(arc.target);
+      const sourceIsTransition = arc.source === transitionId && this.transitions.has(arc.source);
+      const targetIsTransition = arc.target === transitionId && this.transitions.has(arc.target);
+      const weight = this.getArcWeight(arc);
+
+      if (arc.type === "regular") {
+        if (targetIsTransition && sourceIsPlace) {
+          this.addWeight(effects.consumption, arc.source, weight);
+        } else if (sourceIsTransition && targetIsPlace) {
+          this.addWeight(effects.production, arc.target, weight);
+        }
+        continue;
       }
 
+      if (!this.arcSemantics.specialArcsBidirectional && !targetIsTransition) {
+        continue;
+      }
+
+      const placeId = sourceIsPlace ? arc.source : targetIsPlace ? arc.target : null;
+      const touchesTransition = sourceIsTransition || targetIsTransition;
+      if (!placeId || !touchesTransition) continue;
+
+      if (arc.type === "inhibitor") {
+        const threshold = this.arcSemantics.inhibitorUsesWeight ? weight : 1;
+        const existingThreshold = effects.inhibitors.get(placeId);
+        effects.inhibitors.set(
+          placeId,
+          existingThreshold === undefined ? threshold : Math.min(existingThreshold, threshold)
+        );
+      } else if (arc.type === "read") {
+        this.maxWeight(effects.reads, placeId, weight);
+      } else if (arc.type === "reset") {
+        effects.resets.add(placeId);
+      }
+    }
+
+    return effects;
+  }
+
+  getPlaceTokenCount(placeId) {
+    const place = this.places.get(placeId);
+    return place ? Number(place.tokens) || 0 : 0;
+  }
+
+  getNextTokensForEffects(effects) {
+    const nextTokens = new Map();
+    const placeIds = new Set([
+      ...effects.consumption.keys(),
+      ...effects.production.keys(),
+      ...effects.resets
+    ]);
+
+    for (const placeId of placeIds) {
+      let tokens = this.getPlaceTokenCount(placeId);
+      const consumed = effects.consumption.get(placeId) || 0;
+      const produced = effects.production.get(placeId) || 0;
+      const resets = effects.resets.has(placeId);
+
+      if (this.arcSemantics.resetOrder === "reset-consume-produce") {
+        if (resets) tokens = 0;
+        tokens -= consumed;
+        tokens += produced;
+      } else if (this.arcSemantics.resetOrder === "consume-produce-reset") {
+        tokens -= consumed;
+        tokens += produced;
+        if (resets) tokens = 0;
+      } else {
+        tokens -= consumed;
+        if (resets) tokens = 0;
+        tokens += produced;
+      }
+
+      nextTokens.set(placeId, Math.max(0, tokens));
+    }
+
+    return nextTokens;
+  }
+
+  isTransitionEnabled(transitionId) {
+    const effects = this.getTransitionArcEffects(transitionId);
+
+    for (const [placeId, threshold] of effects.inhibitors) {
+      if (this.getPlaceTokenCount(placeId) >= threshold) return false;
+    }
+
+    for (const [placeId, requiredTokens] of effects.reads) {
+      if (this.getPlaceTokenCount(placeId) < requiredTokens) return false;
+    }
+
+    for (const [placeId, requiredTokens] of effects.consumption) {
+      if (this.getPlaceTokenCount(placeId) < requiredTokens) return false;
+    }
+
+    if (this.arcSemantics.capacityRule === "strict") {
+      for (const [placeId, nextTokens] of this.getNextTokensForEffects(effects)) {
+        const place = this.places.get(placeId);
+        if (place && place.capacity !== null && place.capacity !== undefined && nextTokens > place.capacity) {
+          return false;
+        }
+      }
     }
 
     return true;
+  }
+
+  applyTransitionEffects(effects) {
+    const nextTokens = this.getNextTokensForEffects(effects);
+
+    for (const [placeId, tokens] of nextTokens) {
+      const place = this.places.get(placeId);
+      if (!place) continue;
+
+      if (this.arcSemantics.capacityRule === "clamp" && place.capacity !== null) {
+        place.tokens = Math.min(tokens, place.capacity);
+      } else {
+        place.tokens = tokens;
+      }
+    }
   }
 
   fireTransition(transitionId) {
@@ -202,32 +348,7 @@ class PetriNet {
       return false;
     }
 
-
-    const incomingArcs = Array.from(this.arcs.values())
-      .filter(arc => arc.target === transitionId);
-    const outgoingArcs = Array.from(this.arcs.values())
-      .filter(arc => arc.source === transitionId);
-
-
-    for (const arc of incomingArcs) {
-      const place = this.places.get(arc.source);
-      if (!place) continue;
-
-      if (arc.type === "regular") {
-        place.removeTokens(arc.weight);
-      } else if (arc.type === "reset") {
-        place.tokens = 0;
-      }
-
-    }
-
-
-    for (const arc of outgoingArcs) {
-      const place = this.places.get(arc.target);
-      if (!place) continue;
-
-      place.addTokens(arc.weight);
-    }
+    this.applyTransitionEffects(this.getTransitionArcEffects(transitionId));
 
     return true;
   }
@@ -254,9 +375,12 @@ class PetriNet {
         const place = this.places.get(placeId);
         if (!place) continue;
 
-        // Calculate total token requirement
-        const weight1 = incomingArcs1.find(arc => arc.source === placeId)?.weight || 0;
-        const weight2 = incomingArcs2.find(arc => arc.source === placeId)?.weight || 0;
+        const weight1 = incomingArcs1
+          .filter(arc => arc.source === placeId)
+          .reduce((sum, arc) => sum + this.getArcWeight(arc), 0);
+        const weight2 = incomingArcs2
+          .filter(arc => arc.source === placeId)
+          .reduce((sum, arc) => sum + this.getArcWeight(arc), 0);
 
         if (place.tokens < weight1 + weight2) {
           return true; // Conflict: not enough tokens for both
@@ -282,16 +406,15 @@ class PetriNet {
     const conflictGroups = new Map(); // placeId -> array of transition IDs
 
     for (const transId of enabledTransitionIds) {
-      const incomingArcs = Array.from(this.arcs.values())
-        .filter(arc => arc.target === transId && arc.type === "regular");
+      const effects = this.getTransitionArcEffects(transId);
 
-      for (const arc of incomingArcs) {
-        if (!conflictGroups.has(arc.source)) {
-          conflictGroups.set(arc.source, []);
+      for (const [placeId, weight] of effects.consumption) {
+        if (!conflictGroups.has(placeId)) {
+          conflictGroups.set(placeId, []);
         }
-        conflictGroups.get(arc.source).push({
+        conflictGroups.get(placeId).push({
           transitionId: transId,
-          weight: arc.weight
+          weight
         });
       }
     }
@@ -331,12 +454,10 @@ class PetriNet {
 
         // Select transitions until we run out of tokens
         let availableTokens = place.tokens;
-        const selected = [];
 
         for (const trans of transitionDetails) {
           const arcWeight = transitions.find(t => t.transitionId === trans.id)?.weight || 0;
           if (availableTokens >= arcWeight && toFire.has(trans.id)) {
-            selected.push(trans.id);
             availableTokens -= arcWeight;
           } else {
             toFire.delete(trans.id);
@@ -348,6 +469,42 @@ class PetriNet {
     return Array.from(toFire);
   }
 
+  getSynchronousArcEffects(transitionIds) {
+    const combined = {
+      consumption: new Map(),
+      production: new Map(),
+      reads: new Map(),
+      inhibitors: new Map(),
+      resets: new Set()
+    };
+
+    for (const transitionId of transitionIds) {
+      const effects = this.getTransitionArcEffects(transitionId);
+      for (const [placeId, weight] of effects.consumption) {
+        this.addWeight(combined.consumption, placeId, weight);
+      }
+      for (const [placeId, weight] of effects.production) {
+        this.addWeight(combined.production, placeId, weight);
+      }
+      for (const [placeId, weight] of effects.reads) {
+        this.maxWeight(combined.reads, placeId, weight);
+      }
+      for (const [placeId, threshold] of effects.inhibitors) {
+        combined.inhibitors.set(placeId, threshold);
+      }
+      for (const placeId of effects.resets) {
+        combined.resets.add(placeId);
+      }
+    }
+
+    return combined;
+  }
+
+  planSynchronousTransitions(transitionIds) {
+    const enabledTransitions = transitionIds.filter(id => this.isTransitionEnabled(id));
+    return this.resolveConflicts(enabledTransitions);
+  }
+
   /**
    * Fire multiple transitions simultaneously in one atomic step (synchronous step semantics)
    * All transitions that are enabled at the start of the step will fire together
@@ -355,66 +512,22 @@ class PetriNet {
    * @returns {boolean} - True if at least one transition was successfully fired
    */
   fireTransitionsSynchronously(transitionIds) {
-    // Filter to only enabled transitions
-    const enabledTransitions = transitionIds.filter(id => this.isTransitionEnabled(id));
-    
-    if (enabledTransitions.length === 0) {
-      return false;
-    }
-
-    // Resolve conflicts - randomly select among transitions with same priority/weight
-    const transitionsToFire = this.resolveConflicts(enabledTransitions);
+    const transitionsToFire = this.planSynchronousTransitions(transitionIds);
 
     if (transitionsToFire.length === 0) {
       return false;
     }
 
-    // Phase 1: Collect all arc operations (token consumption and production)
-    const tokenDeltas = new Map(); // placeId -> delta (positive for production, negative for consumption)
-
-    for (const transitionId of transitionsToFire) {
-      const incomingArcs = Array.from(this.arcs.values())
-        .filter(arc => arc.target === transitionId);
-      const outgoingArcs = Array.from(this.arcs.values())
-        .filter(arc => arc.source === transitionId);
-
-      // Handle incoming arcs (token consumption)
-      for (const arc of incomingArcs) {
-        const place = this.places.get(arc.source);
-        if (!place) continue;
-
-        if (arc.type === "regular") {
-          const currentDelta = tokenDeltas.get(arc.source) || 0;
-          tokenDeltas.set(arc.source, currentDelta - arc.weight);
-        } else if (arc.type === "reset") {
-          // Reset arcs set tokens to 0 (overrides any delta)
-          tokenDeltas.set(arc.source, -place.tokens);
+    const effects = this.getSynchronousArcEffects(transitionsToFire);
+    if (this.arcSemantics.capacityRule === "strict") {
+      for (const [placeId, nextTokens] of this.getNextTokensForEffects(effects)) {
+        const place = this.places.get(placeId);
+        if (place && place.capacity !== null && place.capacity !== undefined && nextTokens > place.capacity) {
+          return false;
         }
       }
-
-      // Handle outgoing arcs (token production)
-      for (const arc of outgoingArcs) {
-        const place = this.places.get(arc.target);
-        if (!place) continue;
-
-        const currentDelta = tokenDeltas.get(arc.target) || 0;
-        tokenDeltas.set(arc.target, currentDelta + arc.weight);
-      }
     }
-
-    // Phase 2: Apply all token changes atomically
-    for (const [placeId, delta] of tokenDeltas) {
-      const place = this.places.get(placeId);
-      if (!place) continue;
-
-      place.tokens += delta;
-      // Ensure tokens don't go negative (safety check)
-      if (place.tokens < 0) place.tokens = 0;
-      // Ensure we don't exceed capacity
-      if (place.capacity !== null && place.tokens > place.capacity) {
-        place.tokens = place.capacity;
-      }
-    }
+    this.applyTransitionEffects(effects);
 
     return true;
   }
@@ -461,6 +574,7 @@ class PetriNet {
       id: this.id,
       name: this.name,
       description: this.description,
+      arcSemantics: this.getArcSemantics(),
       places: Array.from(this.places.values()),
       transitions: Array.from(this.transitions.values()),
       arcs: Array.from(this.arcs.values())
@@ -469,7 +583,9 @@ class PetriNet {
 
   static fromJSON(json) {
     const data = JSON.parse(json);
-    const net = new PetriNet(data.id, data.name, data.description);
+    const net = new PetriNet(data.id, data.name, data.description, {
+      arcSemantics: data.arcSemantics
+    });
 
 
     data.places.forEach((placeData) => {
@@ -3547,11 +3663,12 @@ class PetriNetEditor {
 
 
 class PetriNetAPI {
-  constructor(id, name, description) {
+  constructor(id, name, description, options = {}) {
     this.petriNet = new PetriNet(
       id || this.generateUUID(),
       name || "New Petri Net",
-      description || ""
+      description || "",
+      options
     );
     this.editor = null;
     this.canvas = null;
@@ -3737,6 +3854,16 @@ class PetriNetAPI {
     if (!arc) return false;
 
     arc.type = type;
+    if (this.editor) this.editor.render();
+    return true;
+  }
+
+  getArcSemantics() {
+    return this.petriNet.getArcSemantics();
+  }
+
+  setArcSemantics(options = {}) {
+    this.petriNet.setArcSemantics(options);
     if (this.editor) this.editor.render();
     return true;
   }
