@@ -188,9 +188,13 @@ class ProbabilisticEventLogGenerator {
         
         let net;
         if (isDPN) {
-            net = new DataPetriNet();
+            net = new DataPetriNet(data.id, data.name, data.description, {
+                arcSemantics: data.arcSemantics
+            });
         } else {
-            net = new PetriNet();
+            net = new PetriNet(data.id, data.name, data.description, {
+                arcSemantics: data.arcSemantics
+            });
         }
         
         // Import places

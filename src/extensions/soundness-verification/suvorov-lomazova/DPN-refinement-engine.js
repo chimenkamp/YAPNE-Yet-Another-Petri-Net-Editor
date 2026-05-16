@@ -1125,34 +1125,102 @@ async computeNewFormula(stateFormula, transition, dpn) {
     return `${mk}|${ff}`;
   }
 
-  isTransitionEnabled(marking, transition, dpn) {
-    // Check if all input places have enough tokens
-    for (const arc of dpn.arcs || []) {
-      if (
-        arc.target === transition.id &&
-        marking[arc.source] < (arc.weight || 1)
-      ) {
-        return false;
+  getArcWeight(arc) {
+    const weight = Number(arc.weight);
+    return Number.isFinite(weight) && weight > 0 ? weight : 1;
+  }
+
+  getDpnArcs(dpn) {
+    return dpn.arcs instanceof Map ? Array.from(dpn.arcs.values()) : (dpn.arcs || []);
+  }
+
+  getDpnPlaceIds(dpn) {
+    if (dpn.places instanceof Map) return new Set(dpn.places.keys());
+    return new Set((dpn.places || []).map(place => place.id));
+  }
+
+  addArcWeight(map, placeId, weight) {
+    map.set(placeId, (map.get(placeId) || 0) + weight);
+  }
+
+  maxArcWeight(map, placeId, weight) {
+    map.set(placeId, Math.max(map.get(placeId) || 0, weight));
+  }
+
+  getTransitionArcEffects(transition, dpn) {
+    const placeIds = this.getDpnPlaceIds(dpn);
+    const effects = {
+      consumption: new Map(),
+      production: new Map(),
+      reads: new Map(),
+      inhibitors: new Map(),
+      resets: new Set()
+    };
+
+    for (const arc of this.getDpnArcs(dpn)) {
+      const sourceIsPlace = placeIds.has(arc.source);
+      const targetIsPlace = placeIds.has(arc.target);
+      const sourceIsTransition = arc.source === transition.id;
+      const targetIsTransition = arc.target === transition.id;
+      const weight = this.getArcWeight(arc);
+
+      if ((arc.type || 'regular') === 'regular') {
+        if (targetIsTransition && sourceIsPlace) {
+          this.addArcWeight(effects.consumption, arc.source, weight);
+        } else if (sourceIsTransition && targetIsPlace) {
+          this.addArcWeight(effects.production, arc.target, weight);
+        }
+        continue;
+      }
+
+      const placeId = sourceIsPlace ? arc.source : targetIsPlace ? arc.target : null;
+      if (!placeId || (!sourceIsTransition && !targetIsTransition)) continue;
+
+      if (arc.type === 'inhibitor') {
+        effects.inhibitors.set(placeId, 1);
+      } else if (arc.type === 'read') {
+        this.maxArcWeight(effects.reads, placeId, weight);
+      } else if (arc.type === 'reset') {
+        effects.resets.add(placeId);
       }
     }
+
+    return effects;
+  }
+
+  isTransitionEnabled(marking, transition, dpn) {
+    const effects = this.getTransitionArcEffects(transition, dpn);
+
+    for (const [placeId, threshold] of effects.inhibitors) {
+      if ((marking[placeId] || 0) >= threshold) return false;
+    }
+
+    for (const [placeId, requiredTokens] of effects.reads) {
+      if ((marking[placeId] || 0) < requiredTokens) return false;
+    }
+
+    for (const [placeId, requiredTokens] of effects.consumption) {
+      if ((marking[placeId] || 0) < requiredTokens) return false;
+    }
+
     return true;
   }
 
   computeNewMarking(marking, transition, dpn) {
     const newMarking = { ...marking };
+    const effects = this.getTransitionArcEffects(transition, dpn);
+    const placeIds = new Set([
+      ...effects.consumption.keys(),
+      ...effects.production.keys(),
+      ...effects.resets
+    ]);
 
-    // Remove tokens from input places
-    for (const arc of dpn.arcs || []) {
-      if (arc.target === transition.id) {
-        newMarking[arc.source] -= arc.weight || 1;
-      }
-    }
-
-    // Add tokens to output places
-    for (const arc of dpn.arcs || []) {
-      if (arc.source === transition.id) {
-        newMarking[arc.target] += arc.weight || 1;
-      }
+    for (const placeId of placeIds) {
+      let tokens = newMarking[placeId] || 0;
+      tokens -= effects.consumption.get(placeId) || 0;
+      if (effects.resets.has(placeId)) tokens = 0;
+      tokens += effects.production.get(placeId) || 0;
+      newMarking[placeId] = Math.max(0, tokens);
     }
 
     return newMarking;

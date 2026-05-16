@@ -62,9 +62,9 @@ These controls, located at the bottom left of the canvas, help you navigate your
 -   **Copying Multiple Elements:** Use `Ctrl/Cmd + C` and `Ctrl/Cmd + V` to duplicate the selected elements and their internal arcs. Arcs that connect to elements outside the selection are not copied.
 -   **Connecting Elements (Arcs):** Use the "Add Arc" tool or the `Space` key to connect elements. YAPNE supports multiple arc types:
     -   **Regular Arc:** The standard arc for consuming and producing tokens.
-    -   **Inhibitor Arc:** Prevents a transition from firing if the source place has sufficient tokens.
-    -   **Reset Arc:** Empties all tokens from a place when the transition fires.
-    -   **Read Arc:** Checks for tokens without consuming them.
+    -   **Inhibitor Arc:** Prevents a transition from firing if the connected place has any tokens. The arc weight is ignored by default.
+    -   **Reset Arc:** Empties the connected place when the transition fires. The arc weight is ignored.
+    -   **Read Arc:** Checks for the configured number of tokens without consuming them.
 -   **Properties Panel:** Select any element to view and edit its properties (label, initial tokens, capacity, arc weight, etc.) in the "Model" tab of the sidebar.
 
 #### 3.1.2 File Operations
@@ -98,6 +98,12 @@ The "Simulation" tab provides all the tools needed to execute and analyze your m
     -   **Token Marking:** Shows the current token count for each place.
     -   **Data Values:** Displays the current values of all defined data variables.
     -   **Variable History:** Tracks and logs changes to data variables at each step of the simulation.
+
+#### 3.3.1 Formal Arc Semantics
+
+YAPNE uses a weighted P/T net firing rule by default: an enabled transition may fire, regular input arcs consume their weights from input places, and regular output arcs add their weights to output places. Place capacity is strict by default, so a transition is disabled if firing it would exceed an output place's capacity.
+
+Special arcs are place-transition predicates/effects independent of drawing direction. Inhibitor arcs require zero tokens, read arcs require at least their weight and consume nothing, and reset arcs reset the connected place during firing. If multiple arcs connect the same place and transition, enabledness is checked once at the start; firing is applied in the normal form `consume regular inputs -> reset places -> produce regular outputs`.
 
 ### 3.4 Data-Aware Petri Nets (DPN)
 

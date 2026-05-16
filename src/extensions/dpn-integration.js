@@ -98,7 +98,8 @@ class DataPetriNetIntegration {
       const newAPI = new DataPetriNetAPI(
         oldAPI.petriNet.id,
         oldAPI.petriNet.name,
-        oldAPI.petriNet.description
+        oldAPI.petriNet.description,
+        { arcSemantics: oldAPI.petriNet.getArcSemantics?.() }
       );
       
 

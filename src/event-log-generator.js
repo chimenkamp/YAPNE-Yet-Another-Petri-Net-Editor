@@ -219,12 +219,14 @@ class EventLogGenerator {
         ? new DataPetriNet(
             this.petriNet.id,
             this.petriNet.name,
-            this.petriNet.description
+            this.petriNet.description,
+            { arcSemantics: this.petriNet.getArcSemantics?.() }
           )
         : new PetriNet(
             this.petriNet.id,
             this.petriNet.name,
-            this.petriNet.description
+            this.petriNet.description,
+            { arcSemantics: this.petriNet.getArcSemantics?.() }
           );
       
       // Clone places

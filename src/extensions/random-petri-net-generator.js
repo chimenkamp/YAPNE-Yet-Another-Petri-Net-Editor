@@ -1729,7 +1729,8 @@ class PetriNetGenerator {
     const clone = new PetriNet(
       petriNet.id,
       petriNet.name,
-      petriNet.description
+      petriNet.description,
+      { arcSemantics: petriNet.getArcSemantics?.() }
     );
     
 
