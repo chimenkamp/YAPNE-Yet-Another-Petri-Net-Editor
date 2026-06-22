@@ -360,11 +360,14 @@ initEventHandlers() {
   // Clear any existing app-level event listeners first
   this.cleanupAppEventListeners();
 
-  const commitPropertiesInputOnCanvasMouseDown = () => {
+  const handleEditorPress = () => {
     this.commitFocusedPropertiesInput();
+    this.closeMobilePanelsOnEditorPress();
   };
-  this.canvas.addEventListener("mousedown", commitPropertiesInputOnCanvasMouseDown, true);
-  this.appEventListeners.push(['mousedown', commitPropertiesInputOnCanvasMouseDown, this.canvas, true]);
+  this.canvas.addEventListener("mousedown", handleEditorPress, true);
+  this.canvas.addEventListener("touchstart", handleEditorPress, true);
+  this.appEventListeners.push(['mousedown', handleEditorPress, this.canvas, true]);
+  this.appEventListeners.push(['touchstart', handleEditorPress, this.canvas, true]);
 
   const btnSelect = document.getElementById("btn-select");
   if (btnSelect) {
@@ -691,6 +694,44 @@ initEventHandlers() {
 
     activeElement.dispatchEvent(new Event('change', { bubbles: true }));
     activeElement.blur();
+  }
+
+  isCompactTouchLayout() {
+    return window.matchMedia?.('(max-width: 700px), (pointer: coarse)').matches;
+  }
+
+  closeMobilePanelsOnEditorPress() {
+    if (!this.isCompactTouchLayout()) return;
+
+    const panels = [
+      this.propsPanel,
+      this.simDashboard,
+      this.verifyPanel,
+      this.generationPanel
+    ];
+
+    for (const panel of panels) {
+      if (panel?.isOpen) {
+        panel.close();
+      }
+    }
+
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    if (sidebar?.classList.contains('sidebar-visible')) {
+      sidebar.classList.remove('sidebar-visible');
+      sidebar.classList.add('sidebar-hidden');
+      sidebarToggle?.classList.remove('sidebar-expanded');
+      if (sidebarToggle) {
+        sidebarToggle.innerHTML = '▶';
+        sidebarToggle.title = 'Show sidebar (Tab)';
+      }
+      document.body.classList.remove('sidebar-open');
+    }
+
+    if (this.historyDialog?._visible) {
+      this.historyDialog.toggle();
+    }
   }
 
   /**

@@ -1815,6 +1815,13 @@ class PetriNetEditor {
     this._lastTouchPoint = null;
     this._lastPinchDistance = null;
     this._lastPinchCenter = null;
+    this._longPressGhostTimer = null;
+    this._longPressGhostActive = false;
+    this._longPressGhostStartPoint = null;
+    this._longPressGhostLastTouch = null;
+    this._longPressGhostWasShiftPressed = false;
+    this._longPressGhostDelay = 750;
+    this._longPressGhostMoveThreshold = 12;
     this.pendingRenderFrame = null;
     this.pendingRenderUpdatesEnabled = false;
     this.pendingAfterRender = null;
@@ -2014,10 +2021,12 @@ class PetriNetEditor {
         this._lastTouchPoint = event.touches[0];
         const currentMouseDown = this.eventListeners.get('mousedown') || mouseDownHandler;
         currentMouseDown(createSyntheticTouchMouseEvent(event.touches[0], 'mousedown'));
+        this._startLongPressGhostGesture(event.touches[0]);
         return;
       }
 
       if (event.touches.length === 2) {
+        this._cancelLongPressGhostGesture();
         this.arcDrawing = null;
         this.boxSelection = null;
         this.dragStart = null;
@@ -2036,12 +2045,14 @@ class PetriNetEditor {
 
       if (event.touches.length === 1 && !this._lastPinchDistance) {
         this._lastTouchPoint = event.touches[0];
+        this._updateLongPressGhostGesture(event.touches[0]);
         const currentMouseMove = this.eventListeners.get('mousemove') || mouseMoveHandler;
         currentMouseMove(createSyntheticTouchMouseEvent(event.touches[0], 'mousemove'));
         return;
       }
 
       if (event.touches.length === 2) {
+        this._cancelLongPressGhostGesture();
         const nextDistance = getTouchDistance(event.touches);
         const nextCenter = getTouchCenter(event.touches);
 
@@ -2068,6 +2079,15 @@ class PetriNetEditor {
 
       if (event.touches.length === 0) {
         const touch = event.changedTouches[0] || this._lastTouchPoint;
+        if (this._finishLongPressGhostGesture(touch)) {
+          this._lastTouchPoint = null;
+          this._lastPinchDistance = null;
+          this._lastPinchCenter = null;
+          this.isPanning = false;
+          this.lastPanPosition = null;
+          this.canvas.style.cursor = 'default';
+          return;
+        }
         if (touch && !this._lastPinchDistance) {
           const currentMouseUp = this.eventListeners.get('mouseup') || mouseUpHandler;
           currentMouseUp(createSyntheticTouchMouseEvent(touch, 'mouseup'));
@@ -2083,6 +2103,7 @@ class PetriNetEditor {
       }
 
       if (event.touches.length === 1) {
+        this._cancelLongPressGhostGesture();
         this._lastPinchDistance = null;
         this._lastPinchCenter = null;
         this._lastTouchPoint = event.touches[0];
@@ -2237,6 +2258,132 @@ class PetriNetEditor {
     if (!this._usesCoarsePointer()) return 0;
     const zoom = this.renderer?.zoomFactor || 1;
     return Math.max(10, 14 / zoom);
+  }
+
+  _canvasPointFromClient(clientX, clientY) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  }
+
+  _worldPointFromClient(clientX, clientY) {
+    const point = this._canvasPointFromClient(clientX, clientY);
+    return this.renderer.screenToWorld(point.x, point.y);
+  }
+
+  _startLongPressGhostGesture(touch) {
+    this._cancelLongPressGhostGesture();
+    if (!this._usesCoarsePointer() || this.mode !== 'select' || !touch) return;
+
+    const worldPos = this._worldPointFromClient(touch.clientX, touch.clientY);
+    const hitElement = this._findElementAt(worldPos.x, worldPos.y);
+    if (!hitElement || (hitElement.type !== 'place' && hitElement.type !== 'transition')) return;
+
+    this._longPressGhostWasShiftPressed = this.isShiftPressed;
+    this._longPressGhostStartPoint = this._canvasPointFromClient(touch.clientX, touch.clientY);
+    this._longPressGhostLastTouch = touch;
+    this._longPressGhostTimer = window.setTimeout(() => {
+      this._activateLongPressGhostGesture(this._longPressGhostLastTouch);
+    }, this._longPressGhostDelay);
+  }
+
+  _updateLongPressGhostGesture(touch) {
+    if (!touch || !this._longPressGhostStartPoint) return;
+
+    this._longPressGhostLastTouch = touch;
+    const point = this._canvasPointFromClient(touch.clientX, touch.clientY);
+    const dx = point.x - this._longPressGhostStartPoint.x;
+    const dy = point.y - this._longPressGhostStartPoint.y;
+
+    if (!this._longPressGhostActive &&
+        Math.sqrt(dx * dx + dy * dy) > this._longPressGhostMoveThreshold) {
+      this._cancelLongPressGhostGesture();
+      return;
+    }
+
+    if (this._longPressGhostActive) {
+      this.updateGhostElement(this._worldPointFromClient(touch.clientX, touch.clientY));
+      this.requestRender();
+    }
+  }
+
+  _activateLongPressGhostGesture(touch) {
+    if (!touch || this._longPressGhostActive || this.mode !== 'select') return;
+    if (!this.selectedElement ||
+        (this.selectedElement.type !== 'place' && this.selectedElement.type !== 'transition')) {
+      this._cancelLongPressGhostGesture();
+      return;
+    }
+
+    this._longPressGhostTimer = null;
+    this._longPressGhostActive = true;
+    this.isShiftPressed = true;
+    this.boxSelection = null;
+    this.selectionDragState = null;
+    this.dragStart = null;
+    this.dragOffset = null;
+    this.canvas.style.cursor = 'crosshair';
+    this.updateGhostElement(this._worldPointFromClient(touch.clientX, touch.clientY));
+    this.requestRender();
+
+    if (navigator.vibrate) {
+      navigator.vibrate(15);
+    }
+  }
+
+  _cancelLongPressGhostGesture() {
+    if (this._longPressGhostTimer) {
+      window.clearTimeout(this._longPressGhostTimer);
+    }
+    if (this._longPressGhostActive && !this._longPressGhostWasShiftPressed) {
+      this.isShiftPressed = false;
+      this.ghostElement = null;
+      this.ghostPosition = null;
+      this.ghostChain = null;
+      this.canvas.style.cursor = 'default';
+      this.requestRender();
+    }
+
+    this._longPressGhostTimer = null;
+    this._longPressGhostActive = false;
+    this._longPressGhostStartPoint = null;
+    this._longPressGhostLastTouch = null;
+    this._longPressGhostWasShiftPressed = false;
+  }
+
+  _finishLongPressGhostGesture(touch) {
+    if (!this._longPressGhostActive) {
+      this._cancelLongPressGhostGesture();
+      return false;
+    }
+
+    if (touch) {
+      this.updateGhostElement(this._worldPointFromClient(touch.clientX, touch.clientY));
+    }
+
+    const canPlaceGhost = this.selectedElement && this.ghostElement && this.ghostPosition;
+    if (canPlaceGhost) {
+      this.placeGhostElement();
+    }
+
+    if (!this._longPressGhostWasShiftPressed) {
+      this.isShiftPressed = false;
+      this.canvas.style.cursor = 'default';
+    }
+
+    this.dragStart = null;
+    this.dragOffset = null;
+    this.selectionDragState = null;
+    this._longPressGhostTimer = null;
+    this._longPressGhostActive = false;
+    this._longPressGhostStartPoint = null;
+    this._longPressGhostLastTouch = null;
+    this._longPressGhostWasShiftPressed = false;
+    this.render();
+
+    return Boolean(canPlaceGhost);
   }
 
   updateGhostElement(worldPos) {
