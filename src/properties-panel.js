@@ -8,7 +8,8 @@
 export class PropertiesPanel {
   constructor(app) {
     this.app = app;
-    this.isOpen = true; // open by default
+    const compactTouchQuery = window.matchMedia?.('(max-width: 700px), (pointer: coarse)');
+    this.isOpen = !(compactTouchQuery && compactTouchQuery.matches);
     this.panel = null;
     this.toggleBtn = null;
     this.contentEl = null;
@@ -23,7 +24,7 @@ export class PropertiesPanel {
 
   _createToggleButton() {
     this.toggleBtn = document.createElement('button');
-    this.toggleBtn.className = 'side-panel-toggle props-toggle active';
+    this.toggleBtn.className = 'side-panel-toggle props-toggle';
     this.toggleBtn.id = 'props-panel-toggle';
     this.toggleBtn.innerHTML = `
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -32,6 +33,7 @@ export class PropertiesPanel {
       <span class="toggle-label">Properties</span>
     `;
     this.toggleBtn.title = 'Toggle Properties Panel';
+    this.toggleBtn.classList.toggle('active', this.isOpen);
     this.toggleBtn.addEventListener('click', () => this.toggle());
 
     const container = document.querySelector('.canvas-container');
@@ -40,7 +42,8 @@ export class PropertiesPanel {
 
   _createPanel() {
     this.panel = document.createElement('div');
-    this.panel.className = 'props-panel side-panel open';
+    this.panel.className = 'props-panel side-panel';
+    this.panel.classList.toggle('open', this.isOpen);
     this.panel.id = 'props-panel';
     this.panel.innerHTML = `
       <div class="panel-header">

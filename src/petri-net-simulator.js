@@ -1811,6 +1811,10 @@ class PetriNetEditor {
 
     this.isPanning = false;
     this.lastPanPosition = null;
+    this._ignoreMouseEventsUntil = 0;
+    this._lastTouchPoint = null;
+    this._lastPinchDistance = null;
+    this._lastPinchCenter = null;
     this.pendingRenderFrame = null;
     this.pendingRenderUpdatesEnabled = false;
     this.pendingAfterRender = null;
@@ -1850,6 +1854,8 @@ class PetriNetEditor {
   setupEventListeners() {
 
     const mouseDownHandler = (event) => {
+      if (!event.syntheticTouch && this._shouldIgnoreMouseEvent()) return;
+
       const rect = this.canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
@@ -1885,6 +1891,8 @@ class PetriNetEditor {
     };
 
     const mouseMoveHandler = (event) => {
+      if (!event.syntheticTouch && this._shouldIgnoreMouseEvent()) return;
+
       const rect = this.canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
@@ -1926,6 +1934,7 @@ class PetriNetEditor {
 
 
     const mouseUpHandler = (event) => {
+      if (!event.syntheticTouch && this._shouldIgnoreMouseEvent()) return;
 
       if (this.isPanning) {
         this.isPanning = false;
@@ -1959,6 +1968,124 @@ class PetriNetEditor {
 
       if (this.callbacks.onChange) {
         this.callbacks.onChange();
+      }
+    };
+
+    const createSyntheticTouchMouseEvent = (touch, type) => ({
+      syntheticTouch: true,
+      type,
+      button: 0,
+      clientX: touch.clientX,
+      clientY: touch.clientY,
+      preventDefault() {},
+      stopPropagation() {}
+    });
+
+    const getTouchCanvasPoint = (touch) => {
+      const rect = this.canvas.getBoundingClientRect();
+      return {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top
+      };
+    };
+
+    const getTouchCenter = (touches) => {
+      const first = getTouchCanvasPoint(touches[0]);
+      const second = getTouchCanvasPoint(touches[1]);
+      return {
+        x: (first.x + second.x) / 2,
+        y: (first.y + second.y) / 2
+      };
+    };
+
+    const getTouchDistance = (touches) => {
+      const first = getTouchCanvasPoint(touches[0]);
+      const second = getTouchCanvasPoint(touches[1]);
+      const dx = second.x - first.x;
+      const dy = second.y - first.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const touchStartHandler = (event) => {
+      if (event.cancelable) event.preventDefault();
+      this._ignoreMouseEventsUntil = Date.now() + 700;
+
+      if (event.touches.length === 1) {
+        this._lastTouchPoint = event.touches[0];
+        const currentMouseDown = this.eventListeners.get('mousedown') || mouseDownHandler;
+        currentMouseDown(createSyntheticTouchMouseEvent(event.touches[0], 'mousedown'));
+        return;
+      }
+
+      if (event.touches.length === 2) {
+        this.arcDrawing = null;
+        this.boxSelection = null;
+        this.dragStart = null;
+        this.dragOffset = null;
+        this.selectionDragState = null;
+        this.isPanning = false;
+        this.lastPanPosition = null;
+        this._lastPinchDistance = getTouchDistance(event.touches);
+        this._lastPinchCenter = getTouchCenter(event.touches);
+      }
+    };
+
+    const touchMoveHandler = (event) => {
+      if (event.cancelable) event.preventDefault();
+      this._ignoreMouseEventsUntil = Date.now() + 700;
+
+      if (event.touches.length === 1 && !this._lastPinchDistance) {
+        this._lastTouchPoint = event.touches[0];
+        const currentMouseMove = this.eventListeners.get('mousemove') || mouseMoveHandler;
+        currentMouseMove(createSyntheticTouchMouseEvent(event.touches[0], 'mousemove'));
+        return;
+      }
+
+      if (event.touches.length === 2) {
+        const nextDistance = getTouchDistance(event.touches);
+        const nextCenter = getTouchCenter(event.touches);
+
+        if (this._lastPinchDistance && this._lastPinchCenter) {
+          const factor = Math.max(0.85, Math.min(1.18, nextDistance / this._lastPinchDistance));
+          const dx = nextCenter.x - this._lastPinchCenter.x;
+          const dy = nextCenter.y - this._lastPinchCenter.y;
+          this.renderer.adjustZoom(factor, nextCenter.x, nextCenter.y);
+          this.renderer.adjustPan(dx * this.panSensitivity, dy * this.panSensitivity);
+          this.requestRender();
+          if (this.app && this.app.updateZoomDisplay) {
+            this.app.updateZoomDisplay();
+          }
+        }
+
+        this._lastPinchDistance = nextDistance;
+        this._lastPinchCenter = nextCenter;
+      }
+    };
+
+    const touchEndHandler = (event) => {
+      if (event.cancelable) event.preventDefault();
+      this._ignoreMouseEventsUntil = Date.now() + 700;
+
+      if (event.touches.length === 0) {
+        const touch = event.changedTouches[0] || this._lastTouchPoint;
+        if (touch && !this._lastPinchDistance) {
+          const currentMouseUp = this.eventListeners.get('mouseup') || mouseUpHandler;
+          currentMouseUp(createSyntheticTouchMouseEvent(touch, 'mouseup'));
+        }
+        this._lastTouchPoint = null;
+        this._lastPinchDistance = null;
+        this._lastPinchCenter = null;
+        this.isPanning = false;
+        this.lastPanPosition = null;
+        this.canvas.style.cursor = 'default';
+        this.render();
+        return;
+      }
+
+      if (event.touches.length === 1) {
+        this._lastPinchDistance = null;
+        this._lastPinchCenter = null;
+        this._lastTouchPoint = event.touches[0];
       }
     };
 
@@ -2078,6 +2205,10 @@ class PetriNetEditor {
     this.canvas.addEventListener('mousemove', mouseMoveHandler);
     this.canvas.addEventListener('mouseup', mouseUpHandler);
     this.canvas.addEventListener('wheel', mouseWheelHandler, { passive: false });
+    this.canvas.addEventListener('touchstart', touchStartHandler, { passive: false });
+    this.canvas.addEventListener('touchmove', touchMoveHandler, { passive: false });
+    this.canvas.addEventListener('touchend', touchEndHandler, { passive: false });
+    this.canvas.addEventListener('touchcancel', touchEndHandler, { passive: false });
     document.addEventListener('keydown', keyDownHandler);
     document.addEventListener('keyup', keyUpHandler);
 
@@ -2086,8 +2217,26 @@ class PetriNetEditor {
     this.eventListeners.set('mousemove', mouseMoveHandler);
     this.eventListeners.set('mouseup', mouseUpHandler);
     this.eventListeners.set('wheel', mouseWheelHandler);
+    this.eventListeners.set('touchstart', touchStartHandler);
+    this.eventListeners.set('touchmove', touchMoveHandler);
+    this.eventListeners.set('touchend', touchEndHandler);
+    this.eventListeners.set('touchcancel', touchEndHandler);
     this.eventListeners.set('keydown', keyDownHandler);
     this.eventListeners.set('keyup', keyUpHandler);
+  }
+
+  _shouldIgnoreMouseEvent() {
+    return this._ignoreMouseEventsUntil && Date.now() < this._ignoreMouseEventsUntil;
+  }
+
+  _usesCoarsePointer() {
+    return window.matchMedia?.('(pointer: coarse), (max-width: 700px)').matches;
+  }
+
+  _getHitPadding() {
+    if (!this._usesCoarsePointer()) return 0;
+    const zoom = this.renderer?.zoomFactor || 1;
+    return Math.max(10, 14 / zoom);
   }
 
   updateGhostElement(worldPos) {
@@ -2296,6 +2445,7 @@ class PetriNetEditor {
     }
 
     for (const [id, arc] of this.petriNet.arcs) {
+      const arcHitDistance = 10 + this._getHitPadding();
 
       const sourceElement = this.petriNet.places.get(arc.source) || this.petriNet.transitions.get(arc.source);
       const targetElement = this.petriNet.places.get(arc.target) || this.petriNet.transitions.get(arc.target);
@@ -2314,7 +2464,7 @@ class PetriNetEditor {
 
       const dotProduct = ((x - sx) * (tx - sx) + (y - sy) * (ty - sy)) / (lineLength * lineLength);
 
-      if (distance < 10 && dotProduct >= 0 && dotProduct <= 1) {
+      if (distance < arcHitDistance && dotProduct >= 0 && dotProduct <= 1) {
         this.clearMultiSelection();
         this.selectedElement = { id, type: 'arc' };
 
@@ -2805,21 +2955,22 @@ class PetriNetEditor {
   }
 
   startArcDrawing(x, y) {
+    const hitPadding = this._getHitPadding();
 
     for (const [id, place] of this.petriNet.places) {
       const dx = place.position.x - x;
       const dy = place.position.y - y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
-      if (distance <= place.radius) {
+      if (distance <= place.radius + hitPadding) {
         this.arcDrawing = { sourceId: id, sourceType: 'place' };
         return;
       }
     }
 
     for (const [id, transition] of this.petriNet.transitions) {
-      const halfWidth = transition.width / 2;
-      const halfHeight = transition.height / 2;
+      const halfWidth = transition.width / 2 + hitPadding;
+      const halfHeight = transition.height / 2 + hitPadding;
 
       if (
         x >= transition.position.x - halfWidth &&
@@ -2901,16 +3052,17 @@ class PetriNetEditor {
    * Returns { id, type } or null.
    */
   _findElementAt(x, y) {
+    const hitPadding = this._getHitPadding();
     for (const [id, place] of this.petriNet.places) {
       const dx = place.position.x - x;
       const dy = place.position.y - y;
-      if (Math.sqrt(dx * dx + dy * dy) <= place.radius) {
+      if (Math.sqrt(dx * dx + dy * dy) <= place.radius + hitPadding) {
         return { id, type: 'place' };
       }
     }
     for (const [id, transition] of this.petriNet.transitions) {
-      const hw = transition.width / 2;
-      const hh = transition.height / 2;
+      const hw = transition.width / 2 + hitPadding;
+      const hh = transition.height / 2 + hitPadding;
       if (x >= transition.position.x - hw && x <= transition.position.x + hw &&
           y >= transition.position.y - hh && y <= transition.position.y + hh) {
         return { id, type: 'transition' };
@@ -2921,6 +3073,7 @@ class PetriNetEditor {
 
   completeArcDrawing(x, y) {
     if (!this.arcDrawing) return;
+    const hitPadding = this._getHitPadding();
 
 
     let targetId = null;
@@ -2932,7 +3085,7 @@ class PetriNetEditor {
       const dy = place.position.y - y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
-      if (distance <= place.radius) {
+      if (distance <= place.radius + hitPadding) {
         targetId = id;
         targetType = 'place';
         break;
@@ -2942,8 +3095,8 @@ class PetriNetEditor {
 
     if (!targetId) {
       for (const [id, transition] of this.petriNet.transitions) {
-        const halfWidth = transition.width / 2;
-        const halfHeight = transition.height / 2;
+        const halfWidth = transition.width / 2 + hitPadding;
+        const halfHeight = transition.height / 2 + hitPadding;
 
         if (
           x >= transition.position.x - halfWidth &&

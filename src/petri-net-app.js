@@ -172,13 +172,14 @@ class PetriNetApp {
       { key: 'verify', ref: () => this.verifyPanel },
       { key: 'generation', ref: () => this.generationPanel }
     ];
+    const mobilePanelsQuery = window.matchMedia?.('(max-width: 700px), (pointer: coarse)');
 
     const updateLayout = () => {
       if (isUpdating) return;
       isUpdating = true;
 
       // Rebuild _panelOpenOrder keeping tracked-open panels in order
-      const newOrder = this._panelOpenOrder.filter(key => {
+      let newOrder = this._panelOpenOrder.filter(key => {
         const e = panels.find(p => p.key === key);
         return e && e.ref() && e.ref().isOpen;
       });
@@ -188,6 +189,17 @@ class PetriNetApp {
         if (p && p.isOpen && !newOrder.includes(key)) {
           newOrder.push(key);
         }
+      }
+      if (mobilePanelsQuery?.matches && newOrder.length > 1) {
+        const keepKey = newOrder[newOrder.length - 1];
+        for (const { key, ref } of panels) {
+          const p = ref();
+          if (!p || key === keepKey || !p.isOpen) continue;
+          p.isOpen = false;
+          p.panel?.classList.remove('open');
+          p.toggleBtn?.classList.remove('active');
+        }
+        newOrder = [keepKey];
       }
       this._panelOpenOrder = newOrder;
       const openCount = newOrder.length;
@@ -239,6 +251,11 @@ class PetriNetApp {
     };
 
     document.addEventListener('side-panel-changed', updateLayout);
+    if (mobilePanelsQuery?.addEventListener) {
+      mobilePanelsQuery.addEventListener('change', updateLayout);
+    } else if (mobilePanelsQuery?.addListener) {
+      mobilePanelsQuery.addListener(updateLayout);
+    }
     updateLayout();
   }
 

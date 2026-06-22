@@ -203,13 +203,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const isMac = navigator.userAgent.includes('Mac');
         const modifierKey = isMac ? 'Command' : 'Alt';
+        const isCompactTouch = window.matchMedia?.('(max-width: 700px), (pointer: coarse)').matches;
+        const panText = isCompactTouch
+            ? 'Pan/zoom: two-finger drag or pinch'
+            : `Pan: Middle mouse button or ${modifierKey}+drag`;
         
         const panInstructions = document.getElementById('pan-instructions');
-        panInstructions.innerHTML = `<span>Pan: Middle mouse button or ${modifierKey}+drag</span>`;
+        panInstructions.innerHTML = `<span>${panText}</span>`;
         
         const navigationHelpList = document.getElementById('navigation-help-list');
         const panHelpItem = navigationHelpList.querySelector('li:first-child');
-        panHelpItem.innerHTML = `<strong>Pan:</strong> Middle mouse button or ${modifierKey}+drag`;
+        panHelpItem.innerHTML = isCompactTouch
+            ? '<strong>Pan/zoom:</strong> Two-finger drag or pinch'
+            : `<strong>Pan:</strong> Middle mouse button or ${modifierKey}+drag`;
         
         const app = new window.PetriNetApp();
 
