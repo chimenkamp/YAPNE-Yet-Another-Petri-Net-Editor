@@ -204,8 +204,8 @@ export const WORKFLOW_DEFINITIONS = [
         editorState: { sidebar: 'open', sidebarTab: 'file' }
       },
       {
-        title: 'Export as PNG (F12)',
-        description: 'Use the PNG export to create a rasterized image of the current canvas view, preserving element positions, labels, token counts, and arc decorations.',
+        title: 'Export as SVG/PNG (F12)',
+        description: 'Use the SVG/PNG export to create a customized image of the current canvas view, preserving element positions, labels, token counts, and arc decorations.',
         highlight: '#btn-export-pnml',
         position: 'right',
         tip: 'Great for including Petri net diagrams in presentations and papers.',

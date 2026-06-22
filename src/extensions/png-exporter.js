@@ -1,6 +1,6 @@
 /**
- * PNG Exporter for Petri Net Editor
- * Provides sophisticated PNG export functionality with extensive customization options
+ * PNG/SVG Exporter for Petri Net Editor
+ * Provides sophisticated image export functionality with extensive customization options
  */
 
 class PNGExporter {
@@ -68,6 +68,9 @@ class PNGExporter {
       transparency: false,
       dpiScale: 1.0,
       includeMetadata: false,
+      svgIncludeXmlDeclaration: true,
+      svgIncludeMetadata: true,
+      svgPrecision: 2,
       
       // Condition display
       conditionPosition: 'top', // 'top', 'bottom', 'left', 'right', 'auto'
@@ -95,7 +98,11 @@ class PNGExporter {
         const parsed = JSON.parse(savedSettings);
         // Merge with defaults to ensure new settings are included
         const defaults = this.getDefaultSettings();
-        return { ...defaults, ...parsed };
+        const settings = { ...defaults, ...parsed };
+        if (!['png', 'svg'].includes(settings.format)) {
+          settings.format = defaults.format;
+        }
+        return settings;
       }
     } catch (error) {
       console.warn('Failed to load PNG exporter settings from local storage:', error);
@@ -140,7 +147,7 @@ class PNGExporter {
     // Create the PNG export button
     const exportButton = document.createElement('button');
     exportButton.id = 'btn-export-png';
-    exportButton.textContent = 'Save (PNG)';
+    exportButton.textContent = 'Save (SVG/PNG)';
     exportButton.style.backgroundColor = 'rgb(101, 127, 152)';
 
     exportButton.addEventListener('click', () => this.showExportDialog());
@@ -149,7 +156,7 @@ class PNGExporter {
   }
 
   /**
-   * Show the PNG export dialog
+   * Show the image export dialog
    */
   showExportDialog() {
     if (this.dialog) {
@@ -169,7 +176,7 @@ class PNGExporter {
   }
 
   /**
-   * Create the sophisticated PNG export dialog
+   * Create the image export dialog
    */
   createExportDialog() {
     const dialog = document.createElement('div');
@@ -179,7 +186,7 @@ class PNGExporter {
     dialog.innerHTML = `
       <div class="modal-container png-export-container">
         <div class="modal-header">
-          <h2>🖼️ Export as PNG</h2>
+          <h2 id="export-dialog-title">🖼️ Export as ${this.getCurrentFormatLabel()}</h2>
           <button class="close-btn">&times;</button>
         </div>
         <div class="modal-body">
@@ -200,6 +207,17 @@ class PNGExporter {
               <div class="form-tab-content active" data-tab="image">
                 <h3>🖼️ Image Settings</h3>
                 <div class="settings-grid">
+                  <div class="setting-group">
+                    <h4>File Type</h4>
+                    <div class="setting-item">
+                      <label for="export-filetype">Filetype:</label>
+                      <select id="export-filetype">
+                        <option value="png" ${this.exportSettings.format === 'png' ? 'selected' : ''}>PNG</option>
+                        <option value="svg" ${this.exportSettings.format === 'svg' ? 'selected' : ''}>SVG</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div class="setting-group">
                     <h4>Dimensions</h4>
                     <div class="setting-item">
@@ -489,8 +507,8 @@ class PNGExporter {
               <div class="form-tab-content" data-tab="advanced">
                 <h3>⚙️ Advanced Settings</h3>
                 <div class="settings-grid">
-                  <div class="setting-group">
-                    <h4>Image Quality</h4>
+                  <div class="setting-group format-options-panel" id="png-options-panel">
+                    <h4>PNG Options</h4>
                     <div class="setting-item">
                       <label for="dpi-scale">DPI Scale:</label>
                       <input type="range" id="dpi-scale" min="0.5" max="4" step="0.5" value="${this.exportSettings.dpiScale}">
@@ -506,14 +524,24 @@ class PNGExporter {
                     </div>
                   </div>
 
-                  <div class="setting-group">
-                    <h4>Export Options</h4>
+                  <div class="setting-group format-options-panel" id="svg-options-panel">
+                    <h4>SVG Options</h4>
                     <div class="setting-item">
-                      <label for="include-metadata">
-                        <input type="checkbox" id="include-metadata" ${this.exportSettings.includeMetadata ? 'checked' : ''}>
+                      <label for="svg-include-xml-declaration">
+                        <input type="checkbox" id="svg-include-xml-declaration" ${this.exportSettings.svgIncludeXmlDeclaration ? 'checked' : ''}>
+                        Include XML declaration
+                      </label>
+                    </div>
+                    <div class="setting-item">
+                      <label for="svg-include-metadata">
+                        <input type="checkbox" id="svg-include-metadata" ${this.exportSettings.svgIncludeMetadata ? 'checked' : ''}>
                         Include metadata
                       </label>
-                      <small>Add export settings and timestamp to image metadata</small>
+                    </div>
+                    <div class="setting-item">
+                      <label for="svg-precision">Coordinate precision:</label>
+                      <input type="range" id="svg-precision" min="0" max="4" step="1" value="${this.exportSettings.svgPrecision}">
+                      <span class="range-value">${this.exportSettings.svgPrecision} decimals</span>
                     </div>
                   </div>
 
@@ -553,7 +581,7 @@ class PNGExporter {
           </div>
         </div>
         <div class="modal-footer">
-          <button type="button" id="export-png-btn">Export PNG</button>
+          <button type="button" id="export-png-btn">Export ${this.getCurrentFormatLabel()}</button>
           <button type="button" id="cancel-png-btn">Cancel</button>
         </div>
       </div>
@@ -590,6 +618,7 @@ class PNGExporter {
 
     // Setting change listeners
     this.setupSettingListeners(dialog);
+    this.updateFormatControls(dialog);
 
     // Preset buttons
     this.setupPresetButtons(dialog);
@@ -597,7 +626,7 @@ class PNGExporter {
     // Export button
     const exportBtn = dialog.querySelector('#export-png-btn');
     exportBtn.addEventListener('click', () => {
-      this.exportPNG();
+      this.exportCurrentFormat();
     });
 
     // Preview controls
@@ -620,6 +649,8 @@ class PNGExporter {
           let value = range.value;
           if (range.id === 'dpi-scale') {
             valueSpan.textContent = `${value}x`;
+          } else if (range.id === 'svg-precision') {
+            valueSpan.textContent = `${value} decimals`;
           } else {
             valueSpan.textContent = `${value}px`;
           }
@@ -636,6 +667,7 @@ class PNGExporter {
     inputs.forEach(input => {
       input.addEventListener('change', () => {
         this.updateSettingsFromDialog(dialog);
+        this.updateFormatControls(dialog);
         this.updatePreview();
       });
     });
@@ -729,6 +761,53 @@ class PNGExporter {
   }
 
   /**
+   * Get the display label for the currently selected export format
+   */
+  getCurrentFormatLabel() {
+    return this.exportSettings.format === 'svg' ? 'SVG' : 'PNG';
+  }
+
+  /**
+   * Toggle format-specific controls and labels.
+   */
+  updateFormatControls(dialog = this.dialog) {
+    if (!dialog) return;
+
+    const isSVG = this.exportSettings.format === 'svg';
+    const pngPanel = dialog.querySelector('#png-options-panel');
+    const svgPanel = dialog.querySelector('#svg-options-panel');
+    const title = dialog.querySelector('#export-dialog-title');
+    const exportBtn = dialog.querySelector('#export-png-btn');
+    const filetype = dialog.querySelector('#export-filetype');
+
+    if (filetype) {
+      filetype.value = this.exportSettings.format;
+    }
+
+    if (pngPanel) {
+      pngPanel.hidden = isSVG;
+      pngPanel.querySelectorAll('input, select, button').forEach(control => {
+        control.disabled = isSVG;
+      });
+    }
+
+    if (svgPanel) {
+      svgPanel.hidden = !isSVG;
+      svgPanel.querySelectorAll('input, select, button').forEach(control => {
+        control.disabled = !isSVG;
+      });
+    }
+
+    if (title) {
+      title.textContent = `🖼️ Export as ${this.getCurrentFormatLabel()}`;
+    }
+
+    if (exportBtn) {
+      exportBtn.textContent = `Export ${this.getCurrentFormatLabel()}`;
+    }
+  }
+
+  /**
    * Switch between dialog tabs
    */
   switchTab(tabId) {
@@ -750,6 +829,7 @@ class PNGExporter {
    */
   updateSettingsFromDialog(dialog) {
     // Image settings
+    this.exportSettings.format = dialog.querySelector('#export-filetype').value;
     this.exportSettings.width = parseInt(dialog.querySelector('#export-width').value);
     this.exportSettings.height = parseInt(dialog.querySelector('#export-height').value);
     this.exportSettings.maintainAspectRatio = dialog.querySelector('#maintain-aspect-ratio').checked;
@@ -801,7 +881,9 @@ class PNGExporter {
     // Advanced
     this.exportSettings.dpiScale = parseFloat(dialog.querySelector('#dpi-scale').value);
     this.exportSettings.antialiasing = dialog.querySelector('#antialiasing').checked;
-    this.exportSettings.includeMetadata = dialog.querySelector('#include-metadata').checked;
+    this.exportSettings.svgIncludeXmlDeclaration = dialog.querySelector('#svg-include-xml-declaration').checked;
+    this.exportSettings.svgIncludeMetadata = dialog.querySelector('#svg-include-metadata').checked;
+    this.exportSettings.svgPrecision = parseInt(dialog.querySelector('#svg-precision').value);
     
     // Save settings to local storage
     this.saveSettings();
@@ -811,14 +893,66 @@ class PNGExporter {
    * Update dialog inputs from current settings
    */
   updateDialogFromSettings(dialog) {
-    // Image settings
-    dialog.querySelector('#export-width').value = this.exportSettings.width;
-    dialog.querySelector('#export-height').value = this.exportSettings.height;
-    dialog.querySelector('#maintain-aspect-ratio').checked = this.exportSettings.maintainAspectRatio;
-    dialog.querySelector('#fit-to-content').checked = this.exportSettings.fitToContent;
-    dialog.querySelector('#content-padding').value = this.exportSettings.contentPadding;
-    dialog.querySelector('#transparency').checked = this.exportSettings.transparency;
-    dialog.querySelector('#background-color').value = this.exportSettings.backgroundColor;
+    const setValue = (selector, value) => {
+      const input = dialog.querySelector(selector);
+      if (input) input.value = value;
+    };
+    const setChecked = (selector, checked) => {
+      const input = dialog.querySelector(selector);
+      if (input) input.checked = checked;
+    };
+
+    setValue('#export-filetype', this.exportSettings.format);
+    setValue('#export-width', this.exportSettings.width);
+    setValue('#export-height', this.exportSettings.height);
+    setChecked('#maintain-aspect-ratio', this.exportSettings.maintainAspectRatio);
+    setChecked('#fit-to-content', this.exportSettings.fitToContent);
+    setValue('#content-padding', this.exportSettings.contentPadding);
+    setChecked('#transparency', this.exportSettings.transparency);
+    setValue('#background-color', this.exportSettings.backgroundColor);
+
+    setValue('#place-color', this.exportSettings.placeColor);
+    setValue('#place-stroke', this.exportSettings.placeStroke);
+    setValue('#token-color', this.exportSettings.tokenColor);
+    setValue('#transition-color', this.exportSettings.transitionColor);
+    setValue('#transition-stroke', this.exportSettings.transitionStroke);
+    setValue('#enabled-transition-color', this.exportSettings.enabledTransitionColor);
+    setChecked('#highlight-firable', this.exportSettings.highlightFirableTransitions);
+    setValue('#data-transition-color', this.exportSettings.dataTransitionColor);
+    setValue('#data-transition-stroke', this.exportSettings.dataTransitionStroke);
+    setValue('#enabled-data-transition-color', this.exportSettings.enabledDataTransitionColor);
+    setValue('#disabled-data-transition-color', this.exportSettings.disabledDataTransitionColor);
+    setValue('#arc-color', this.exportSettings.arcColor);
+    setValue('#text-color', this.exportSettings.textColor);
+    setValue('#line-thickness', this.exportSettings.lineThickness);
+
+    setChecked('#show-places', this.exportSettings.showPlaces);
+    setChecked('#show-transitions', this.exportSettings.showTransitions);
+    setChecked('#show-arcs', this.exportSettings.showArcs);
+    setChecked('#show-labels', this.exportSettings.showLabels);
+    setChecked('#show-tokens', this.exportSettings.showTokens);
+    setValue('#font-size', this.exportSettings.fontSize);
+    setValue('#font-family', this.exportSettings.fontFamily);
+    setChecked('#show-grid', this.exportSettings.showGrid);
+    setValue('#grid-color', this.exportSettings.gridColor);
+    setValue('#grid-size', this.exportSettings.gridSize);
+
+    setChecked('#show-conditions', this.exportSettings.showConditions);
+    setChecked('#show-data-guards', this.exportSettings.showDataGuards);
+    setChecked('#show-data-updates', this.exportSettings.showDataUpdates);
+    setValue('#condition-position', this.exportSettings.conditionPosition);
+    setValue('#condition-font-size', this.exportSettings.conditionFontSize);
+    setValue('#condition-color', this.exportSettings.conditionColor);
+    setChecked('#condition-background', this.exportSettings.conditionBackground);
+    setValue('#condition-background-color', this.exportSettings.conditionBackgroundColor);
+    setChecked('#pretty-print-conditions', this.exportSettings.prettyPrintConditions);
+    setChecked('#pretty-print-variables-italic', this.exportSettings.prettyPrintVariablesItalic);
+
+    setValue('#dpi-scale', this.exportSettings.dpiScale);
+    setChecked('#antialiasing', this.exportSettings.antialiasing);
+    setChecked('#svg-include-xml-declaration', this.exportSettings.svgIncludeXmlDeclaration);
+    setChecked('#svg-include-metadata', this.exportSettings.svgIncludeMetadata);
+    setValue('#svg-precision', this.exportSettings.svgPrecision);
 
     // Update range value displays
     const ranges = dialog.querySelectorAll('input[type="range"]');
@@ -826,6 +960,8 @@ class PNGExporter {
       const event = new Event('input');
       range.dispatchEvent(event);
     });
+
+    this.updateFormatControls(dialog);
   }
 
   /**
@@ -857,14 +993,12 @@ class PNGExporter {
     const filesizeSpan = previewInfo.querySelector('.preview-filesize');
 
     if (dimensionsSpan) {
-      dimensionsSpan.textContent = `${this.exportSettings.width} × ${this.exportSettings.height} px`;
+      dimensionsSpan.textContent = `${this.exportSettings.width} × ${this.exportSettings.height} px • ${this.getCurrentFormatLabel()}`;
     }
 
-    // Estimate file size (very rough approximation)
-    const pixels = this.exportSettings.width * this.exportSettings.height;
-    const estimatedSize = this.exportSettings.transparency ? 
-      Math.round(pixels * 4 / 1024) : // RGBA
-      Math.round(pixels * 3 / 1024); // RGB
+    const estimatedSize = this.exportSettings.format === 'svg'
+      ? this.estimateSVGSize()
+      : this.estimatePNGSize();
     
     if (filesizeSpan) {
       if (estimatedSize > 1024) {
@@ -872,6 +1006,29 @@ class PNGExporter {
       } else {
         filesizeSpan.textContent = `~${estimatedSize} KB`;
       }
+    }
+  }
+
+  /**
+   * Estimate PNG file size (very rough approximation)
+   */
+  estimatePNGSize() {
+    const pixels = this.exportSettings.width * this.exportSettings.height;
+    return this.exportSettings.transparency
+      ? Math.round(pixels * 4 / 1024)
+      : Math.round(pixels * 3 / 1024);
+  }
+
+  /**
+   * Estimate SVG file size from the generated markup.
+   */
+  estimateSVGSize() {
+    try {
+      return Math.max(1, Math.round(new Blob([this.generateSVG()]).size / 1024));
+    } catch (error) {
+      const petriNet = this.app.api.petriNet;
+      const elementCount = petriNet.places.size + petriNet.transitions.size + petriNet.arcs.size;
+      return Math.max(1, Math.round((elementCount * 420) / 1024));
     }
   }
 
@@ -1650,6 +1807,599 @@ class PNGExporter {
   }
 
   /**
+   * Escape XML special characters for SVG text and attributes.
+   */
+  escapeXML(value) {
+    if (value == null) return '';
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  /**
+   * Format numbers for SVG output using the configured coordinate precision.
+   */
+  formatSVGNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return '0';
+    const precision = Math.max(0, Math.min(4, this.exportSettings.svgPrecision ?? 2));
+    return Number(number.toFixed(precision)).toString();
+  }
+
+  /**
+   * Convert an attribute object to escaped SVG attributes.
+   */
+  svgAttrs(attributes) {
+    return Object.entries(attributes)
+      .filter(([, value]) => value !== null && value !== undefined && value !== false)
+      .map(([name, value]) => `${name}="${this.escapeXML(value)}"`)
+      .join(' ');
+  }
+
+  /**
+   * Create a basic SVG element.
+   */
+  svgElement(tagName, attributes, content = null) {
+    const attrs = this.svgAttrs(attributes);
+    if (content === null) {
+      return `<${tagName}${attrs ? ` ${attrs}` : ''}/>`;
+    }
+    return `<${tagName}${attrs ? ` ${attrs}` : ''}>${content}</${tagName}>`;
+  }
+
+  /**
+   * Create a renderer-like object for SVG export.
+   */
+  createSVGRenderer() {
+    const renderer = {
+      canvas: {
+        width: this.exportSettings.width,
+        height: this.exportSettings.height
+      },
+      petriNet: this.app.api.petriNet,
+      theme: { ...this.app.editor.renderer.theme },
+      panOffset: { x: 0, y: 0 },
+      zoomFactor: 1.0
+    };
+
+    this.applySettingsToRenderer(renderer);
+
+    if (this.exportSettings.fitToContent) {
+      this.adjustViewToFitContent(renderer, false);
+    }
+
+    return renderer;
+  }
+
+  /**
+   * Build SVG markup for the current Petri net and export settings.
+   */
+  generateSVG() {
+    const renderer = this.createSVGRenderer();
+    const width = this.exportSettings.width;
+    const height = this.exportSettings.height;
+    const parts = [];
+
+    if (this.exportSettings.svgIncludeXmlDeclaration) {
+      parts.push('<?xml version="1.0" encoding="UTF-8"?>');
+    }
+
+    parts.push(`<svg ${this.svgAttrs({
+      xmlns: 'http://www.w3.org/2000/svg',
+      width,
+      height,
+      viewBox: `0 0 ${width} ${height}`,
+      role: 'img',
+      'aria-label': 'Petri net export'
+    })}>`);
+
+    if (this.exportSettings.svgIncludeMetadata) {
+      parts.push(this.generateSVGMetadata());
+    }
+
+    if (!this.exportSettings.transparency) {
+      parts.push(this.svgElement('rect', {
+        x: 0,
+        y: 0,
+        width,
+        height,
+        fill: this.exportSettings.backgroundColor
+      }));
+    }
+
+    const transform = `translate(${this.formatSVGNumber(renderer.panOffset.x)} ${this.formatSVGNumber(renderer.panOffset.y)}) scale(${this.formatSVGNumber(renderer.zoomFactor)})`;
+    parts.push(`<g transform="${transform}">`);
+
+    if (this.exportSettings.showGrid) {
+      parts.push(this.generateSVGGrid(renderer));
+    }
+
+    if (this.exportSettings.showArcs) {
+      parts.push(this.generateSVGArcs(renderer));
+    }
+
+    if (this.exportSettings.showPlaces) {
+      parts.push(this.generateSVGPlaces(renderer));
+    }
+
+    if (this.exportSettings.showTransitions) {
+      parts.push(this.generateSVGTransitions(renderer));
+    }
+
+    parts.push('</g>');
+    parts.push('</svg>');
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate SVG metadata block.
+   */
+  generateSVGMetadata() {
+    const metadata = {
+      generatedBy: 'YAPNE - Yet Another Petri Net Editor',
+      generatedAt: new Date().toISOString(),
+      format: 'svg',
+      width: this.exportSettings.width,
+      height: this.exportSettings.height,
+      fitToContent: this.exportSettings.fitToContent,
+      contentPadding: this.exportSettings.contentPadding
+    };
+
+    return this.svgElement('metadata', {}, this.escapeXML(JSON.stringify(metadata, null, 2)));
+  }
+
+  /**
+   * Generate SVG grid lines.
+   */
+  generateSVGGrid(renderer) {
+    const gridSize = this.exportSettings.gridSize;
+    const canvasWidth = renderer.canvas.width;
+    const canvasHeight = renderer.canvas.height;
+    const zoom = renderer.zoomFactor;
+    const panX = renderer.panOffset.x;
+    const panY = renderer.panOffset.y;
+
+    const worldLeft = -panX / zoom;
+    const worldTop = -panY / zoom;
+    const worldRight = (canvasWidth - panX) / zoom;
+    const worldBottom = (canvasHeight - panY) / zoom;
+
+    const margin = gridSize * 2;
+    const gridLeft = Math.floor((worldLeft - margin) / gridSize) * gridSize;
+    const gridTop = Math.floor((worldTop - margin) / gridSize) * gridSize;
+    const gridRight = Math.ceil((worldRight + margin) / gridSize) * gridSize;
+    const gridBottom = Math.ceil((worldBottom + margin) / gridSize) * gridSize;
+    const lines = [];
+
+    for (let x = gridLeft; x <= gridRight; x += gridSize) {
+      lines.push(this.svgElement('line', {
+        x1: this.formatSVGNumber(x),
+        y1: this.formatSVGNumber(gridTop),
+        x2: this.formatSVGNumber(x),
+        y2: this.formatSVGNumber(gridBottom)
+      }));
+    }
+
+    for (let y = gridTop; y <= gridBottom; y += gridSize) {
+      lines.push(this.svgElement('line', {
+        x1: this.formatSVGNumber(gridLeft),
+        y1: this.formatSVGNumber(y),
+        x2: this.formatSVGNumber(gridRight),
+        y2: this.formatSVGNumber(y)
+      }));
+    }
+
+    return this.svgElement('g', {
+      stroke: this.exportSettings.gridColor,
+      'stroke-width': this.formatSVGNumber(1 / zoom),
+      opacity: 0.3
+    }, lines.join('\n'));
+  }
+
+  /**
+   * Generate SVG arcs.
+   */
+  generateSVGArcs(renderer) {
+    const petriNet = renderer.petriNet;
+    const parts = [];
+
+    if (!petriNet.arcs || petriNet.arcs.size === 0) {
+      return '';
+    }
+
+    for (const [id, arc] of petriNet.arcs) {
+      let source = null;
+      let target = null;
+      const sourceId = arc.sourceId || arc.source || arc.from;
+      const targetId = arc.targetId || arc.target || arc.to;
+
+      if (sourceId && petriNet.places.has(sourceId)) {
+        source = petriNet.places.get(sourceId);
+      } else if (sourceId && petriNet.transitions.has(sourceId)) {
+        source = petriNet.transitions.get(sourceId);
+      }
+
+      if (targetId && petriNet.places.has(targetId)) {
+        target = petriNet.places.get(targetId);
+      } else if (targetId && petriNet.transitions.has(targetId)) {
+        target = petriNet.transitions.get(targetId);
+      }
+
+      if (!source && arc.source && typeof arc.source === 'object' && arc.source.position) {
+        source = arc.source;
+      }
+      if (!target && arc.target && typeof arc.target === 'object' && arc.target.position) {
+        target = arc.target;
+      }
+
+      if (!source || !target || !source.position || !target.position) {
+        console.warn('Skipping arc with invalid source/target:', id);
+        continue;
+      }
+
+      const connectionPoints = this.calculateConnectionPoints(source, target);
+      const pathPoints = [connectionPoints.start, ...(arc.points || []), connectionPoints.end];
+      const pathData = pathPoints
+        .map((point, index) => `${index === 0 ? 'M' : 'L'} ${this.formatSVGNumber(point.x)} ${this.formatSVGNumber(point.y)}`)
+        .join(' ');
+
+      parts.push(this.svgElement('path', {
+        d: pathData,
+        fill: 'none',
+        stroke: this.exportSettings.arcColor,
+        'stroke-width': this.formatSVGNumber(this.exportSettings.lineThickness),
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round'
+      }));
+
+      const arrowFrom = pathPoints.length > 1 ? pathPoints[pathPoints.length - 2] : connectionPoints.start;
+      parts.push(this.generateSVGArrowhead(arrowFrom, connectionPoints.end));
+
+      if (arc.weight > 1 && this.exportSettings.showLabels) {
+        parts.push(this.generateSVGArcWeight(arc, pathPoints));
+      }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate an SVG arrowhead.
+   */
+  generateSVGArrowhead(from, to) {
+    const headSize = 10;
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const left = {
+      x: to.x - headSize * Math.cos(angle - Math.PI / 6),
+      y: to.y - headSize * Math.sin(angle - Math.PI / 6)
+    };
+    const right = {
+      x: to.x - headSize * Math.cos(angle + Math.PI / 6),
+      y: to.y - headSize * Math.sin(angle + Math.PI / 6)
+    };
+    const points = [to, left, right]
+      .map(point => `${this.formatSVGNumber(point.x)},${this.formatSVGNumber(point.y)}`)
+      .join(' ');
+
+    return this.svgElement('polygon', {
+      points,
+      fill: this.exportSettings.arcColor
+    });
+  }
+
+  /**
+   * Generate SVG arc weight text.
+   */
+  generateSVGArcWeight(arc, pathPoints) {
+    const middleIndex = Math.floor((pathPoints.length - 1) / 2);
+    const start = pathPoints[middleIndex];
+    const end = pathPoints[middleIndex + 1] || pathPoints[middleIndex];
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
+
+    return this.generateSVGText(arc.weight.toString(), midX, midY, {
+      fill: this.exportSettings.textColor,
+      'font-size': this.exportSettings.fontSize,
+      'font-family': this.exportSettings.fontFamily,
+      'text-anchor': 'middle',
+      'dominant-baseline': 'middle'
+    });
+  }
+
+  /**
+   * Generate SVG places.
+   */
+  generateSVGPlaces(renderer) {
+    const parts = [];
+
+    for (const [id, place] of renderer.petriNet.places) {
+      const radius = place.radius || 25;
+      parts.push(this.svgElement('circle', {
+        cx: this.formatSVGNumber(place.position.x),
+        cy: this.formatSVGNumber(place.position.y),
+        r: this.formatSVGNumber(radius),
+        fill: this.exportSettings.placeColor,
+        stroke: this.exportSettings.placeStroke,
+        'stroke-width': this.formatSVGNumber(this.exportSettings.lineThickness)
+      }));
+
+      if (this.exportSettings.showTokens) {
+        parts.push(this.generateSVGTokens(place));
+      }
+
+      if (this.exportSettings.showLabels && place.label) {
+        parts.push(this.generateSVGText(place.label, place.position.x, place.position.y + radius + 5, {
+          fill: this.exportSettings.textColor,
+          'font-size': this.exportSettings.fontSize,
+          'font-family': this.exportSettings.fontFamily,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'hanging'
+        }));
+      }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate SVG tokens for a place.
+   */
+  generateSVGTokens(place) {
+    const tokens = place.tokens || 0;
+    if (tokens === 0) return '';
+
+    const parts = [];
+    const tokenRadius = 3;
+    const radius = place.radius || 25;
+
+    if (tokens === 1) {
+      parts.push(this.svgElement('circle', {
+        cx: this.formatSVGNumber(place.position.x),
+        cy: this.formatSVGNumber(place.position.y),
+        r: tokenRadius,
+        fill: this.exportSettings.tokenColor
+      }));
+    } else if (tokens <= 4) {
+      const positions = this.getTokenPositions(tokens, radius * 0.6);
+      positions.forEach(pos => {
+        parts.push(this.svgElement('circle', {
+          cx: this.formatSVGNumber(place.position.x + pos.x),
+          cy: this.formatSVGNumber(place.position.y + pos.y),
+          r: tokenRadius,
+          fill: this.exportSettings.tokenColor
+        }));
+      });
+    } else {
+      parts.push(this.generateSVGText(tokens.toString(), place.position.x, place.position.y, {
+        fill: this.exportSettings.textColor,
+        'font-size': this.exportSettings.fontSize,
+        'font-family': this.exportSettings.fontFamily,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle'
+      }));
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate SVG transitions.
+   */
+  generateSVGTransitions(renderer) {
+    const parts = [];
+
+    for (const [id, transition] of renderer.petriNet.transitions) {
+      const width = transition.width || 50;
+      const height = transition.height || 30;
+      const x = transition.position.x - width / 2;
+      const y = transition.position.y - height / 2;
+      const isDataTransition = typeof transition.evaluatePrecondition === 'function';
+      let fillColor;
+      let strokeColor;
+
+      if (transition.silent) {
+        fillColor = '#808080';
+        strokeColor = this.exportSettings.transitionStroke;
+      } else if (isDataTransition) {
+        fillColor = transition.isEnabled
+          ? this.exportSettings.enabledDataTransitionColor
+          : this.exportSettings.disabledDataTransitionColor;
+        strokeColor = this.exportSettings.dataTransitionStroke;
+      } else {
+        fillColor = transition.isEnabled && this.exportSettings.highlightFirableTransitions
+          ? this.exportSettings.enabledTransitionColor
+          : this.exportSettings.transitionColor;
+        strokeColor = this.exportSettings.transitionStroke;
+      }
+
+      parts.push(this.svgElement('rect', {
+        x: this.formatSVGNumber(x),
+        y: this.formatSVGNumber(y),
+        width: this.formatSVGNumber(width),
+        height: this.formatSVGNumber(height),
+        fill: fillColor,
+        stroke: strokeColor,
+        'stroke-width': this.formatSVGNumber(this.exportSettings.lineThickness)
+      }));
+
+      if (this.exportSettings.showLabels && transition.label && !transition.silent) {
+        parts.push(this.generateSVGText(transition.label, transition.position.x, transition.position.y + height / 2 + 5, {
+          fill: this.exportSettings.textColor,
+          'font-size': this.exportSettings.fontSize,
+          'font-family': this.exportSettings.fontFamily,
+          'text-anchor': 'middle',
+          'dominant-baseline': 'hanging'
+        }));
+      }
+
+      if (isDataTransition && this.exportSettings.showConditions && !transition.silent) {
+        parts.push(this.generateSVGTransitionConditions(transition));
+      }
+    }
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Generate plain SVG text.
+   */
+  generateSVGText(text, x, y, attributes = {}) {
+    return this.svgElement('text', {
+      x: this.formatSVGNumber(x),
+      y: this.formatSVGNumber(y),
+      ...attributes
+    }, this.escapeXML(text));
+  }
+
+  /**
+   * Generate SVG condition labels for a transition.
+   */
+  generateSVGTransitionConditions(transition) {
+    const conditions = [];
+
+    if (this.exportSettings.showDataGuards && transition.precondition) {
+      conditions.push({ expr: transition.precondition, prefix: '[', suffix: ']' });
+    }
+
+    if (this.exportSettings.showDataUpdates && transition.postcondition) {
+      conditions.push({ expr: transition.postcondition, prefix: '{', suffix: '}' });
+    }
+
+    if (conditions.length === 0) return '';
+
+    const parts = [];
+    const baseFont = `${this.exportSettings.conditionFontSize}px ${this.exportSettings.fontFamily}`;
+    const position = this.getConditionPosition(transition);
+
+    conditions.forEach((condition, index) => {
+      const x = position.x;
+      const y = position.y + (index * (this.exportSettings.conditionFontSize + 4));
+      const segments = this.prettifyExpression(condition.expr);
+      const fullSegments = [
+        { text: condition.prefix, isVariable: false },
+        ...segments,
+        { text: condition.suffix, isVariable: false }
+      ];
+
+      if (this.exportSettings.conditionBackground) {
+        const totalWidth = this.measureTextSegments(fullSegments, baseFont);
+        const textHeight = this.exportSettings.conditionFontSize;
+        parts.push(this.svgElement('rect', {
+          x: this.formatSVGNumber(x - totalWidth / 2 - 2),
+          y: this.formatSVGNumber(y - textHeight / 2 - 1),
+          width: this.formatSVGNumber(totalWidth + 4),
+          height: this.formatSVGNumber(textHeight + 2),
+          fill: this.exportSettings.conditionBackgroundColor
+        }));
+      }
+
+      parts.push(this.generateSVGMixedText(fullSegments, x, y, baseFont, {
+        fill: this.exportSettings.conditionColor,
+        'font-size': this.exportSettings.conditionFontSize,
+        'font-family': this.exportSettings.fontFamily,
+        'text-anchor': 'middle',
+        'dominant-baseline': 'middle'
+      }));
+    });
+
+    return parts.join('\n');
+  }
+
+  /**
+   * Measure mixed text with the same canvas metrics used by PNG export.
+   */
+  measureTextSegments(segments, baseFont) {
+    if (!this.measurementCanvas) {
+      this.measurementCanvas = document.createElement('canvas');
+      this.measurementContext = this.measurementCanvas.getContext('2d');
+    }
+
+    const ctx = this.measurementContext;
+    let totalWidth = 0;
+    const fontParts = baseFont.split(' ');
+    const fontSize = fontParts[0];
+    const fontFamily = fontParts.slice(1).join(' ');
+
+    segments.forEach(segment => {
+      ctx.font = segment.isVariable && this.exportSettings.prettyPrintVariablesItalic
+        ? `italic ${fontSize} ${fontFamily}`
+        : baseFont;
+      totalWidth += ctx.measureText(segment.text).width;
+    });
+
+    return totalWidth;
+  }
+
+  /**
+   * Generate mixed regular/italic SVG text.
+   */
+  generateSVGMixedText(segments, x, y, baseFont, attributes = {}) {
+    const content = segments
+      .map(segment => this.svgElement('tspan', {
+        'font-style': segment.isVariable && this.exportSettings.prettyPrintVariablesItalic ? 'italic' : null
+      }, this.escapeXML(segment.text)))
+      .join('');
+
+    return this.svgElement('text', {
+      x: this.formatSVGNumber(x),
+      y: this.formatSVGNumber(y),
+      ...attributes
+    }, content);
+  }
+
+  /**
+   * Export using the currently selected format.
+   */
+  exportCurrentFormat() {
+    if (this.exportSettings.format === 'svg') {
+      this.exportSVG();
+    } else {
+      this.exportPNG();
+    }
+  }
+
+  /**
+   * Download text or blob content.
+   */
+  downloadBlob(blob, extension) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `petri-net-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.${extension}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Close the export dialog after a successful export.
+   */
+  closeDialog() {
+    if (this.dialog && this.dialog.parentNode) {
+      document.body.removeChild(this.dialog);
+      this.dialog = null;
+    }
+  }
+
+  /**
+   * Export the Petri net as SVG.
+   */
+  exportSVG() {
+    try {
+      const svg = this.generateSVG();
+      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      this.downloadBlob(blob, 'svg');
+      this.closeDialog();
+    } catch (error) {
+      console.error('Error exporting SVG:', error);
+      alert('Error exporting SVG. Please try again.');
+    }
+  }
+
+  /**
    * Export the Petri net as PNG
    */
   exportPNG() {
@@ -1664,16 +2414,13 @@ class PNGExporter {
       
       // Convert to blob and download
       exportCanvas.toBlob((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `petri-net-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        // Close dialog
-        document.body.removeChild(this.dialog);
-        this.dialog = null;
+        if (!blob) {
+          console.error('Error exporting PNG: canvas conversion returned no data');
+          alert('Error exporting PNG. Please try again.');
+          return;
+        }
+        this.downloadBlob(blob, 'png');
+        this.closeDialog();
       }, 'image/png');
       
     } catch (error) {
@@ -1689,7 +2436,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.petriApp) {
       window.pngExporter = new PNGExporter(window.petriApp);
       clearInterval(initTimer);
-      console.log("PNG Exporter extension loaded");
+      console.log("PNG/SVG Exporter extension loaded");
     }
   }, 100);
 });
