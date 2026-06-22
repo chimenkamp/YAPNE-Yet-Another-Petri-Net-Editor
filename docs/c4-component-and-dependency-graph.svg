@@ -1,0 +1,678 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2260" viewBox="0 0 1800 2260" role="img" aria-labelledby="title desc">
+  <title id="title">YAPNE C4 component diagram and grouped dependency graph</title>
+  <desc id="desc">A C4-style component diagram and grouped dependency graph for the YAPNE browser-based Petri net editor application.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2f3b52"/>
+    </marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+    <marker id="arrow-dashed" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7a5c1c"/>
+    </marker>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f6feb"/>
+      <stop offset="0.55" stop-color="#0f766e"/>
+      <stop offset="1" stop-color="#b45309"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="116%" height="116%">
+      <feDropShadow dx="0" dy="7" stdDeviation="7" flood-color="#1f2937" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      .page-bg {
+        fill: #f7f9fc;
+      }
+      .title {
+        font: 800 34px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #0f172a;
+        letter-spacing: 0;
+      }
+      .hero-title {
+        font: 800 34px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #ffffff;
+        letter-spacing: 0;
+      }
+      .hero-subtitle {
+        font: 500 15px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #e0f2fe;
+        letter-spacing: 0;
+      }
+      .hero-note {
+        font: 600 11px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #f8fafc;
+        letter-spacing: 0;
+      }
+      .subtitle {
+        font: 500 15px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #475569;
+        letter-spacing: 0;
+      }
+      .section-title {
+        font: 800 28px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #0f172a;
+        letter-spacing: 0;
+      }
+      .section-kicker {
+        font: 700 12px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #64748b;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .container {
+        fill: #ffffff;
+        stroke: #94a3b8;
+        stroke-width: 2;
+        rx: 18;
+        filter: url(#shadow);
+      }
+      .container-label {
+        font: 800 18px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #1e293b;
+        letter-spacing: 0;
+      }
+      .container-note {
+        font: 500 12px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #64748b;
+        letter-spacing: 0;
+      }
+      .component {
+        stroke-width: 2;
+        rx: 12;
+        filter: url(#shadow);
+      }
+      .person {
+        fill: #fff7ed;
+        stroke: #ea580c;
+      }
+      .bootstrap {
+        fill: #eff6ff;
+        stroke: #2563eb;
+      }
+      .app {
+        fill: #eef2ff;
+        stroke: #4f46e5;
+      }
+      .core {
+        fill: #ecfdf5;
+        stroke: #059669;
+      }
+      .panel {
+        fill: #f8fafc;
+        stroke: #475569;
+      }
+      .dpn {
+        fill: #f0fdfa;
+        stroke: #0f766e;
+      }
+      .exec {
+        fill: #fff7ed;
+        stroke: #c2410c;
+      }
+      .verify {
+        fill: #fef2f2;
+        stroke: #dc2626;
+      }
+      .io {
+        fill: #fefce8;
+        stroke: #ca8a04;
+      }
+      .external {
+        fill: #f1f5f9;
+        stroke: #64748b;
+        stroke-dasharray: 8 6;
+      }
+      .node-title {
+        font: 800 17px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #111827;
+        letter-spacing: 0;
+      }
+      .node-type {
+        font: 700 11px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #475569;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .node-text {
+        font: 500 12px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #334155;
+        letter-spacing: 0;
+      }
+      .code-text {
+        font: 600 12px "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        fill: #334155;
+        letter-spacing: 0;
+      }
+      .small-text {
+        font: 500 11px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #475569;
+        letter-spacing: 0;
+      }
+      .edge {
+        fill: none;
+        stroke: #2f3b52;
+        stroke-width: 2.2;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        marker-end: url(#arrow);
+      }
+      .edge-soft {
+        fill: none;
+        stroke: #6b7280;
+        stroke-width: 1.8;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        marker-end: url(#arrow-soft);
+      }
+      .edge-dashed {
+        fill: none;
+        stroke: #7a5c1c;
+        stroke-width: 2;
+        stroke-dasharray: 8 7;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        marker-end: url(#arrow-dashed);
+      }
+      .edge-label-bg {
+        fill: #ffffff;
+        opacity: 0.92;
+        rx: 5;
+      }
+      .edge-label {
+        font: 700 11px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #334155;
+        letter-spacing: 0;
+      }
+      .legend-box {
+        fill: #ffffff;
+        stroke: #cbd5e1;
+        rx: 10;
+      }
+      .group {
+        fill: #ffffff;
+        stroke: #cbd5e1;
+        stroke-width: 2;
+        rx: 16;
+        filter: url(#shadow);
+      }
+      .group-head {
+        rx: 14;
+      }
+      .group-title {
+        font: 800 16px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #0f172a;
+        letter-spacing: 0;
+      }
+      .group-subtitle {
+        font: 600 11px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        fill: #64748b;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+      .file-node {
+        fill: #f8fafc;
+        stroke: #d7dee8;
+        stroke-width: 1.2;
+        rx: 8;
+      }
+      .file-node-active {
+        fill: #eef6ff;
+        stroke: #93c5fd;
+        stroke-width: 1.4;
+        rx: 8;
+      }
+      .file-node-source {
+        fill: #fff8e6;
+        stroke: #facc15;
+        stroke-width: 1.4;
+        rx: 8;
+      }
+      .dependency-note {
+        fill: #f8fafc;
+        stroke: #cbd5e1;
+        rx: 12;
+      }
+      .database-stroke {
+        fill: none;
+        stroke: #64748b;
+        stroke-width: 2;
+      }
+      .database-fill {
+        fill: #e0f2fe;
+        stroke: #64748b;
+        stroke-width: 2;
+      }
+    </style>
+  </defs>
+
+  <rect class="page-bg" x="0" y="0" width="1800" height="2260"/>
+  <rect x="0" y="0" width="1800" height="120" fill="url(#headerGrad)"/>
+  <text class="hero-title" x="64" y="56">YAPNE Architecture Diagrams</text>
+  <text class="hero-subtitle" x="64" y="86">C4 component view plus grouped JavaScript dependency graph for Yet Another Petri Net Editor.</text>
+  <text class="hero-note" x="1264" y="50">Generated from repository structure</text>
+  <text class="hero-note" x="1264" y="73">Source: app.js, index.html, src/*,</text>
+  <text class="hero-note" x="1264" y="91">docs/feature_inventory.md</text>
+
+  <!-- C4 component diagram -->
+  <text class="section-kicker" x="64" y="167">C4 level 3</text>
+  <text class="section-title" x="64" y="202">Component Diagram</text>
+  <text class="subtitle" x="64" y="230">Shows the browser application as the container and its major runtime components, integrations, browser services, and generated assets.</text>
+
+  <rect class="component person" x="64" y="344" width="205" height="150"/>
+  <text class="node-type" x="94" y="378">Person</text>
+  <text class="node-title" x="94" y="407">Editor User</text>
+  <text class="node-text" x="94" y="436">Models, simulates,</text>
+  <text class="node-text" x="94" y="456">imports, exports, and</text>
+  <text class="node-text" x="94" y="476">verifies Petri nets.</text>
+
+  <rect class="container" x="318" y="276" width="1212" height="578"/>
+  <text class="container-label" x="348" y="313">YAPNE Browser Application</text>
+  <text class="container-note" x="348" y="335">Single-page Vite application using ES modules, Canvas, DOM panels, local browser storage, and static public assets.</text>
+
+  <rect class="component bootstrap" x="360" y="374" width="265" height="126"/>
+  <text class="node-type" x="386" y="406">Component</text>
+  <text class="node-title" x="386" y="434">Frontend Shell</text>
+  <text class="code-text" x="386" y="459">index.html</text>
+  <text class="code-text" x="386" y="478">app.js</text>
+  <text class="node-text" x="386" y="497">Loads modules and wires sidebar UI.</text>
+
+  <rect class="component app" x="730" y="374" width="305" height="126"/>
+  <text class="node-type" x="756" y="406">Component</text>
+  <text class="node-title" x="756" y="434">PetriNetApp</text>
+  <text class="code-text" x="756" y="459">src/petri-net-app.js</text>
+  <text class="node-text" x="756" y="478">Owns canvas, app state, handlers,</text>
+  <text class="node-text" x="756" y="497">panel composition, load/save flows.</text>
+
+  <rect class="component panel" x="1116" y="358" width="350" height="158"/>
+  <text class="node-type" x="1142" y="390">Components</text>
+  <text class="node-title" x="1142" y="418">Side Panels</text>
+  <text class="code-text" x="1142" y="443">properties, views, simulation</text>
+  <text class="code-text" x="1142" y="462">verification, generation</text>
+  <text class="node-text" x="1142" y="486">DOM dashboards and dialogs around</text>
+  <text class="node-text" x="1142" y="505">the active app and net.</text>
+
+  <rect class="component dpn" x="360" y="572" width="292" height="150"/>
+  <text class="node-type" x="386" y="604">Components</text>
+  <text class="node-title" x="386" y="632">Data Petri Net Layer</text>
+  <text class="code-text" x="386" y="657">dpn-model/api/ui/renderer</text>
+  <text class="code-text" x="386" y="676">guard-language/*</text>
+  <text class="node-text" x="386" y="700">Adds variables, data transitions,</text>
+  <text class="node-text" x="386" y="719">guards, updates, and overlays.</text>
+
+  <rect class="component core" x="724" y="562" width="318" height="170"/>
+  <text class="node-type" x="750" y="594">Component</text>
+  <text class="node-title" x="750" y="622">Core Editor Kernel</text>
+  <text class="code-text" x="750" y="647">src/petri-net-simulator.js</text>
+  <text class="node-text" x="750" y="672">PetriNet, Place, Transition, Arc,</text>
+  <text class="node-text" x="750" y="691">PetriNetAPI, editor, renderer,</text>
+  <text class="node-text" x="750" y="710">layout, firing semantics.</text>
+
+  <rect class="component exec" x="1116" y="572" width="350" height="150"/>
+  <text class="node-type" x="1142" y="604">Components</text>
+  <text class="node-title" x="1142" y="632">Simulation &amp; Generation</text>
+  <text class="code-text" x="1142" y="657">probabilistic-execution</text>
+  <text class="code-text" x="1142" y="676">event-log-integration</text>
+  <text class="node-text" x="1142" y="700">Step/run playouts, WebPPL code,</text>
+  <text class="node-text" x="1142" y="719">CSV/JSON/XES event logs.</text>
+
+  <rect class="component io" x="360" y="770" width="292" height="126"/>
+  <text class="node-type" x="386" y="802">Components</text>
+  <text class="node-title" x="386" y="830">Import &amp; Export</text>
+  <text class="code-text" x="386" y="855">pnml, png, python, json</text>
+  <text class="node-text" x="386" y="874">Round-trips models and creates</text>
+  <text class="node-text" x="386" y="893">visual or generated artifacts.</text>
+
+  <rect class="component verify" x="724" y="782" width="318" height="126"/>
+  <text class="node-type" x="750" y="814">Components</text>
+  <text class="node-title" x="750" y="842">Verification &amp; Analysis</text>
+  <text class="code-text" x="750" y="867">petri-net-analysis</text>
+  <text class="code-text" x="750" y="886">soundness-verification/*</text>
+
+  <rect class="component io" x="1116" y="782" width="350" height="126"/>
+  <text class="node-type" x="1142" y="814">Component</text>
+  <text class="node-title" x="1142" y="842">Animation &amp; Presentation</text>
+  <text class="code-text" x="1142" y="867">src/animation-panel.js</text>
+  <text class="node-text" x="1142" y="886">Builds preview timelines and</text>
+  <text class="node-text" x="1142" y="905">exports PNG/GIF/WebM frames.</text>
+
+  <rect class="component external" x="174" y="950" width="280" height="106"/>
+  <text class="node-type" x="200" y="982">External</text>
+  <text class="node-title" x="200" y="1010">Browser APIs</text>
+  <text class="node-text" x="200" y="1035">DOM, Canvas, FileReader, Blob,</text>
+  <text class="node-text" x="200" y="1054">downloads, ResizeObserver.</text>
+
+  <rect class="component external" x="1542" y="520" width="208" height="126"/>
+  <ellipse class="database-fill" cx="1578" cy="561" rx="25" ry="9"/>
+  <path class="database-stroke" d="M1553 561 V604 C1553 609 1564 613 1578 613 C1592 613 1603 609 1603 604 V561"/>
+  <path class="database-stroke" d="M1553 582 C1553 587 1564 591 1578 591 C1592 591 1603 587 1603 582"/>
+  <text class="node-type" x="1620" y="552">Browser storage</text>
+  <text class="node-title" x="1620" y="580">localStorage</text>
+  <text class="node-text" x="1620" y="606">Settings, sidebar,</text>
+  <text class="node-text" x="1620" y="625">welcome state.</text>
+
+  <rect class="component external" x="522" y="950" width="255" height="106"/>
+  <text class="node-type" x="548" y="982">External asset</text>
+  <text class="node-title" x="548" y="1010">Public Assets</text>
+  <text class="code-text" x="548" y="1035">public/examples/*</text>
+  <text class="code-text" x="548" y="1054">public/webppl/*</text>
+
+  <rect class="component external" x="840" y="950" width="210" height="106"/>
+  <text class="node-type" x="866" y="982">External</text>
+  <text class="node-title" x="866" y="1010">WebPPL</text>
+  <text class="node-text" x="866" y="1035">Probabilistic inference</text>
+  <text class="node-text" x="866" y="1054">and constraint solving.</text>
+
+  <rect class="component external" x="1162" y="950" width="210" height="106"/>
+  <text class="node-type" x="1188" y="982">External</text>
+  <text class="node-title" x="1188" y="1010">Z3 Solver</text>
+  <text class="node-text" x="1188" y="1035">SMT solving for formal</text>
+  <text class="node-text" x="1188" y="1054">soundness verification.</text>
+
+  <path class="edge" d="M269 419 H360"/>
+  <rect class="edge-label-bg" x="286" y="397" width="58" height="20"/>
+  <text class="edge-label" x="293" y="412">uses</text>
+
+  <path class="edge" d="M625 437 L730 437"/>
+  <rect class="edge-label-bg" x="647" y="415" width="62" height="20"/>
+  <text class="edge-label" x="655" y="430">creates</text>
+
+  <path class="edge" d="M883 500 L883 562"/>
+  <rect class="edge-label-bg" x="893" y="525" width="74" height="20"/>
+  <text class="edge-label" x="900" y="540">attaches</text>
+
+  <path class="edge" d="M1035 437 L1116 437"/>
+  <rect class="edge-label-bg" x="1051" y="415" width="53" height="20"/>
+  <text class="edge-label" x="1058" y="430">owns</text>
+
+  <path class="edge" d="M506 572 V540 H724 V596"/>
+  <rect class="edge-label-bg" x="525" y="538" width="79" height="20"/>
+  <text class="edge-label" x="533" y="553">extends</text>
+
+  <path class="edge" d="M652 647 L724 647"/>
+  <rect class="edge-label-bg" x="665" y="625" width="44" height="20"/>
+  <text class="edge-label" x="672" y="640">uses</text>
+
+  <path class="edge" d="M1116 647 L1042 647"/>
+  <rect class="edge-label-bg" x="1059" y="625" width="45" height="20"/>
+  <text class="edge-label" x="1066" y="640">runs</text>
+
+  <path class="edge" d="M1116 694 H1082 V845 H1042"/>
+  <rect class="edge-label-bg" x="1066" y="757" width="74" height="20"/>
+  <text class="edge-label" x="1074" y="772">analyzes</text>
+
+  <path class="edge" d="M652 833 H724"/>
+  <rect class="edge-label-bg" x="664" y="811" width="51" height="20"/>
+  <text class="edge-label" x="671" y="826">loads</text>
+
+  <path class="edge" d="M883 732 L883 782"/>
+  <rect class="edge-label-bg" x="895" y="750" width="75" height="20"/>
+  <text class="edge-label" x="902" y="765">provides</text>
+
+  <path class="edge" d="M1291 722 L1291 782"/>
+  <rect class="edge-label-bg" x="1301" y="744" width="72" height="20"/>
+  <text class="edge-label" x="1309" y="759">records</text>
+
+  <path class="edge-dashed" d="M360 484 H300 V930 H314 V950"/>
+  <path class="edge-dashed" d="M1035 500 V535 H1518 V583 H1542"/>
+  <path class="edge-dashed" d="M506 896 V928 H650 V950"/>
+  <path class="edge-dashed" d="M1291 722 V930 H945 V950"/>
+  <path class="edge-dashed" d="M883 908 V930 H1267 V950"/>
+
+  <rect class="legend-box" x="1542" y="292" width="208" height="144"/>
+  <text class="node-title" x="1564" y="323">Legend</text>
+  <line x1="1564" y1="348" x2="1626" y2="348" class="edge"/>
+  <text class="small-text" x="1640" y="352">static dependency</text>
+  <line x1="1564" y1="382" x2="1626" y2="382" class="edge-dashed"/>
+  <text class="small-text" x="1640" y="386">runtime/global or asset</text>
+  <rect x="1564" y="407" width="18" height="14" class="component external"/>
+  <text class="small-text" x="1594" y="419">outside application code</text>
+
+  <!-- Grouped dependency graph -->
+  <text class="section-kicker" x="64" y="1137">Grouped dependency graph</text>
+  <text class="section-title" x="64" y="1172">Module Groups And Dependency Direction</text>
+  <text class="subtitle" x="64" y="1200">Static imports and active script tags collapsed into package-like groups. Dashed edges mark browser globals, generated bundles, or asset loading.</text>
+
+  <rect class="dependency-note" x="64" y="1235" width="1666" height="78"/>
+  <text class="node-title" x="90" y="1267">Reading guide</text>
+  <text class="node-text" x="90" y="1291">Boxes list representative files. Blue rows are active entry/runtime modules. Amber rows are source-only or generated/support modules. Edge labels name the dominant dependency, not every individual import.</text>
+
+  <!-- Entry and build group -->
+  <rect class="group" x="64" y="1380" width="286" height="338"/>
+  <rect class="group-head" x="64" y="1380" width="286" height="56" fill="#dbeafe"/>
+  <text class="group-title" x="88" y="1412">Entry &amp; Build</text>
+  <text class="group-subtitle" x="88" y="1430">HTML, Vite, bundles</text>
+  <rect class="file-node-active" x="88" y="1458" width="238" height="32"/>
+  <text class="code-text" x="104" y="1479">index.html</text>
+  <rect class="file-node-active" x="88" y="1498" width="238" height="32"/>
+  <text class="code-text" x="104" y="1519">app.js</text>
+  <rect class="file-node" x="88" y="1538" width="238" height="32"/>
+  <text class="code-text" x="104" y="1559">vite.config.js</text>
+  <rect class="file-node" x="88" y="1578" width="238" height="32"/>
+  <text class="code-text" x="104" y="1599">scripts/bundle-webppl.js</text>
+  <rect class="file-node" x="88" y="1618" width="238" height="32"/>
+  <text class="code-text" x="104" y="1639">public/coi-serviceworker.js</text>
+  <rect class="file-node-source" x="88" y="1658" width="238" height="32"/>
+  <text class="code-text" x="104" y="1679">static.yml / workflows/*</text>
+
+  <!-- App orchestration group -->
+  <rect class="group" x="412" y="1360" width="302" height="386"/>
+  <rect class="group-head" x="412" y="1360" width="302" height="56" fill="#e0e7ff"/>
+  <text class="group-title" x="436" y="1392">App Orchestration</text>
+  <text class="group-subtitle" x="436" y="1410">State, commands, panels</text>
+  <rect class="file-node-active" x="436" y="1438" width="254" height="32"/>
+  <text class="code-text" x="452" y="1459">src/petri-net-app.js</text>
+  <rect class="file-node" x="436" y="1478" width="254" height="32"/>
+  <text class="code-text" x="452" y="1499">src/editor-settings.js</text>
+  <rect class="file-node" x="436" y="1518" width="254" height="32"/>
+  <text class="code-text" x="452" y="1539">src/action-history.js</text>
+  <rect class="file-node" x="436" y="1558" width="254" height="32"/>
+  <text class="code-text" x="452" y="1579">src/history-dialog.js</text>
+  <rect class="file-node" x="436" y="1598" width="254" height="32"/>
+  <text class="code-text" x="452" y="1619">src/workflow-tutorial.js</text>
+  <rect class="file-node" x="436" y="1638" width="254" height="32"/>
+  <text class="code-text" x="452" y="1659">src/workflow-definitions.js</text>
+  <text class="small-text" x="436" y="1711">Creates app singleton, captures undo snapshots,</text>
+  <text class="small-text" x="436" y="1728">and coordinates editor state with DOM controls.</text>
+
+  <!-- Core group -->
+  <rect class="group" x="776" y="1360" width="304" height="300"/>
+  <rect class="group-head" x="776" y="1360" width="304" height="56" fill="#dcfce7"/>
+  <text class="group-title" x="800" y="1392">Core Editor Engine</text>
+  <text class="group-subtitle" x="800" y="1410">Model, API, renderer</text>
+  <rect class="file-node-active" x="800" y="1438" width="256" height="32"/>
+  <text class="code-text" x="816" y="1459">src/petri-net-simulator.js</text>
+  <rect class="file-node" x="800" y="1478" width="256" height="32"/>
+  <text class="code-text" x="816" y="1499">PetriNetAPI</text>
+  <rect class="file-node" x="800" y="1518" width="256" height="32"/>
+  <text class="code-text" x="816" y="1539">PetriNetEditor</text>
+  <rect class="file-node" x="800" y="1558" width="256" height="32"/>
+  <text class="code-text" x="816" y="1579">PetriNetRenderer</text>
+  <rect class="file-node" x="800" y="1598" width="256" height="32"/>
+  <text class="code-text" x="816" y="1619">Place / Transition / Arc</text>
+
+  <!-- Feature panels group -->
+  <rect class="group" x="412" y="1810" width="302" height="338"/>
+  <rect class="group-head" x="412" y="1810" width="302" height="56" fill="#f1f5f9"/>
+  <text class="group-title" x="436" y="1842">Feature Panels</text>
+  <text class="group-subtitle" x="436" y="1860">DOM dashboards</text>
+  <rect class="file-node-active" x="436" y="1888" width="254" height="32"/>
+  <text class="code-text" x="452" y="1909">properties-panel.js</text>
+  <rect class="file-node-active" x="436" y="1928" width="254" height="32"/>
+  <text class="code-text" x="452" y="1949">views-panel.js</text>
+  <rect class="file-node-active" x="436" y="1968" width="254" height="32"/>
+  <text class="code-text" x="452" y="1989">simulation-dashboard.js</text>
+  <rect class="file-node-active" x="436" y="2008" width="254" height="32"/>
+  <text class="code-text" x="452" y="2029">verification-panel.js</text>
+  <rect class="file-node-active" x="436" y="2048" width="254" height="32"/>
+  <text class="code-text" x="452" y="2069">generation-panel.js</text>
+  <rect class="file-node-active" x="436" y="2088" width="254" height="32"/>
+  <text class="code-text" x="452" y="2109">animation-panel.js</text>
+
+  <!-- DPN group -->
+  <rect class="group" x="776" y="1740" width="304" height="408"/>
+  <rect class="group-head" x="776" y="1740" width="304" height="56" fill="#ccfbf1"/>
+  <text class="group-title" x="800" y="1772">DPN Extension</text>
+  <text class="group-subtitle" x="800" y="1790">Data nets and guards</text>
+  <rect class="file-node-active" x="800" y="1818" width="256" height="32"/>
+  <text class="code-text" x="816" y="1839">extensions/dpn-model.js</text>
+  <rect class="file-node-active" x="800" y="1858" width="256" height="32"/>
+  <text class="code-text" x="816" y="1879">extensions/dpn-api.js</text>
+  <rect class="file-node-active" x="800" y="1898" width="256" height="32"/>
+  <text class="code-text" x="816" y="1919">extensions/dpn-renderer.js</text>
+  <rect class="file-node-active" x="800" y="1938" width="256" height="32"/>
+  <text class="code-text" x="816" y="1959">extensions/dpn-ui.js</text>
+  <rect class="file-node-active" x="800" y="1978" width="256" height="32"/>
+  <text class="code-text" x="816" y="1999">extensions/dpn-integration.js</text>
+  <rect class="file-node" x="800" y="2018" width="256" height="32"/>
+  <text class="code-text" x="816" y="2039">guard-language/parser.js</text>
+  <rect class="file-node" x="800" y="2058" width="256" height="32"/>
+  <text class="code-text" x="816" y="2079">guard-language/evaluator.js</text>
+  <rect class="file-node" x="800" y="2098" width="256" height="32"/>
+  <text class="code-text" x="816" y="2119">guard-language/validator.js</text>
+
+  <!-- Execution group -->
+  <rect class="group" x="1142" y="1360" width="318" height="386"/>
+  <rect class="group-head" x="1142" y="1360" width="318" height="56" fill="#ffedd5"/>
+  <text class="group-title" x="1166" y="1392">Execution &amp; Generation</text>
+  <text class="group-subtitle" x="1166" y="1410">Simulation, WebPPL, logs</text>
+  <rect class="file-node-active" x="1166" y="1438" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1459">probabilistic-integration.js</text>
+  <rect class="file-node-active" x="1166" y="1478" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1499">probabilistic-execution.js</text>
+  <rect class="file-node-active" x="1166" y="1518" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1539">probabilistic-event-log-generator.js</text>
+  <rect class="file-node" x="1166" y="1558" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1579">webppl-code-generator.js</text>
+  <rect class="file-node-active" x="1166" y="1598" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1619">src/event-log-integration.js</text>
+  <rect class="file-node-source" x="1166" y="1638" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1659">src/event-log-generator.js</text>
+  <text class="small-text" x="1166" y="1711">Overrides step/run simulation via integration</text>
+  <text class="small-text" x="1166" y="1728">and exports traces as CSV, JSON, or XES.</text>
+
+  <!-- Verification group -->
+  <rect class="group" x="1142" y="1810" width="318" height="338"/>
+  <rect class="group-head" x="1142" y="1810" width="318" height="56" fill="#fee2e2"/>
+  <text class="group-title" x="1166" y="1842">Verification</text>
+  <text class="group-subtitle" x="1166" y="1860">Soundness and state space</text>
+  <rect class="file-node-active" x="1166" y="1888" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1909">verification-ui.js</text>
+  <rect class="file-node-active" x="1166" y="1928" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1949">suvorov-lomazova-verifier.js</text>
+  <rect class="file-node" x="1166" y="1968" width="270" height="32"/>
+  <text class="code-text" x="1182" y="1989">smt-generator.js</text>
+  <rect class="file-node" x="1166" y="2008" width="270" height="32"/>
+  <text class="code-text" x="1182" y="2029">DPN-refinement-engine.js</text>
+  <rect class="file-node" x="1166" y="2048" width="270" height="32"/>
+  <text class="code-text" x="1182" y="2069">labeled-transition-system.js</text>
+  <rect class="file-node" x="1166" y="2088" width="270" height="32"/>
+  <text class="code-text" x="1182" y="2109">z3-solver-wrapper.js</text>
+
+  <!-- IO group -->
+  <rect class="group" x="1518" y="1360" width="282" height="386"/>
+  <rect class="group-head" x="1518" y="1360" width="282" height="56" fill="#fef9c3"/>
+  <text class="group-title" x="1542" y="1392">Import / Export</text>
+  <text class="group-subtitle" x="1542" y="1410">Files and generated output</text>
+  <rect class="file-node-active" x="1542" y="1438" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1459">pnml-importer.js</text>
+  <rect class="file-node-active" x="1542" y="1478" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1499">png-exporter.js</text>
+  <rect class="file-node-active" x="1542" y="1518" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1539">python-import-dialog.js</text>
+  <rect class="file-node" x="1542" y="1558" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1579">python-dpn-transpiler.js</text>
+  <rect class="file-node-source" x="1542" y="1598" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1619">random-petri-net-generator.js</text>
+  <rect class="file-node" x="1542" y="1638" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1659">public/examples/*</text>
+  <text class="small-text" x="1542" y="1711">JSON preserves most metadata.</text>
+  <text class="small-text" x="1542" y="1728">PNML export is lossy for final markings.</text>
+
+  <!-- Browser and static services group -->
+  <rect class="group" x="1518" y="1810" width="282" height="338"/>
+  <rect class="group-head" x="1518" y="1810" width="282" height="56" fill="#e2e8f0"/>
+  <text class="group-title" x="1542" y="1842">Runtime Services</text>
+  <text class="group-subtitle" x="1542" y="1860">Browser and public assets</text>
+  <rect class="file-node" x="1542" y="1888" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1909">DOM / Canvas / File APIs</text>
+  <rect class="file-node" x="1542" y="1928" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1949">localStorage</text>
+  <rect class="file-node" x="1542" y="1968" width="234" height="32"/>
+  <text class="code-text" x="1558" y="1989">public/webppl/*</text>
+  <rect class="file-node" x="1542" y="2008" width="234" height="32"/>
+  <text class="code-text" x="1558" y="2029">public/z3/*</text>
+  <rect class="file-node" x="1542" y="2048" width="234" height="32"/>
+  <text class="code-text" x="1558" y="2069">npm: webppl</text>
+  <rect class="file-node" x="1542" y="2088" width="234" height="32"/>
+  <text class="code-text" x="1558" y="2109">npm: z3-solver / mathjs</text>
+
+  <!-- Dependency graph edges -->
+  <path class="edge" d="M350 1514 H412"/>
+  <rect class="edge-label-bg" x="362" y="1492" width="41" height="20"/>
+  <text class="edge-label" x="369" y="1507">boot</text>
+
+  <path class="edge" d="M714 1450 H776"/>
+  <rect class="edge-label-bg" x="724" y="1428" width="45" height="20"/>
+  <text class="edge-label" x="731" y="1443">uses</text>
+
+  <path class="edge" d="M563 1746 L563 1810"/>
+  <rect class="edge-label-bg" x="575" y="1769" width="49" height="20"/>
+  <text class="edge-label" x="582" y="1784">owns</text>
+
+  <path class="edge" d="M714 1570 H744 V1844 H776"/>
+  <rect class="edge-label-bg" x="712" y="1670" width="66" height="20"/>
+  <text class="edge-label" x="719" y="1685">extends</text>
+
+  <path class="edge" d="M1080 1514 H1142"/>
+  <rect class="edge-label-bg" x="1090" y="1492" width="45" height="20"/>
+  <text class="edge-label" x="1097" y="1507">feeds</text>
+
+  <path class="edge" d="M1080 1598 H1110 V1944 H1142"/>
+  <rect class="edge-label-bg" x="1096" y="1746" width="58" height="20"/>
+  <text class="edge-label" x="1103" y="1761">checks</text>
+
+  <path class="edge" d="M714 1984 H745 V1964 H776"/>
+  <rect class="edge-label-bg" x="724" y="1950" width="45" height="20"/>
+  <text class="edge-label" x="731" y="1965">uses</text>
+
+  <path class="edge" d="M1460 1516 H1518"/>
+  <rect class="edge-label-bg" x="1470" y="1494" width="49" height="20"/>
+  <text class="edge-label" x="1477" y="1509">logs</text>
+
+  <path class="edge" d="M1080 1938 H1142"/>
+  <rect class="edge-label-bg" x="1090" y="1916" width="47" height="20"/>
+  <text class="edge-label" x="1097" y="1931">SMT</text>
+
+  <path class="edge" d="M1518 1454 H1482 V1328 H928 V1360"/>
+  <rect class="edge-label-bg" x="1222" y="1315" width="86" height="20"/>
+  <text class="edge-label" x="1230" y="1330">imports core</text>
+
+  <path class="edge" d="M1518 1554 H1490 V1768 H1080"/>
+  <rect class="edge-label-bg" x="1300" y="1697" width="79" height="20"/>
+  <text class="edge-label" x="1307" y="1712">creates DPN</text>
+
+  <path class="edge-dashed" d="M1301 1746 V1782 H1494 V1976 H1518"/>
+  <rect class="edge-label-bg" x="1394" y="1846" width="69" height="20"/>
+  <text class="edge-label" x="1401" y="1861">WebPPL</text>
+
+  <path class="edge-dashed" d="M1301 1810 V1786 H1498 V2024 H1518"/>
+  <rect class="edge-label-bg" x="1410" y="1787" width="32" height="20"/>
+  <text class="edge-label" x="1417" y="1802">Z3</text>
+
+  <path class="edge-dashed" d="M1659 1746 L1659 1810"/>
+  <rect class="edge-label-bg" x="1671" y="1769" width="52" height="20"/>
+  <text class="edge-label" x="1678" y="1784">assets</text>
+
+  <path class="edge-dashed" d="M214 1718 V1778 H382 V1990 H412"/>
+  <rect class="edge-label-bg" x="241" y="1864" width="75" height="20"/>
+  <text class="edge-label" x="249" y="1879">loads CSS</text>
+
+  <rect class="legend-box" x="64" y="2102" width="286" height="96"/>
+  <line x1="88" y1="2134" x2="150" y2="2134" class="edge"/>
+  <text class="small-text" x="164" y="2138">static import or direct module dependency</text>
+  <line x1="88" y1="2170" x2="150" y2="2170" class="edge-dashed"/>
+  <text class="small-text" x="164" y="2174">runtime global, browser API, or asset load</text>
+</svg>

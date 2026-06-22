@@ -53,7 +53,7 @@ export function toSmtLib2(ast, step, dataVarsList, isPost, symFn) {
         return steppedVar(node.name, node.primed);
 
       case NodeType.BINOP:
-        return `(${node.op} ${emit(node.left)} ${emit(node.right)})`;
+        return `(${toSmtOp(node.op)} ${emit(node.left)} ${emit(node.right)})`;
 
       case NodeType.UNARYOP:
         if (node.op === '-') {
@@ -63,7 +63,7 @@ export function toSmtLib2(ast, step, dataVarsList, isPost, symFn) {
         return `(${node.op} ${emit(node.operand)})`;
 
       case NodeType.CALL:
-        return `(${node.op} ${node.args.map(emit).join(' ')})`;
+        return `(${toSmtOp(node.op)} ${node.args.map(emit).join(' ')})`;
 
       case NodeType.QUANTIFIER: {
         const bindings = node.bindings
@@ -128,14 +128,14 @@ export function toSmtLib2ForTau(ast, step, dataVarsList, symFn) {
         return steppedVar(node.name, node.primed);
 
       case NodeType.BINOP:
-        return `(${node.op} ${emit(node.left)} ${emit(node.right)})`;
+        return `(${toSmtOp(node.op)} ${emit(node.left)} ${emit(node.right)})`;
 
       case NodeType.UNARYOP:
         if (node.op === '-') return `(- ${emit(node.operand)})`;
         return `(${node.op} ${emit(node.operand)})`;
 
       case NodeType.CALL:
-        return `(${node.op} ${node.args.map(emit).join(' ')})`;
+        return `(${toSmtOp(node.op)} ${node.args.map(emit).join(' ')})`;
 
       case NodeType.QUANTIFIER: {
         const bindings = node.bindings
@@ -198,4 +198,10 @@ export function extractWrittenVars(ast) {
 
   walk(ast);
   return written;
+}
+
+function toSmtOp(op) {
+  if (op === '%' || op === 'mod') return 'mod';
+  if (op === '**') return '^';
+  return op;
 }

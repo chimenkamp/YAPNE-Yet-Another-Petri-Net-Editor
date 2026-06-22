@@ -83,6 +83,8 @@ const SMT_ARITY = new Map([
   ['-',        [1, null]],
   ['*',        [2, null]],
   ['/',        [2, null]],
+  ['mod',      [2, 2]],
+  ['**',       [2, 2]],
   ['=>',       [2, null]],
   ['=',        [2, null]],
   ['distinct', [2, null]],
@@ -162,7 +164,17 @@ class Parser {
 
     let ast;
     if (this.check(TokenType.LPAREN)) {
-      ast = this.parseSmt();
+      const start = this.pos;
+      try {
+        ast = this.parseSmt();
+        if (!this.check(TokenType.EOF)) {
+          this.pos = start;
+          ast = this.parseDisjunction();
+        }
+      } catch (error) {
+        this.pos = start;
+        ast = this.parseDisjunction();
+      }
     } else {
       ast = this.parseDisjunction();
     }
@@ -236,11 +248,14 @@ class Parser {
     else if (opTok.type === TokenType.MINUS) op = '-';
     else if (opTok.type === TokenType.STAR) op = '*';
     else if (opTok.type === TokenType.SLASH) op = '/';
+    else if (opTok.type === TokenType.PERCENT) op = 'mod';
+    else if (opTok.type === TokenType.POW) op = '**';
+    else if (opTok.type === TokenType.IDENT && opTok.value === 'mod') op = 'mod';
     else {
       // Reject uninterpreted function symbols: (f ...) where f is an ident
       // Also reject (number) forms like (10)
       throw new ParseError(
-        `Invalid SMT operator '${opTok.value}'. Only built-in operators are allowed (and, or, not, =>, ite, distinct, =, <, <=, >, >=, +, -, *, /, exists, forall, let).`,
+        `Invalid SMT operator '${opTok.value}'. Only built-in operators are allowed (and, or, not, =>, ite, distinct, =, <, <=, >, >=, +, -, *, /, %, **, exists, forall, let).`,
         opTok.pos
       );
     }
@@ -463,12 +478,12 @@ class Parser {
   }
 
   /**
-   * term ::= factor ( ('*' | '/') factor )*
+   * term ::= factor ( ('*' | '/' | '%') factor )*
    */
   parseTerm() {
     let left = this.parseFactor();
 
-    while (this.check(TokenType.STAR) || this.check(TokenType.SLASH)) {
+    while (this.check(TokenType.STAR) || this.check(TokenType.SLASH) || this.check(TokenType.PERCENT)) {
       const opTok = this.advance();
       const right = this.parseFactor();
       left = binopNode(opTok.value, left, right);
@@ -478,9 +493,51 @@ class Parser {
   }
 
   /**
-   * factor ::= '(' infix_expr ')' | var_ref | number | bool_lit
+   * factor ::= ('+' | '-') factor | power
    */
   parseFactor() {
+    const tok = this.peek();
+
+    // Unary minus in factor position (e.g., -x, -5, -2 ** 2)
+    if (tok.type === TokenType.MINUS) {
+      this.advance();
+      const operand = this.parseFactor();
+      // Optimize: if operand is a literal number, negate it directly
+      if (operand.type === NodeType.LITERAL && (operand.sort === 'Int' || operand.sort === 'Real')) {
+        operand.value = -operand.value;
+        return operand;
+      }
+      return unaryNode('-', operand);
+    }
+
+    // Unary plus (discard)
+    if (tok.type === TokenType.PLUS) {
+      this.advance();
+      return this.parseFactor();
+    }
+
+    return this.parsePower();
+  }
+
+  /**
+   * power ::= primary ( '**' factor )?
+   */
+  parsePower() {
+    let left = this.parsePrimary();
+
+    if (this.check(TokenType.POW)) {
+      const opTok = this.advance();
+      const right = this.parseFactor();
+      left = binopNode(opTok.value, left, right);
+    }
+
+    return left;
+  }
+
+  /**
+   * primary ::= '(' infix_expr ')' | var_ref | number | bool_lit
+   */
+  parsePrimary() {
     const tok = this.peek();
 
     // Parenthesized expression
@@ -520,24 +577,6 @@ class Parser {
         return varNode(tok.value, true);
       }
       return varNode(tok.value, false);
-    }
-
-    // Unary minus in factor position (e.g., -x, -5)
-    if (tok.type === TokenType.MINUS) {
-      this.advance();
-      const operand = this.parseFactor();
-      // Optimize: if operand is a literal number, negate it directly
-      if (operand.type === NodeType.LITERAL && (operand.sort === 'Int' || operand.sort === 'Real')) {
-        operand.value = -operand.value;
-        return operand;
-      }
-      return unaryNode('-', operand);
-    }
-
-    // Unary plus (discard)
-    if (tok.type === TokenType.PLUS) {
-      this.advance();
-      return this.parseFactor();
     }
 
     throw new ParseError(

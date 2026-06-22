@@ -1,0 +1,207 @@
+\documentclass{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+
+\DeclareMathOperator{\Pre}{pre}
+\DeclareMathOperator{\Post}{post}
+\newcommand{\Reg}{\mathrm{reg}}
+\newcommand{\Real}{\mathrm{real}}
+
+\title{S-Component Calculation}
+\author{YAPNE}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Overview}
+
+The algorithm below describes the S-component calculation used by the
+structural Petri-net analysis.  Only regular arcs are considered.  If the net is
+a workflow net, a symbolic short-circuit transition is temporarily added from
+the sink place to the source place.  The symbolic transition can help detect
+workflow-net state-machine components, but it is removed from the reported
+transition set.
+
+For a transition $t$, let
+\[
+  \Pre(t) = \{p \in P \mid (p,t) \in A_{\Reg}\},
+  \qquad
+  \Post(t) = \{p \in P \mid (t,p) \in A_{\Reg}\}.
+\]
+
+\begin{algorithm}
+\caption{Calculate S-components}
+\begin{algorithmic}[1]
+\Require Petri net $N = (P,T,A)$
+\Ensure Set of S-components and set of S-covered places
+\State $W \gets$ workflow-net result for $N$
+\If{$W$ is a workflow net}
+  \State introduce symbolic transition $t_{\mathrm{sc}}$
+  \State $A^{+} \gets A \cup \{(\mathrm{sink}(W), t_{\mathrm{sc}}),
+    (t_{\mathrm{sc}}, \mathrm{source}(W))\}$
+  \State $T^{+} \gets T \cup \{t_{\mathrm{sc}}\}$
+\Else
+  \State $A^{+} \gets A$
+  \State $T^{+} \gets T$
+  \State $t_{\mathrm{sc}} \gets \bot$
+\EndIf
+\State $A_{\Reg}^{+} \gets \{a \in A^{+} \mid a \text{ is a regular arc}\}$
+\State $\mathcal{C} \gets$
+  \Call{FindStateMachineComponents}{$P,T^{+},A_{\Reg}^{+},t_{\mathrm{sc}}$}
+\State $P_{\mathrm{covered}} \gets \bigcup_{C \in \mathcal{C}} C.P$
+\State \Return $(\mathcal{C}, P_{\mathrm{covered}})$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Find state-machine components}
+\begin{algorithmic}[1]
+\Require Places $P$, transitions $T$, regular arcs $A_{\Reg}$, optional symbolic transition $t_{\mathrm{sc}}$
+\Ensure Sorted list of normalized S-components
+\State $E \gets \emptyset$
+\ForAll{$t \in T$}
+  \ForAll{$p_{\mathrm{in}} \in \Pre(t)$}
+    \ForAll{$p_{\mathrm{out}} \in \Post(t)$}
+      \If{$p_{\mathrm{in}} \in P$ and $p_{\mathrm{out}} \in P$}
+        \State add $(p_{\mathrm{in}},p_{\mathrm{out}},t)$ to $E$
+      \EndIf
+    \EndFor
+  \EndFor
+\EndFor
+\State group the edges in $E$ by their source place
+\State $\mathcal{C} \gets \emptyset$
+\State $\mathrm{Seen} \gets \emptyset$
+\State $d_{\max} \gets \max(1, |P|)$
+\ForAll{$p \in P$}
+  \State \Call{VisitCycle}{$p,p,\langle p\rangle,\emptyset$}
+\EndFor
+\State sort $\mathcal{C}$ with short-circuited components first, then by
+  decreasing number of places, then lexicographically by place identifier
+\State \Return $\mathcal{C}$
+
+\Procedure{VisitCycle}{$p_{\mathrm{start}},p_{\mathrm{current}},\pi,U$}
+  \If{$|\pi| > d_{\max} + 1$}
+    \State \Return
+  \EndIf
+  \ForAll{$(p_{\mathrm{current}},q,t)$ starting at $p_{\mathrm{current}}$}
+    \If{$t \in U$}
+      \State \textbf{continue}
+    \EndIf
+    \If{$q = p_{\mathrm{start}}$}
+      \State \Call{AddCandidate}{$\pi$}
+      \State \textbf{continue}
+    \EndIf
+    \If{$q$ already occurs in $\pi$}
+      \State \textbf{continue}
+    \EndIf
+    \State \Call{VisitCycle}{$p_{\mathrm{start}},q,\pi \cdot \langle q\rangle,U \cup \{t\}$}
+  \EndFor
+\EndProcedure
+
+\Procedure{AddCandidate}{$\pi$}
+  \State $S \gets$ unique places occurring in $\pi$
+  \ForAll{$C \in$ \Call{ExpandClosedStateMachine}{$S,P,T,A_{\Reg},t_{\mathrm{sc}}$}}
+    \State $k \gets$ canonical key of $C$, including $t_{\mathrm{sc}}$ if it was used
+    \If{$k \notin \mathrm{Seen}$}
+      \State add $k$ to $\mathrm{Seen}$
+      \State add $C$ to $\mathcal{C}$
+    \EndIf
+  \EndFor
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Expand a cycle to a closed state-machine subnet}
+\begin{algorithmic}[1]
+\Require Initial place set $S_{0}$, places $P$, transitions $T$, regular arcs $A_{\Reg}$, optional symbolic transition $t_{\mathrm{sc}}$
+\Ensure All normalized S-components reachable from $S_{0}$
+\State $\mathcal{C} \gets \emptyset$
+\State $\mathrm{VisitedPlaceSets} \gets \emptyset$
+\State \Call{VisitPlaceSet}{$S_{0}$}
+\State \Return $\mathcal{C}$
+
+\Procedure{VisitPlaceSet}{$S$}
+  \State $k \gets$ canonical key of $S$
+  \If{$k \in \mathrm{VisitedPlaceSets}$}
+    \State \Return
+  \EndIf
+  \State add $k$ to $\mathrm{VisitedPlaceSets}$
+  \State $T_{S} \gets \{t \in T \mid t \text{ is adjacent to some } p \in S
+    \text{ by a regular arc}\}$
+  \State $\mathcal{M} \gets \emptyset$
+  \ForAll{$t \in T_{S}$}
+    \State $I \gets \Pre(t) \cap P$
+    \State $O \gets \Post(t) \cap P$
+    \State $I_{S} \gets I \cap S$
+    \State $O_{S} \gets O \cap S$
+    \If{$|I_{S}| > 1$ or $|O_{S}| > 1$}
+      \State \Return
+    \EndIf
+    \If{$I_{S} = \emptyset$}
+      \If{$I = \emptyset$}
+        \State \Return
+      \EndIf
+      \State add $I$ to $\mathcal{M}$
+    \EndIf
+    \If{$O_{S} = \emptyset$}
+      \If{$O = \emptyset$}
+        \State \Return
+      \EndIf
+      \State add $O$ to $\mathcal{M}$
+    \EndIf
+  \EndFor
+
+  \If{$\mathcal{M} \neq \emptyset$}
+    \State choose the first place-choice set $B$ from $\mathcal{M}$
+    \ForAll{$p \in B \setminus S$}
+      \State \Call{VisitPlaceSet}{$S \cup \{p\}$}
+    \EndFor
+    \State \Return
+  \EndIf
+
+  \If{\Call{IsStronglyConnectedSubnet}{$S,T_{S},A_{\Reg}$} is false}
+    \State \Return
+  \EndIf
+  \State $C \gets$ \Call{NormalizeComponent}{$S,T_{S},t_{\mathrm{sc}}$}
+  \If{$C$ contains at least one place and at least one real transition}
+    \State add $C$ to $\mathcal{C}$
+  \EndIf
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+\caption{Normalize and test a subnet}
+\begin{algorithmic}[1]
+\Procedure{NormalizeComponent}{$S,U,t_{\mathrm{sc}}$}
+  \State $U_{\Real} \gets U \setminus \{t_{\mathrm{sc}}\}$
+  \State \Return component with places $S$, transitions $U_{\Real}$, and flag
+    ``uses short circuit'' iff $t_{\mathrm{sc}} \in U$
+\EndProcedure
+
+\Procedure{IsStronglyConnectedSubnet}{$S,U,A_{\Reg}$}
+  \State $V \gets S \cup U$
+  \If{$V = \emptyset$}
+    \State \Return false
+  \EndIf
+  \State build directed graph $G$ on $V$ using all arcs in $A_{\Reg}$ whose
+    source and target are both in $V$
+  \ForAll{$x \in V$}
+    \ForAll{$y \in V$}
+      \If{there is no directed path from $x$ to $y$ in $G$}
+        \State \Return false
+      \EndIf
+    \EndFor
+  \EndFor
+  \State \Return true
+\EndProcedure
+\end{algorithmic}
+\end{algorithm}
+
+\end{document}

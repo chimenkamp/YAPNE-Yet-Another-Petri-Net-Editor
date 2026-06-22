@@ -187,6 +187,12 @@ function evalBinop(node, readVals, writeVals) {
     case '/':
       if (Number(r) === 0) throw new EvalError('Division by zero');
       return Number(l) / Number(r);
+    case '%':
+    case 'mod':
+      if (Number(r) === 0) throw new EvalError('Modulo by zero');
+      return Number(l) % Number(r);
+    case '**':
+      return Number(l) ** Number(r);
     default:
       throw new EvalError(`Unknown binary operator: ${node.op}`);
   }
@@ -241,6 +247,12 @@ function evalCall(node, readVals, writeVals) {
         if (Number(b) === 0) throw new EvalError('Division by zero');
         return Number(a) / Number(b);
       });
+    case 'mod':
+    case '%':
+      if (Number(args[1]) === 0) throw new EvalError('Modulo by zero');
+      return Number(args[0]) % Number(args[1]);
+    case '**':
+      return Number(args[0]) ** Number(args[1]);
     default:
       throw new EvalError(`Unknown SMT operator: ${node.op}`);
   }
@@ -352,9 +364,10 @@ function astToInfix(node) {
       if (node.op === '=') return args.map((a, i) => i === 0 ? a : `(${args[0]} == ${a})`).slice(1).join(' && ');
       if (node.op === 'distinct') return `(${args[0]} != ${args[1]})`;
       // Arithmetic
-      if (['+', '-', '*', '/'].includes(node.op)) {
+      if (['+', '-', '*', '/', '%', 'mod', '**'].includes(node.op)) {
         if (args.length === 1 && node.op === '-') return `(-(${args[0]}))`;
-        return args.reduce((acc, a) => `(${acc} ${node.op} ${a})`);
+        const jsOp = node.op === 'mod' ? '%' : node.op;
+        return args.reduce((acc, a) => `(${acc} ${jsOp} ${a})`);
       }
       // Comparisons
       if (['<', '<=', '>', '>='].includes(node.op)) {

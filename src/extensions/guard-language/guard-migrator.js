@@ -14,7 +14,7 @@
  * - `&&` → `and`
  * - `||` → `or`
  * - `!expr` → `not expr`
- * - `%` → removed (not in grammar) — will cause a parse error if present
+ * - `%` and `**` are already valid arithmetic operators and are preserved
  * - String literals in comparisons → integer codes (logged as warning)
  *
  * @param {string} expression - Legacy precondition expression
@@ -92,7 +92,6 @@ export function isLegacySyntax(expression) {
   const s = expression.trim();
   return /===|!==|&&|\|\||[^!]==[^>]/.test(s) ||  // JS operators
          /;\s*\S/.test(s) ||                       // semicolons as separators
-         /%/.test(s) ||                             // modulo operator
          /"[^"]*"|'[^']*'/.test(s);                // string literals
 }
 

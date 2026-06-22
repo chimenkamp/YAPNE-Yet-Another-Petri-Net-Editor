@@ -35,6 +35,8 @@ export const TokenType = Object.freeze({
   MINUS:      'MINUS',       // -
   STAR:       'STAR',        // *
   SLASH:      'SLASH',       // /
+  PERCENT:    'PERCENT',     // %
+  POW:        'POW',         // **
 
   // Delimiters
   LPAREN:     'LPAREN',      // (
@@ -119,8 +121,14 @@ export function tokenize(input) {
     // Single-character tokens
     if (ch === '(') { tokens.push(new Token(TokenType.LPAREN, '(', i)); i++; continue; }
     if (ch === ')') { tokens.push(new Token(TokenType.RPAREN, ')', i)); i++; continue; }
+    if (ch === '*' && i + 1 < len && input[i + 1] === '*') {
+      tokens.push(new Token(TokenType.POW, '**', i));
+      i += 2;
+      continue;
+    }
     if (ch === '*') { tokens.push(new Token(TokenType.STAR, '*', i)); i++; continue; }
     if (ch === '/') { tokens.push(new Token(TokenType.SLASH, '/', i)); i++; continue; }
+    if (ch === '%') { tokens.push(new Token(TokenType.PERCENT, '%', i)); i++; continue; }
     if (ch === "'") { tokens.push(new Token(TokenType.PRIME, "'", i)); i++; continue; }
 
     // => (implies)
@@ -148,6 +156,13 @@ export function tokenize(input) {
     if (ch === '!' && i + 1 < len && input[i + 1] === '=') {
       tokens.push(new Token(TokenType.DISTINCT, 'distinct', i));
       i += 2;
+      continue;
+    }
+
+    // ! normalized to NOT
+    if (ch === '!') {
+      tokens.push(new Token(TokenType.NOT, 'not', i));
+      i++;
       continue;
     }
 
@@ -193,39 +208,9 @@ export function tokenize(input) {
       continue;
     }
 
-    // + / - : could be operator or part of a number
+    // + / - operators. Unary signs are handled by the parser so exponent
+    // precedence stays consistent with Python-style expressions.
     if (ch === '+' || ch === '-') {
-      // Check if this is a sign for a number (not preceded by a value token)
-      const prevToken = tokens.length > 0 ? tokens[tokens.length - 1] : null;
-      const isSign = !prevToken ||
-        prevToken.type === TokenType.LPAREN ||
-        prevToken.type === TokenType.EQ ||
-        prevToken.type === TokenType.LT ||
-        prevToken.type === TokenType.LE ||
-        prevToken.type === TokenType.GT ||
-        prevToken.type === TokenType.GE ||
-        prevToken.type === TokenType.DISTINCT ||
-        prevToken.type === TokenType.PLUS ||
-        prevToken.type === TokenType.MINUS ||
-        prevToken.type === TokenType.STAR ||
-        prevToken.type === TokenType.SLASH ||
-        prevToken.type === TokenType.AND ||
-        prevToken.type === TokenType.OR ||
-        prevToken.type === TokenType.NOT ||
-        prevToken.type === TokenType.IMPLIES ||
-        prevToken.type === TokenType.ITE;
-
-      if (isSign && i + 1 < len && /\d/.test(input[i + 1])) {
-        // Signed number
-        const start = i;
-        i++; // skip sign
-        const numToken = readNumber(input, i, start);
-        tokens.push(numToken);
-        i = start + numToken.value.length;
-        continue;
-      }
-
-      // Otherwise it's an operator
       if (ch === '+') {
         tokens.push(new Token(TokenType.PLUS, '+', i));
       } else {

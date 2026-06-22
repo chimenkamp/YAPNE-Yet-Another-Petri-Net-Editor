@@ -1,0 +1,180 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1500" viewBox="0 0 2400 1500" role="img" aria-labelledby="title desc">
+  <title id="title">YAPNE feature map by category</title>
+  <desc id="desc">Presentation diagram mapping YAPNE Petri net editor features to Simulation, Verification, Import/Export, Event Logs, Accessibility, Graphical Editor, and Extensions categories with PN, DPN, final marking, projection, partial, and source-only compatibility tags.</desc>
+  <defs>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      .bg { fill: #f7f8fb; }
+      .title { fill: #182033; font: 700 52px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .subtitle { fill: #536079; font: 400 24px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .card { fill: #ffffff; stroke: #d8dfec; stroke-width: 2; rx: 8; }
+      .hub { fill: #172033; stroke: #33415f; stroke-width: 2; rx: 8; }
+      .hubTitle { fill: #ffffff; font: 700 36px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .hubText { fill: #dce5f6; font: 400 23px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .legendTag { font: 700 22px Inter, Arial, sans-serif; }
+      .catTitle { fill: #ffffff; font: 700 30px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .catMeta { fill: rgba(255,255,255,0.86); font: 500 17px Inter, Arial, sans-serif; letter-spacing: 0.3px; }
+      .feature { fill: #25304a; font: 400 22px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .smallFeature { fill: #25304a; font: 400 21px Inter, Arial, sans-serif; letter-spacing: 0; }
+      .tag { font: 700 20px Inter, Arial, sans-serif; }
+      .tagPN { fill: #2364aa; }
+      .tagDPN { fill: #7b3fa1; }
+      .tagFM { fill: #b45118; }
+      .tagUI { fill: #347759; }
+      .tagSRC { fill: #856a12; }
+      .tagPART { fill: #9d3f45; }
+      .connector { stroke: #b9c3d8; stroke-width: 3; stroke-linecap: round; opacity: 0.7; }
+      .foot { fill: #6a7388; font: 400 18px Inter, Arial, sans-serif; letter-spacing: 0; }
+    </style>
+    <filter id="softShadow" x="-6%" y="-8%" width="112%" height="122%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#1b2740" flood-opacity="0.13"/>
+    </filter>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="2400" height="1500"/>
+
+  <text class="title" x="80" y="74">YAPNE Feature Map</text>
+  <text class="subtitle" x="80" y="112">Updated category view for presentation: feature groups, datatype scope, final-marking requirements, and compatibility caveats.</text>
+  <text class="foot" x="2200" y="111" text-anchor="end">Source: docs/feature_inventory.md</text>
+
+  <!-- Connectors -->
+  <line class="connector" x1="1200" y1="560" x2="330" y2="500"/>
+  <line class="connector" x1="1200" y1="560" x2="910" y2="500"/>
+  <line class="connector" x1="1200" y1="560" x2="1490" y2="500"/>
+  <line class="connector" x1="1200" y1="560" x2="2070" y2="500"/>
+  <line class="connector" x1="1200" y1="770" x2="330" y2="940"/>
+  <line class="connector" x1="1200" y1="770" x2="1050" y2="870"/>
+  <line class="connector" x1="1200" y1="770" x2="1925" y2="940"/>
+
+  <!-- Central hub -->
+  <g filter="url(#softShadow)">
+    <rect class="hub" x="665" y="560" width="1070" height="210" rx="8"/>
+    <text class="hubTitle" x="705" y="618">Compatibility Legend</text>
+    <text class="hubText" x="705" y="666">
+      <tspan class="legendTag tagPN">[PN]</tspan><tspan> ordinary P/T net</tspan>
+      <tspan dx="36" class="legendTag tagDPN">[DPN]</tspan><tspan> data variables, guards, updates</tspan>
+      <tspan dx="36" class="legendTag tagFM">[FM]</tspan><tspan> positive final marking required</tspan>
+    </text>
+    <text class="hubText" x="705" y="709">
+      <tspan class="legendTag tagPART">[PROJ]</tspan><tspan> DPN analyzed as PN projection</tspan>
+      <tspan dx="42" class="legendTag tagPART">[PART]</tspan><tspan> partial or lossy support</tspan>
+      <tspan dx="42" class="legendTag tagSRC">[SRC]</tspan><tspan> source-only or inactive</tspan>
+    </text>
+    <text class="hubText" x="705" y="750">JSON is the complete round-trip format. PNML export currently does not preserve final markings.</text>
+  </g>
+
+  <!-- Simulation -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="60" y="150" width="540" height="350" rx="8"/>
+    <rect x="60" y="150" width="540" height="72" rx="8" fill="#2f6f9f"/>
+    <rect x="60" y="214" width="540" height="8" fill="#2f6f9f"/>
+    <text class="catTitle" x="90" y="196">Simulation</text>
+    <text class="catMeta" x="455" y="196" text-anchor="end">runtime</text>
+    <text class="feature" x="90" y="262"><tspan class="tag tagPN">[PN+DPN]</tspan> Step and fire specific transition</text>
+    <text class="feature" x="90" y="298"><tspan class="tag tagPN">[PN+DPN]</tspan> Auto-run with probabilistic scheduler</text>
+    <text class="feature" x="90" y="334"><tspan class="tag tagDPN">[DPN]</tspan> Guards, updates, WebPPL constraints</text>
+    <text class="feature" x="90" y="370"><tspan class="tag tagFM">[FM]</tspan> Full playout and goal-state checks</text>
+    <text class="feature" x="90" y="406"><tspan class="tag tagPN">[PN+DPN]</tspan> Dashboard: tokens, trace, enabled list</text>
+    <text class="feature" x="90" y="442"><tspan class="tag tagPN">[PN+DPN]</tspan> Captured reset; DPN vars need checking</text>
+  </g>
+
+  <!-- Verification -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="640" y="150" width="540" height="350" rx="8"/>
+    <rect x="640" y="150" width="540" height="72" rx="8" fill="#7a4f98"/>
+    <rect x="640" y="214" width="540" height="8" fill="#7a4f98"/>
+    <text class="catTitle" x="670" y="196">Verification</text>
+    <text class="catMeta" x="1035" y="196" text-anchor="end">analysis</text>
+    <text class="feature" x="670" y="262"><tspan class="tag tagFM">[DPN+FM]</tspan> Soundness: P1, P2, P3</text>
+    <text class="feature" x="670" y="298"><tspan class="tag tagDPN">[DPN]</tspan> Z3 boundedness, refinement, tau</text>
+    <text class="feature" x="670" y="334"><tspan class="tag tagDPN">[DPN]</tspan> Counterexamples and canvas overlays</text>
+    <text class="feature" x="670" y="370"><tspan class="tag tagPN">[PN]</tspan> Marking graph and coverability tree</text>
+    <text class="feature" x="670" y="406"><tspan class="tag tagPART">[PN]</tspan> Workflow net, S-components, free-choice</text>
+    <text class="feature" x="670" y="442"><tspan class="tag tagDPN">[DPN]</tspan> Guard expression validation</text>
+  </g>
+
+  <!-- Import/Export -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="1220" y="150" width="540" height="350" rx="8"/>
+    <rect x="1220" y="150" width="540" height="72" rx="8" fill="#4f7f52"/>
+    <rect x="1220" y="214" width="540" height="8" fill="#4f7f52"/>
+    <text class="catTitle" x="1250" y="196">Import / Export</text>
+    <text class="catMeta" x="1620" y="196" text-anchor="end">files</text>
+    <text class="feature" x="1250" y="262"><tspan class="tag tagPN">[PN+DPN]</tspan> JSON full save/load</text>
+    <text class="feature" x="1250" y="298"><tspan class="tag tagPART">[PART]</tspan> PNML import/export; final lost on export</text>
+    <text class="feature" x="1250" y="334"><tspan class="tag tagPN">[PN+DPN]</tspan> PNG export with condition display</text>
+    <text class="feature" x="1250" y="370"><tspan class="tag tagDPN">[DPN]</tspan> Python import beta to generated DPN</text>
+    <text class="feature" x="1250" y="406"><tspan class="tag tagPN">[PN+DPN]</tspan> Example/template loading</text>
+    <text class="feature" x="1250" y="442"><tspan class="tag tagUI">[UI]</tspan> Settings persisted in localStorage</text>
+  </g>
+
+  <!-- Event Logs -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="1800" y="150" width="540" height="350" rx="8"/>
+    <rect x="1800" y="150" width="540" height="72" rx="8" fill="#9a5a3a"/>
+    <rect x="1800" y="214" width="540" height="8" fill="#9a5a3a"/>
+    <text class="catTitle" x="1830" y="196">Event Logs</text>
+    <text class="catMeta" x="2195" y="196" text-anchor="end">process mining</text>
+    <text class="feature" x="1830" y="262"><tspan class="tag tagFM">[FM]</tspan> Probabilistic case generation</text>
+    <text class="feature" x="1830" y="298"><tspan class="tag tagFM">[FM]</tspan> Classic and lifecycle formats</text>
+    <text class="feature" x="1830" y="334"><tspan class="tag tagFM">[FM]</tspan> CSV, JSON, and XES export</text>
+    <text class="feature" x="1830" y="370"><tspan class="tag tagDPN">[DPN]</tspan> Data attributes and distributions</text>
+    <text class="feature" x="1830" y="406"><tspan class="tag tagPN">[PN+DPN]</tspan> Activity and duration statistics</text>
+    <text class="feature" x="1830" y="442"><tspan class="tag tagPN">[PN+DPN]</tspan> Silent filtering, WebPPL preview</text>
+  </g>
+
+  <!-- Accessibility -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="60" y="940" width="540" height="360" rx="8"/>
+    <rect x="60" y="940" width="540" height="72" rx="8" fill="#4d688c"/>
+    <rect x="60" y="1004" width="540" height="8" fill="#4d688c"/>
+    <text class="catTitle" x="90" y="986">Accessibility</text>
+    <text class="catMeta" x="455" y="986" text-anchor="end">interaction</text>
+    <text class="feature" x="90" y="1052"><tspan class="tag tagUI">[UI]</tspan> Keyboard shortcuts and safe handlers</text>
+    <text class="feature" x="90" y="1088"><tspan class="tag tagUI">[UI]</tspan> Sidebar Tab toggle and local UI state</text>
+    <text class="feature" x="90" y="1124"><tspan class="tag tagUI">[UI]</tspan> Help dialog and guided workflows</text>
+    <text class="feature" x="90" y="1160"><tspan class="tag tagUI">[UI]</tspan> Editor color inversion setting</text>
+    <text class="feature" x="90" y="1196"><tspan class="tag tagSRC">[SRC]</tspan> WCAG canvas layer is source-only</text>
+    <text class="feature" x="90" y="1232"><tspan class="tag tagSRC">[SRC]</tspan> Auto-save manager is source-only</text>
+  </g>
+
+  <!-- Graphical Editor -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="650" y="870" width="800" height="520" rx="8"/>
+    <rect x="650" y="870" width="800" height="72" rx="8" fill="#2f7d75"/>
+    <rect x="650" y="934" width="800" height="8" fill="#2f7d75"/>
+    <text class="catTitle" x="680" y="916">Graphical Editor</text>
+    <text class="catMeta" x="1260" y="916" text-anchor="end">modeling canvas</text>
+    <text class="smallFeature" x="680" y="982"><tspan class="tag tagPN">[PN+DPN]</tspan> Places, transitions, labels, priorities, delays</text>
+    <text class="smallFeature" x="680" y="1018"><tspan class="tag tagPN">[PN+DPN]</tspan> Regular, inhibitor, reset, and read arcs</text>
+    <text class="smallFeature" x="680" y="1054"><tspan class="tag tagPN">[PN+DPN]</tspan> Tokens, capacities, final markings, fusion sets</text>
+    <text class="smallFeature" x="680" y="1090"><tspan class="tag tagDPN">[DPN]</tspan> Data variables and data-aware transitions</text>
+    <text class="smallFeature" x="680" y="1126"><tspan class="tag tagDPN">[DPN]</tspan> Pre/postcondition editor with validation</text>
+    <text class="smallFeature" x="680" y="1162"><tspan class="tag tagUI">[UI]</tspan> Pan, zoom, fit, grid, snap, color inversion</text>
+    <text class="smallFeature" x="680" y="1198"><tspan class="tag tagUI">[UI]</tspan> Auto-connect, ghost nodes, arc-drop creation</text>
+    <text class="smallFeature" x="680" y="1234"><tspan class="tag tagUI">[UI]</tspan> Multi-select, copy/paste, delete, undo/redo</text>
+    <text class="smallFeature" x="680" y="1270"><tspan class="tag tagPN">[PN+DPN]</tspan> Named views, selection and transition views</text>
+    <text class="smallFeature" x="680" y="1306"><tspan class="tag tagPN">[PN+DPN]</tspan> Automatic layout and structural highlights</text>
+    <text class="smallFeature" x="680" y="1342"><tspan class="tag tagPART">[PART]</tspan> Structural highlights are PN-analysis output</text>
+  </g>
+
+  <!-- Extensions -->
+  <g filter="url(#softShadow)">
+    <rect class="card" x="1510" y="940" width="830" height="360" rx="8"/>
+    <rect x="1510" y="940" width="830" height="72" rx="8" fill="#6f5b8f"/>
+    <rect x="1510" y="1004" width="830" height="8" fill="#6f5b8f"/>
+    <text class="catTitle" x="1540" y="986">Extensions</text>
+    <text class="catMeta" x="2165" y="986" text-anchor="end">loaded modules and source-only modules</text>
+    <text class="feature" x="1540" y="1052"><tspan class="tag tagDPN">[DPN]</tspan> DPN module: data, guards, render overlays</text>
+    <text class="feature" x="1540" y="1088"><tspan class="tag tagFM">[FM]</tspan> Probabilistic/WebPPL execution</text>
+    <text class="feature" x="1540" y="1124"><tspan class="tag tagFM">[DPN+FM]</tspan> Formal verification extension</text>
+    <text class="feature" x="1540" y="1160"><tspan class="tag tagFM">[FM]</tspan> Event-log generator extension</text>
+    <text class="feature" x="1540" y="1196"><tspan class="tag tagPN">[PN+DPN]</tspan> Animation Studio to WebM/GIF/PNG</text>
+    <text class="feature" x="1540" y="1232"><tspan class="tag tagPN">[PN+DPN]</tspan> PNML, PNG, Python importer extensions</text>
+    <text class="feature" x="1540" y="1268"><tspan class="tag tagSRC">[SRC]</tspan> Random generator, WCAG layer, auto-save inactive</text>
+  </g>
+
+  <text class="foot" x="80" y="1450">Tip for slides: crop or zoom into a category card when discussing details; use docs/feature_inventory.md as the full reference.</text>
+</svg>

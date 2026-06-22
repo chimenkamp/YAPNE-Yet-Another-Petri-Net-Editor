@@ -14,7 +14,7 @@ import { Place, Transition, Arc } from '../petri-net-simulator.js';
  *
  * Guard and postcondition syntax follows the restricted infix form of the
  * YAPNE DPN grammar: operators `and`, `or`, `not`, `=`, `==`, `!=`, `<`,
- * `<=`, `>`, `>=`, `+`, `-`, `*`, `/`, with primed identifiers (`v'`) for
+ * `<=`, `>`, `>=`, `+`, `-`, `*`, `/`, `%`, `**`, with primed identifiers (`v'`) for
  * writes in postconditions and assignments separated by `;`.
  */
 class PythonToDPN {
@@ -27,12 +27,12 @@ class PythonToDPN {
    *     >= 0.8 additionally drop preconditions. Default 0 (exact translation).
    *   - depth: maximum function-call inlining depth. 0 keeps every call as a
    *     single opaque transition; n > 0 inlines up to n nested call levels.
-   *     Default 1.
+   *     Default 2.
    *   - name: display name for the produced DataPetriNet. Default 'Python Program'.
    */
   constructor(options = {}) {
     this.generalization = options.generalization ?? 0;
-    this.depth = options.depth ?? 1;
+    this.depth = options.depth ?? 2;
     this.name = options.name ?? 'Python Program';
   }
 
@@ -189,7 +189,7 @@ class PythonToDPN {
     if (text === 'break')    return { stmt: { kind: 'break' },    nextIdx: idx + 1 };
     if (text === 'continue') return { stmt: { kind: 'continue' }, nextIdx: idx + 1 };
 
-    const aug = text.match(/^([A-Za-z_]\w*)\s*(\+=|-=|\*=|\/=)\s*(.+)$/);
+    const aug = text.match(/^([A-Za-z_]\w*)\s*(\+=|-=|\*=|\/=|%=|\*\*=)\s*(.+)$/);
     if (aug) {
       return {
         stmt: { kind: 'assign', variable: aug[1], op: aug[2], expr: aug[3].trim() },
@@ -356,7 +356,7 @@ class PythonToDPN {
     if (this._isSupported(rhs)) {
       const body = stmt.op === '='
         ? rhs
-        : `${stmt.variable} ${stmt.op[0]} (${rhs})`;
+        : `${stmt.variable} ${stmt.op.slice(0, -1)} (${rhs})`;
       post = `${stmt.variable}' = ${body}`;
     }
     const label = `${stmt.variable} ${stmt.op} ${stmt.expr}`;
@@ -502,7 +502,7 @@ class PythonToDPN {
           const bind = this._addTransition(
             `[call ${stmt.name}]`,
             null,
-            this._generalizePost(clauses.join('; ')),
+            this._generalizePost(clauses.join(' and ')),
             true
           );
           const after = this._addPlace('');
@@ -618,7 +618,6 @@ class PythonToDPN {
   _isSupported(expr) {
     if (!expr) return false;
     if (/\b(in|is)\b/.test(expr)) return false;
-    if (/%|\*\*/.test(expr)) return false;
     if (/[\[\]\{\}]/.test(expr)) return false;
     if (/['"]/.test(expr)) return false;
     return true;

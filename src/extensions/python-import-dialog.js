@@ -186,11 +186,10 @@ const UNSUPPORTED_CHECKS = [
   { label: 'Yield statements (generators)',           test: s => /\byield\b/.test(s) },
   { label: 'Global / nonlocal declarations',          test: s => /^\s*(global|nonlocal)\s+/m.test(s) },
   { label: 'Decorators (@)',                          test: s => /^\s*@\w/m.test(s) },
-  { label: 'Starred expressions (*args, **kwargs)',   test: s => /\*\*\w|\*\w/.test(s) },
+  { label: 'Starred expressions (*args, **kwargs)',   test: s => /(^|[,(]\s*)\*\*?[A-Za-z_]\w*/m.test(s) },
   { label: 'Assert statements',                      test: s => /^\s*assert\s+/m.test(s) },
   { label: 'Raise statements',                       test: s => /^\s*raise\s+/m.test(s) },
   { label: 'Delete statements',                      test: s => /^\s*del\s+/m.test(s) },
-  { label: 'Modulo (%) / exponent (**) operators',    test: s => /%(?!=)|(?<!\*)\*\*(?!\*)/.test(s) },
   { label: 'Slice notation (a[1:3])',                 test: s => /\w\[.*:.*\]/.test(s) },
   { label: 'String operations (f-strings, .format)',  test: s => /f['"]|\.format\s*\(/.test(s) },
   { label: 'Dictionary literals ({key: val})',        test: s => /\{[^}]*:[^}]*\}/.test(s) },
@@ -269,7 +268,7 @@ export class PythonImportDialog {
                     <h5>Statements</h5>
                     <ul>
                       <li><code>x = expr</code> — assignment</li>
-                      <li><code>x += expr</code> — augmented assignment (<code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code>)</li>
+                      <li><code>x += expr</code> — augmented assignment (<code>+=</code>, <code>-=</code>, <code>*=</code>, <code>/=</code>, <code>%=</code>, <code>**=</code>)</li>
                       <li><code>if / elif / else</code> — branching</li>
                       <li><code>while cond:</code> — while loops</li>
                       <li><code>for x in range(n):</code> — for-range loops</li>
@@ -283,7 +282,7 @@ export class PythonImportDialog {
                   <div class="python-help-col">
                     <h5>Expressions &amp; operators</h5>
                     <ul>
-                      <li>Arithmetic: <code>+</code> <code>-</code> <code>*</code> <code>/</code></li>
+                      <li>Arithmetic: <code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>%</code> <code>**</code></li>
                       <li>Comparison: <code>==</code> <code>!=</code> <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></li>
                       <li>Logical: <code>and</code> <code>or</code> <code>not</code></li>
                       <li>Integer &amp; identifier literals</li>
@@ -356,8 +355,8 @@ export class PythonImportDialog {
                 <div class="python-setting-item">
                   <label>Inlining Depth</label>
                   <span class="setting-description">Levels of function-call inlining</span>
-                  <input type="range" id="python-depth" min="0" max="5" step="1" value="1">
-                  <span class="python-range-value" id="python-depth-value">1</span>
+                  <input type="range" id="python-depth" min="0" max="5" step="1" value="2">
+                  <span class="python-range-value" id="python-depth-value">2</span>
                 </div>
               </div>
             </div>

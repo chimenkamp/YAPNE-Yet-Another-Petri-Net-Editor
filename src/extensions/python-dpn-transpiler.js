@@ -13,7 +13,8 @@ import { Place, Transition, Arc } from '../petri-net-simulator.js';
  * guards), trading precision for simplicity while preserving recall.
  *
  * Guards and postconditions are emitted in JavaScript-compatible infix form
- * (`&&`, `||`, `!`, `==`, `!=`, `<`, `<=`, `>`, `>=`, arithmetic, primes)
+ * (`&&`, `||`, `!`, `==`, `!=`, `<`, `<=`, `>`, `>=`, arithmetic
+ * including `%` and `**`, primes)
  * so that the net simulates correctly under YAPNE's runtime evaluator, which
  * compiles each expression via `new Function(...)`.
  *
@@ -28,16 +29,16 @@ class PythonToDPN {
    *
    * @param {{generalization?: number, depth?: number, name?: string}} [options]
    *   - generalization: number in [0, 1] controlling how aggressively guards
-     and effects are dropped. Values >= 0.4 drop postconditions; values
-     >= 0.8 additionally drop preconditions. Default 0 (exact translation).
+   *     and effects are dropped. Values >= 0.4 drop postconditions; values
+   *     >= 0.8 additionally drop preconditions. Default 0 (exact translation).
    *   - depth: maximum function-call inlining depth. 0 keeps every call as a
-     single opaque transition; n > 0 inlines up to n nested call levels.
-     Default 1.
+   *     single opaque transition; n > 0 inlines up to n nested call levels.
+   *     Default 2.
    *   - name: display name for the produced DataPetriNet. Default 'Python Program'.
    */
   constructor(options = {}) {
     this.generalization = options.generalization ?? 0;
-    this.depth = options.depth ?? 1;
+    this.depth = options.depth ?? 2;
     this.name = options.name ?? 'Python Program';
   }
 
@@ -53,6 +54,7 @@ class PythonToDPN {
     this._variables = new Map();
     this._functions = new Map();
     this._loopStack = [];
+    this._returnTargetsStack = [];
     this._callDepth = 0;
     this._gridX = 0;
     this._gridY = 0;
@@ -88,11 +90,24 @@ class PythonToDPN {
    */
   _parseProgram(code) {
     const lines = [];
+    let blockString = null;
     for (const raw of code.split('\n')) {
       const stripped = this._stripComment(raw);
       if (stripped.trim() === '') continue;
+      const trimmed = stripped.trim();
+
+      if (blockString) {
+        if (trimmed.includes(blockString)) blockString = null;
+        continue;
+      }
+      if (trimmed.startsWith('"""') || trimmed.startsWith("'''")) {
+        const quote = trimmed.slice(0, 3);
+        if (trimmed.indexOf(quote, 3) === -1) blockString = quote;
+        continue;
+      }
+
       const indent = stripped.length - stripped.trimStart().length;
-      lines.push({ indent: indent, text: stripped.trim() });
+      lines.push({ indent: indent, text: trimmed });
     }
     return this._parseBlock(lines, 0, 0).stmts;
   }
@@ -175,11 +190,11 @@ class PythonToDPN {
       }
     }
     if (text.startsWith('def ')) {
-      const m = text.match(/^def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*:$/);
+      const m = text.match(/^def\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*(?:->\s*.+?)?\s*:$/);
       if (m) {
         const child = this._childIndent(lines, idx);
         const body = this._parseBlock(lines, idx + 1, child);
-        const params = m[2].split(',').map(p => p.trim()).filter(p => p.length > 0);
+        const params = this._parseParamNames(m[2]);
         return {
           stmt: { kind: 'def', name: m[1], params: params, body: body.stmts },
           nextIdx: body.nextIdx
@@ -194,18 +209,46 @@ class PythonToDPN {
     if (text === 'break')    return { stmt: { kind: 'break' },    nextIdx: idx + 1 };
     if (text === 'continue') return { stmt: { kind: 'continue' }, nextIdx: idx + 1 };
 
-    const aug = text.match(/^([A-Za-z_]\w*)\s*(\+=|-=|\*=|\/=)\s*(.+)$/);
-    if (aug) {
+    const typedAssign = text.match(/^([A-Za-z_]\w*)\s*:\s*([^=]+?)(?:\s*=\s*(.+))?$/);
+    if (typedAssign) {
+      if (!typedAssign[3]) {
+        return {
+          stmt: { kind: 'declare', variable: typedAssign[1], annotation: typedAssign[2].trim() },
+          nextIdx: idx + 1
+        };
+      }
       return {
-        stmt: { kind: 'assign', variable: aug[1], op: aug[2], expr: aug[3].trim() },
+        stmt: {
+          kind: 'assign',
+          variable: typedAssign[1],
+          targets: [typedAssign[1]],
+          annotation: typedAssign[2].trim(),
+          op: '=',
+          expr: typedAssign[3].trim()
+        },
         nextIdx: idx + 1
       };
     }
 
-    const assign = text.match(/^([A-Za-z_]\w*)\s*=(?!=)\s*(.+)$/);
-    if (assign) {
+    const aug = text.match(/^([A-Za-z_]\w*)\s*(\+=|-=|\*=|\/=|%=|\*\*=)\s*(.+)$/);
+    if (aug) {
       return {
-        stmt: { kind: 'assign', variable: assign[1], op: '=', expr: assign[2].trim() },
+        stmt: { kind: 'assign', variable: aug[1], targets: [aug[1]], op: aug[2], expr: aug[3].trim() },
+        nextIdx: idx + 1
+      };
+    }
+
+    const assign = text.match(/^(.+?)\s*=(?!=)\s*(.+)$/);
+    if (assign) {
+      const targets = this._parseAssignmentTargets(assign[1]);
+      if (targets.length > 0) {
+        return {
+          stmt: { kind: 'assign', variable: targets[0], targets: targets, op: '=', expr: assign[2].trim() },
+          nextIdx: idx + 1
+        };
+      }
+      return {
+        stmt: { kind: 'assign', variable: assign[1].trim(), targets: [assign[1].trim()], op: '=', expr: assign[2].trim() },
         nextIdx: idx + 1
       };
     }
@@ -308,6 +351,30 @@ class PythonToDPN {
   }
 
   /**
+   * Extract parameter names from a Python function signature.
+   *
+   * @param {string} params - Raw content between the function parentheses.
+   * @returns {Array<string>} Parameter names without annotations/defaults.
+   */
+  _parseParamNames(params) {
+    return this._splitArgs(params)
+      .map(p => p.replace(/^\*+/, '').split('=')[0].split(':')[0].trim())
+      .filter(p => /^[A-Za-z_]\w*$/.test(p));
+  }
+
+  /**
+   * Parse one or more assignment targets from an assignment left-hand side.
+   *
+   * @param {string} rawTargets - Left side of an assignment.
+   * @returns {Array<string>} Identifier targets.
+   */
+  _parseAssignmentTargets(rawTargets) {
+    return this._splitArgs(rawTargets)
+      .map(t => t.trim())
+      .filter(t => /^[A-Za-z_]\w*$/.test(t));
+  }
+
+  /**
    * Build the DPN sub-graph for a sequence of statements.
    *
    * @param {Array<Object>} stmts - Statement AST nodes.
@@ -355,11 +422,12 @@ class PythonToDPN {
   _buildStmt(stmt, entry, pendingGuard = null, targetExit = null) {
     switch (stmt.kind) {
       case 'assign':   return this._buildAssign(stmt, entry, pendingGuard, targetExit);
+      case 'declare':  return this._buildDeclare(stmt, entry, pendingGuard, targetExit);
       case 'if':       return this._buildIf(stmt, entry, pendingGuard, targetExit);
       case 'while':    return this._buildWhile(stmt, entry, pendingGuard, targetExit);
       case 'for':      return this._buildFor(stmt, entry, pendingGuard, targetExit);
       case 'call':     return this._buildCall(stmt, entry, pendingGuard, targetExit);
-      case 'return':   return this._buildReturn(stmt, entry, pendingGuard);
+      case 'return':   return this._buildReturn(stmt, entry, pendingGuard, targetExit);
       case 'pass':     return this._buildPass(entry, pendingGuard, targetExit);
       case 'break':    return this._buildJump(entry, 'break', pendingGuard);
       case 'continue': return this._buildJump(entry, 'continue', pendingGuard);
@@ -378,22 +446,68 @@ class PythonToDPN {
    * @returns {string} Exit place id.
    */
   _buildAssign(stmt, entry, pendingGuard = null, targetExit = null) {
-    this._ensureVariable(stmt.variable, this._inferType(stmt.expr));
-    const rhs = this._translateExpr(stmt.expr);
-    let post = null;
-    if (this._isSupported(rhs)) {
-      const body = stmt.op === '='
-        ? rhs
-        : `${stmt.variable} ${stmt.op[0]} (${rhs})`;
-      post = `${stmt.variable}' = ${body}`;
+    const targets = stmt.targets || [stmt.variable];
+    const call = stmt.op === '=' ? this._matchPureCall(stmt.expr) : null;
+    if (call && this._functions.has(call.name)) {
+      return this._buildCallAssignment(call, targets, entry, pendingGuard, targetExit);
     }
-    const label = `${stmt.variable} ${stmt.op} ${stmt.expr}`;
+
+    const exprs = targets.length > 1 ? this._splitArgs(stmt.expr) : [stmt.expr];
+    const clauses = [];
+    for (let i = 0; i < targets.length; i++) {
+      const variable = targets[i];
+      const expr = exprs[i] || stmt.expr;
+      const declaredType = i === 0 ? this._typeFromAnnotation(stmt.annotation) : null;
+      this._ensureVariable(variable, declaredType || this._inferType(expr));
+      const rhs = this._translateExpr(expr);
+      if (this._isSupported(rhs)) {
+        const body = stmt.op === '='
+          ? rhs
+          : `${variable} ${stmt.op.slice(0, -1)} (${rhs})`;
+        clauses.push(`${variable}' = ${body}`);
+      }
+    }
+
+    const post = clauses.length > 0 ? clauses.join(' and ') : null;
+    const label = `${targets.join(', ')} ${stmt.op} ${stmt.expr}`;
     const next = targetExit || this._addPlace('');
     const pre = this._generalizePre(pendingGuard);
     const t = this._addTransition(label, pre, this._generalizePost(post), false);
     this._addArc(entry, t);
     this._addArc(t, next);
     return next;
+  }
+
+  /**
+   * Register a typed variable declaration with no runtime effect.
+   *
+   * @param {{variable: string, annotation: string}} stmt - Declaration AST.
+   * @param {string} entry - Entry place id.
+   * @param {string|null} pendingGuard - Guard to preserve if a transition is required.
+   * @param {string|null} targetExit - Optional target output place.
+   * @returns {string} Exit place id.
+   */
+  _buildDeclare(stmt, entry, pendingGuard = null, targetExit = null) {
+    this._ensureVariable(stmt.variable, this._typeFromAnnotation(stmt.annotation) || 'int');
+    return this._buildPass(entry, pendingGuard, targetExit);
+  }
+
+  /**
+   * Inline a known function call used as an assignment RHS.
+   *
+   * @param {{name: string, args: string}} call - Function call expression.
+   * @param {Array<string>} targets - Caller variables receiving return values.
+   * @param {string} entry - Entry place id.
+   * @param {string|null} pendingGuard - Guard merged into the first call transition.
+   * @param {string|null} targetExit - Optional target output place.
+   * @returns {string} Exit place id.
+   */
+  _buildCallAssignment(call, targets, entry, pendingGuard = null, targetExit = null) {
+    for (const target of targets) this._ensureVariable(target, 'int');
+    this._returnTargetsStack.push(targets);
+    const exit = this._buildCall(call, entry, pendingGuard, targetExit);
+    this._returnTargetsStack.pop();
+    return exit;
   }
 
   /**
@@ -542,7 +656,7 @@ class PythonToDPN {
           const bind = this._addTransition(
             `[call ${stmt.name}]`,
             this._generalizePre(pending),
-            this._generalizePost(clauses.join('; ')),
+            this._generalizePost(clauses.join(' and ')),
             true
           );
           this._addArc(cur, bind);
@@ -588,9 +702,30 @@ class PythonToDPN {
    * @param {{expr: string|null}} stmt - Return AST.
    * @param {string} entry - Entry place id.
    * @param {string|null} pendingGuard - Guard merged into the return transition.
-   * @returns {null} Always null; no fall-through.
+   * @param {string|null} targetExit - Optional target output place for inlined returns.
+   * @returns {string|null} Exit place for inlined returns, otherwise null.
    */
-  _buildReturn(stmt, entry, pendingGuard = null) {
+  _buildReturn(stmt, entry, pendingGuard = null, targetExit = null) {
+    const returnTargets = this._returnTargetsStack[this._returnTargetsStack.length - 1];
+    if (returnTargets) {
+      const exprs = stmt.expr ? this._splitArgs(stmt.expr) : [];
+      const clauses = [];
+      for (let i = 0; i < returnTargets.length; i++) {
+        const target = returnTargets[i];
+        const expr = exprs[i];
+        if (!expr) continue;
+        this._ensureVariable(target, this._inferType(expr));
+        const rhs = this._translateExpr(expr);
+        if (this._isSupported(rhs)) clauses.push(`${target}' = ${rhs}`);
+      }
+      const next = targetExit || this._addPlace('');
+      const post = clauses.length > 0 ? clauses.join(' and ') : null;
+      const t = this._addTransition('return', this._generalizePre(pendingGuard), this._generalizePost(post), false);
+      this._addArc(entry, t);
+      this._addArc(t, next);
+      return next;
+    }
+
     const final = this._addPlace('end', 0);
     this._dpn.getPlace(final).finalMarking = 1;
     const t = this._addTransition('return', this._generalizePre(pendingGuard), null, false);
@@ -721,8 +856,25 @@ class PythonToDPN {
     if (/^(True|False|true|false)$/.test(t)) return 'boolean';
     if (/^['"].*['"]$/.test(t)) return 'string';
     if (/^[+-]?\d+\.\d+/.test(t)) return 'float';
+    if (/\//.test(t)) return 'float';
     if (/\b(and|or|not)\b|[<>!]=|==|[<>]/.test(t)) return 'boolean';
     return 'int';
+  }
+
+  /**
+   * Map a Python type annotation to a DPN variable type.
+   *
+   * @param {string|null|undefined} annotation - Raw Python annotation.
+   * @returns {string|null} DPN type or null when unknown.
+   */
+  _typeFromAnnotation(annotation) {
+    if (!annotation) return null;
+    const t = annotation.trim();
+    if (/\bbool(?:ean)?\b/i.test(t)) return 'boolean';
+    if (/\bfloat\b/i.test(t)) return 'float';
+    if (/\bstr(?:ing)?\b/i.test(t)) return 'string';
+    if (/\bint(?:eger)?\b/i.test(t)) return 'int';
+    return null;
   }
 
   /**

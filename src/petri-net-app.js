@@ -13,6 +13,7 @@ import { PropertiesPanel } from './properties-panel.js';
 import { ViewsPanel } from './views-panel.js';
 import { VerificationPanel } from './verification-panel.js';
 import { GenerationPanel } from './generation-panel.js';
+import { AnimationPanel } from './animation-panel.js';
 import { DEFAULT_EDITOR_SETTINGS, loadEditorSettings, saveEditorSettings } from './editor-settings.js';
 
 class PetriNetApp {
@@ -116,6 +117,7 @@ class PetriNetApp {
     this.simDashboard = new SimulationDashboard(this);
     this.verifyPanel = new VerificationPanel(this);
     this.generationPanel = new GenerationPanel(this);
+    this.animationPanel = new AnimationPanel(this);
 
     // Override propertiesPanel to point to the new panel's content element
     this.propertiesPanel = this.propsPanel.getContentElement();
@@ -1196,6 +1198,7 @@ initEventHandlers() {
       this.simDashboard.refresh();
     }
     this.viewsPanel?.refresh();
+    this.animationPanel?.refresh();
 
     // Record a snapshot for undo on every change (unless we're mid-restore)
     if (!this._isRestoring) {

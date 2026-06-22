@@ -145,6 +145,11 @@
         "path": "examples/DPN-Fibonacci(n).json"
     },
     {
+        "name": "DPN: Smart Factory",
+        "description": "Smart factory motivating example with idle, processing, cooling, interruption, maintenance, and completion states using temperature, vibration, load, and maintenance guards.",
+        "path": "examples/DPN-Smart-Factory.json"
+    },
+    {
         "name": "DPN: Emergency Department Triage & Treatment",
         "description": "Complex medical workflow with 5 data variables: patient registration, triage by severity, diagnostic workup, treatment branching (surgery vs medication), and admission/discharge decision. Sound workflow net.",
         "path": "examples/DPN-Emergency-Triage.json"
