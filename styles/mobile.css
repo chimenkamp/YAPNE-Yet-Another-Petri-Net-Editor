@@ -5,7 +5,7 @@
   --mobile-viewport-height: 100dvh;
   --mobile-viewport-top: 0px;
   --mobile-viewport-left: 0px;
-  --mobile-panel-height: min(72dvh, 560px);
+  --mobile-panel-height: min(50dvh, 560px);
   --mobile-edge-gap: 8px;
   --mobile-toolbar-height: 58px;
   --mobile-toolbar-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--mobile-edge-gap));
@@ -238,12 +238,12 @@
   }
 
   .side-panel {
-    top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - var(--mobile-panel-height, min(72dvh, 560px))) !important;
+    top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - var(--mobile-panel-height, min(50dvh, 560px))) !important;
     right: 0;
     bottom: auto;
     left: 0;
     width: 100%;
-    height: var(--mobile-panel-height, min(72dvh, 560px)) !important;
+    height: var(--mobile-panel-height, min(50dvh, 560px)) !important;
     max-height: calc(var(--mobile-viewport-height, 100dvh) - 56px);
     border-top: 1px solid #4C566A;
     border-left: 0;
@@ -261,9 +261,9 @@
   body.panels-open-4 .side-panel.open.panel-stack-top,
   body.panels-open-4 .side-panel.open.panel-stack-middle,
   body.panels-open-4 .side-panel.open.panel-stack-bottom {
-    top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - var(--mobile-panel-height, min(72dvh, 560px))) !important;
+    top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - var(--mobile-panel-height, min(50dvh, 560px))) !important;
     bottom: auto;
-    height: var(--mobile-panel-height, min(72dvh, 560px)) !important;
+    height: var(--mobile-panel-height, min(50dvh, 560px)) !important;
     transform: translateY(0);
   }
 

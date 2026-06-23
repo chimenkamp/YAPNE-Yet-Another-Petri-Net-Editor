@@ -1822,6 +1822,12 @@ class PetriNetEditor {
     this._longPressGhostWasShiftPressed = false;
     this._longPressGhostDelay = 750;
     this._longPressGhostMoveThreshold = 12;
+    this._touchTapStart = null;
+    this._lastTouchTap = null;
+    this._touchTapMoved = false;
+    this._touchTapMoveThreshold = 14;
+    this._doubleTapDelay = 340;
+    this._doubleTapRadius = 28;
     this.pendingRenderFrame = null;
     this.pendingRenderUpdatesEnabled = false;
     this.pendingAfterRender = null;
@@ -2019,6 +2025,7 @@ class PetriNetEditor {
 
       if (event.touches.length === 1) {
         this._lastTouchPoint = event.touches[0];
+        this._startTouchTapCandidate(event.touches[0]);
         const currentMouseDown = this.eventListeners.get('mousedown') || mouseDownHandler;
         currentMouseDown(createSyntheticTouchMouseEvent(event.touches[0], 'mousedown'));
         this._startLongPressGhostGesture(event.touches[0]);
@@ -2026,6 +2033,7 @@ class PetriNetEditor {
       }
 
       if (event.touches.length === 2) {
+        this._cancelTouchTapCandidate();
         this._cancelLongPressGhostGesture();
         this.arcDrawing = null;
         this.boxSelection = null;
@@ -2045,6 +2053,7 @@ class PetriNetEditor {
 
       if (event.touches.length === 1 && !this._lastPinchDistance) {
         this._lastTouchPoint = event.touches[0];
+        this._updateTouchTapCandidate(event.touches[0]);
         this._updateLongPressGhostGesture(event.touches[0]);
         const currentMouseMove = this.eventListeners.get('mousemove') || mouseMoveHandler;
         currentMouseMove(createSyntheticTouchMouseEvent(event.touches[0], 'mousemove'));
@@ -2052,6 +2061,7 @@ class PetriNetEditor {
       }
 
       if (event.touches.length === 2) {
+        this._cancelTouchTapCandidate();
         this._cancelLongPressGhostGesture();
         const nextDistance = getTouchDistance(event.touches);
         const nextCenter = getTouchCenter(event.touches);
@@ -2080,6 +2090,7 @@ class PetriNetEditor {
       if (event.touches.length === 0) {
         const touch = event.changedTouches[0] || this._lastTouchPoint;
         if (this._finishLongPressGhostGesture(touch)) {
+          this._cancelTouchTapCandidate();
           this._lastTouchPoint = null;
           this._lastPinchDistance = null;
           this._lastPinchCenter = null;
@@ -2091,6 +2102,9 @@ class PetriNetEditor {
         if (touch && !this._lastPinchDistance) {
           const currentMouseUp = this.eventListeners.get('mouseup') || mouseUpHandler;
           currentMouseUp(createSyntheticTouchMouseEvent(touch, 'mouseup'));
+          this._finishTouchTapCandidate(touch);
+        } else {
+          this._cancelTouchTapCandidate();
         }
         this._lastTouchPoint = null;
         this._lastPinchDistance = null;
@@ -2103,6 +2117,7 @@ class PetriNetEditor {
       }
 
       if (event.touches.length === 1) {
+        this._cancelTouchTapCandidate();
         this._cancelLongPressGhostGesture();
         this._lastPinchDistance = null;
         this._lastPinchCenter = null;
@@ -2271,6 +2286,125 @@ class PetriNetEditor {
   _worldPointFromClient(clientX, clientY) {
     const point = this._canvasPointFromClient(clientX, clientY);
     return this.renderer.screenToWorld(point.x, point.y);
+  }
+
+  _startTouchTapCandidate(touch) {
+    this._touchTapStart = null;
+    this._touchTapMoved = false;
+    if (!this._usesCoarsePointer() || this.mode !== 'select' || !touch) return;
+
+    const point = this._canvasPointFromClient(touch.clientX, touch.clientY);
+    const worldPos = this.renderer.screenToWorld(point.x, point.y);
+    const hitElement = this._findElementAt(worldPos.x, worldPos.y);
+    if (!hitElement || (hitElement.type !== 'place' && hitElement.type !== 'transition')) return;
+
+    this._touchTapStart = {
+      time: Date.now(),
+      point,
+      hitElement
+    };
+  }
+
+  _updateTouchTapCandidate(touch) {
+    if (!this._touchTapStart || !touch) return;
+
+    const point = this._canvasPointFromClient(touch.clientX, touch.clientY);
+    const dx = point.x - this._touchTapStart.point.x;
+    const dy = point.y - this._touchTapStart.point.y;
+    if (Math.sqrt(dx * dx + dy * dy) > this._touchTapMoveThreshold) {
+      this._touchTapMoved = true;
+    }
+  }
+
+  _cancelTouchTapCandidate() {
+    this._touchTapStart = null;
+    this._touchTapMoved = false;
+  }
+
+  _finishTouchTapCandidate(touch) {
+    const tapStart = this._touchTapStart;
+    const tapMoved = this._touchTapMoved;
+    this._cancelTouchTapCandidate();
+
+    if (!tapStart || tapMoved || !touch || this.mode !== 'select') {
+      return false;
+    }
+
+    const point = this._canvasPointFromClient(touch.clientX, touch.clientY);
+    const worldPos = this.renderer.screenToWorld(point.x, point.y);
+    const hitElement = this._findElementAt(worldPos.x, worldPos.y);
+    if (!hitElement ||
+        hitElement.id !== tapStart.hitElement.id ||
+        hitElement.type !== tapStart.hitElement.type) {
+      this._lastTouchTap = null;
+      return false;
+    }
+
+    const now = Date.now();
+    const lastTap = this._lastTouchTap;
+    const dx = lastTap ? point.x - lastTap.point.x : 0;
+    const dy = lastTap ? point.y - lastTap.point.y : 0;
+    const tapDistance = Math.sqrt(dx * dx + dy * dy);
+    const isDoubleTap = lastTap &&
+      now - lastTap.time <= this._doubleTapDelay &&
+      lastTap.hitElement.id === hitElement.id &&
+      lastTap.hitElement.type === hitElement.type &&
+      tapDistance <= this._doubleTapRadius;
+
+    if (!isDoubleTap) {
+      this._lastTouchTap = {
+        time: now,
+        point,
+        hitElement
+      };
+      return false;
+    }
+
+    this._lastTouchTap = null;
+    return this._performTouchDoubleTapAction(hitElement);
+  }
+
+  _performTouchDoubleTapAction(hitElement) {
+    if (!hitElement) return false;
+
+    if (hitElement.type === 'place') {
+      const place = this.petriNet.places.get(hitElement.id);
+      if (!place || !place.addTokens(1)) return false;
+
+      this.selectElement(hitElement.id, 'place', { silentRender: true, notify: true });
+      this.render();
+      if (this.callbacks.onChange) {
+        this.callbacks.onChange();
+      }
+      if (navigator.vibrate) {
+        navigator.vibrate(10);
+      }
+      return true;
+    }
+
+    if (hitElement.type === 'transition') {
+      if (!this.petriNet.isTransitionEnabled(hitElement.id)) {
+        return false;
+      }
+
+      if (this.app && !this.app.simulationStarted && typeof this.app.captureInitialState === 'function') {
+        this.app.captureInitialState();
+      }
+
+      const fired = this.fireTransition(hitElement.id);
+      if (fired) {
+        this.selectElement(hitElement.id, 'transition', { silentRender: true, notify: true });
+        this.app?.updateTokensDisplay?.();
+        this.app?.updateTransitionStatus?.(hitElement.id);
+        this.app?.updateSelectedElementProperties?.();
+        if (navigator.vibrate) {
+          navigator.vibrate(12);
+        }
+      }
+      return fired;
+    }
+
+    return false;
   }
 
   _startLongPressGhostGesture(touch) {

@@ -41,7 +41,7 @@ function setupMobileViewportSizing() {
             root.style.setProperty('--mobile-viewport-height', `${height}px`);
             root.style.setProperty('--mobile-viewport-top', `${offsetTop}px`);
             root.style.setProperty('--mobile-viewport-left', `${offsetLeft}px`);
-            root.style.setProperty('--mobile-panel-height', `${Math.min(Math.round(height * 0.72), 560)}px`);
+            root.style.setProperty('--mobile-panel-height', `${Math.min(Math.round(height * 0.5), 560)}px`);
 
             document.body?.classList.toggle('mobile-viewport-active', isMobileViewport());
             window.petriApp?.resizeCanvas?.();
