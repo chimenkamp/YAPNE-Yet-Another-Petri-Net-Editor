@@ -5,6 +5,73 @@ import { PythonImportDialog } from "./src/extensions/python-import-dialog.js";
 import { DEFAULT_EDITOR_SETTINGS, loadEditorSettings } from "./src/editor-settings.js";
 
 const BASE_PATH = '/YAPNE-Yet-Another-Petri-Net-Editor/';
+const MOBILE_VIEWPORT_QUERY = '(max-width: 700px), (max-height: 520px), (pointer: coarse)';
+
+function setupMobileViewportSizing() {
+    const root = document.documentElement;
+    const mobileQuery = window.matchMedia?.(MOBILE_VIEWPORT_QUERY);
+    let resizeFrame = 0;
+    let chromeNudgeTimer = 0;
+
+    const isMobileViewport = () => mobileQuery?.matches ?? (window.innerWidth <= 700 || window.innerHeight <= 520);
+
+    const nudgeBrowserChrome = () => {
+        if (!isMobileViewport() || window.scrollY > 0) {
+            return;
+        }
+
+        window.scrollTo({ top: 1, left: 0, behavior: 'auto' });
+    };
+
+    const scheduleBrowserChromeNudge = () => {
+        window.clearTimeout(chromeNudgeTimer);
+        chromeNudgeTimer = window.setTimeout(nudgeBrowserChrome, 120);
+    };
+
+    const updateViewportVars = () => {
+        window.cancelAnimationFrame(resizeFrame);
+        resizeFrame = window.requestAnimationFrame(() => {
+            const visualViewport = window.visualViewport;
+            const width = Math.round(visualViewport?.width || window.innerWidth);
+            const height = Math.round(visualViewport?.height || window.innerHeight);
+            const offsetTop = Math.max(0, Math.round(visualViewport?.offsetTop || 0));
+            const offsetLeft = Math.max(0, Math.round(visualViewport?.offsetLeft || 0));
+
+            root.style.setProperty('--mobile-viewport-width', `${width}px`);
+            root.style.setProperty('--mobile-viewport-height', `${height}px`);
+            root.style.setProperty('--mobile-viewport-top', `${offsetTop}px`);
+            root.style.setProperty('--mobile-viewport-left', `${offsetLeft}px`);
+            root.style.setProperty('--mobile-panel-height', `${Math.min(Math.round(height * 0.72), 560)}px`);
+
+            document.body?.classList.toggle('mobile-viewport-active', isMobileViewport());
+            window.petriApp?.resizeCanvas?.();
+
+            if (isMobileViewport()) {
+                scheduleBrowserChromeNudge();
+            }
+        });
+    };
+
+    window.addEventListener('resize', updateViewportVars, { passive: true });
+    window.addEventListener('orientationchange', () => {
+        updateViewportVars();
+        scheduleBrowserChromeNudge();
+    }, { passive: true });
+
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', updateViewportVars, { passive: true });
+        window.visualViewport.addEventListener('scroll', updateViewportVars, { passive: true });
+    }
+
+    if (mobileQuery?.addEventListener) {
+        mobileQuery.addEventListener('change', updateViewportVars);
+    } else {
+        mobileQuery?.addListener?.(updateViewportVars);
+    }
+    updateViewportVars();
+}
+
+setupMobileViewportSizing();
 
 document.addEventListener('DOMContentLoaded', () => {
     try {

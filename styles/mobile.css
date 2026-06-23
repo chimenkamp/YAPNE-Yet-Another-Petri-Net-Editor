@@ -1,5 +1,18 @@
 /* Mobile and touch affordances layered after the desktop styles. */
 
+:root {
+  --mobile-viewport-width: 100vw;
+  --mobile-viewport-height: 100dvh;
+  --mobile-viewport-top: 0px;
+  --mobile-viewport-left: 0px;
+  --mobile-panel-height: min(72dvh, 560px);
+  --mobile-edge-gap: 8px;
+  --mobile-toolbar-height: 58px;
+  --mobile-toolbar-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--mobile-edge-gap));
+  --mobile-toolbar-reserve: calc(var(--mobile-toolbar-bottom) + var(--mobile-toolbar-height));
+  --mobile-instruction-bottom: calc(var(--mobile-toolbar-reserve) + 6px);
+}
+
 #petri-canvas {
   touch-action: none;
 }
@@ -20,12 +33,37 @@
   html,
   body {
     width: 100%;
-    height: 100%;
-    overflow: hidden;
+    min-height: calc(var(--mobile-viewport-height, 100dvh) + 1px);
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   body {
     -webkit-tap-highlight-color: transparent;
+    height: auto;
+    overscroll-behavior-y: none;
+  }
+
+  body.mobile-viewport-active > .container {
+    position: fixed;
+    top: var(--mobile-viewport-top, 0px);
+    left: var(--mobile-viewport-left, 0px);
+    width: var(--mobile-viewport-width, 100vw);
+    height: var(--mobile-viewport-height, 100dvh);
+    overflow: hidden;
+  }
+
+  body.mobile-viewport-active header {
+    top: var(--mobile-viewport-top, 0px);
+    right: auto;
+    left: var(--mobile-viewport-left, 0px);
+    width: var(--mobile-viewport-width, 100vw);
+  }
+
+  .editor-container,
+  .canvas-container {
+    width: var(--mobile-viewport-width, 100vw);
+    height: var(--mobile-viewport-height, 100dvh);
   }
 
   header .container {
@@ -55,10 +93,12 @@
 
   .vertical-toolbar {
     top: auto;
-    right: 8px;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
-    left: 8px;
-    max-width: calc(100vw - 16px);
+    right: var(--mobile-edge-gap);
+    bottom: var(--mobile-toolbar-bottom);
+    left: var(--mobile-edge-gap);
+    box-sizing: border-box;
+    height: var(--mobile-toolbar-height);
+    max-width: calc(var(--mobile-viewport-width, 100vw) - var(--mobile-edge-gap) - var(--mobile-edge-gap));
     padding: 6px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -96,6 +136,7 @@
     height: 44px;
     min-width: 44px;
     min-height: 44px;
+    margin: 0;
     font-size: 18px;
     scroll-snap-align: start;
   }
@@ -110,8 +151,10 @@
 
   .zoom-controls {
     top: calc(env(safe-area-inset-top, 0px) + 42px);
-    right: 8px;
+    right: var(--mobile-edge-gap);
+    max-width: calc(var(--mobile-viewport-width, 100vw) - var(--mobile-edge-gap) - var(--mobile-edge-gap));
     padding: 4px;
+    overflow-x: auto;
     transform: none !important;
   }
 
@@ -120,6 +163,7 @@
     height: 40px;
     min-width: 40px;
     min-height: 40px;
+    margin: 0;
     font-size: 16px;
   }
 
@@ -130,9 +174,9 @@
   }
 
   .pan-instructions {
-    right: 8px;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 66px);
-    left: 8px;
+    right: var(--mobile-edge-gap);
+    bottom: var(--mobile-instruction-bottom);
+    left: var(--mobile-edge-gap);
     max-width: none;
     padding: 6px 8px;
     font-size: 11px;
@@ -144,13 +188,13 @@
 
   .ghost-hint {
     top: calc(env(safe-area-inset-top, 0px) + 88px);
-    right: 8px;
-    left: 8px;
+    right: var(--mobile-edge-gap);
+    left: var(--mobile-edge-gap);
     max-width: none;
   }
 
   .side-panel-toggle {
-    right: 8px;
+    right: var(--mobile-edge-gap);
     width: 44px;
     min-width: 44px;
     height: 44px;
@@ -166,29 +210,41 @@
   }
 
   .props-toggle {
-    top: calc(env(safe-area-inset-top, 0px) + 96px);
+    top: max(
+      calc(env(safe-area-inset-top, 0px) + 92px),
+      min(calc(env(safe-area-inset-top, 0px) + 96px), calc(var(--mobile-viewport-height, 100dvh) - var(--mobile-toolbar-reserve) - 202px))
+    );
   }
 
   .sim-toggle {
-    top: calc(env(safe-area-inset-top, 0px) + 146px);
+    top: max(
+      calc(env(safe-area-inset-top, 0px) + 142px),
+      min(calc(env(safe-area-inset-top, 0px) + 146px), calc(var(--mobile-viewport-height, 100dvh) - var(--mobile-toolbar-reserve) - 152px))
+    );
   }
 
   .verify-toggle {
-    top: calc(env(safe-area-inset-top, 0px) + 196px);
+    top: max(
+      calc(env(safe-area-inset-top, 0px) + 192px),
+      min(calc(env(safe-area-inset-top, 0px) + 196px), calc(var(--mobile-viewport-height, 100dvh) - var(--mobile-toolbar-reserve) - 102px))
+    );
   }
 
   .generation-toggle {
-    top: calc(env(safe-area-inset-top, 0px) + 246px);
+    top: max(
+      calc(env(safe-area-inset-top, 0px) + 242px),
+      min(calc(env(safe-area-inset-top, 0px) + 246px), calc(var(--mobile-viewport-height, 100dvh) - var(--mobile-toolbar-reserve) - 52px))
+    );
   }
 
   .side-panel {
-    top: auto !important;
+    top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - var(--mobile-panel-height, min(72dvh, 560px))) !important;
     right: 0;
-    bottom: 0;
+    bottom: auto;
     left: 0;
     width: 100%;
-    height: min(72dvh, 560px) !important;
-    max-height: calc(100dvh - 56px);
+    height: var(--mobile-panel-height, min(72dvh, 560px)) !important;
+    max-height: calc(var(--mobile-viewport-height, 100dvh) - 56px);
     border-top: 1px solid #4C566A;
     border-left: 0;
     border-radius: 12px 12px 0 0;
@@ -205,9 +261,9 @@
   body.panels-open-4 .side-panel.open.panel-stack-top,
   body.panels-open-4 .side-panel.open.panel-stack-middle,
   body.panels-open-4 .side-panel.open.panel-stack-bottom {
-    top: auto !important;
-    bottom: 0;
-    height: min(72dvh, 560px) !important;
+    top: calc(var(--mobile-viewport-top, 0px) + var(--mobile-viewport-height, 100dvh) - var(--mobile-panel-height, min(72dvh, 560px))) !important;
+    bottom: auto;
+    height: var(--mobile-panel-height, min(72dvh, 560px)) !important;
     transform: translateY(0);
   }
 
@@ -228,7 +284,7 @@
   }
 
   .panel-body {
-    padding: 10px 10px calc(env(safe-area-inset-bottom, 0px) + 14px);
+    padding: 10px 10px calc(var(--mobile-toolbar-bottom) + 6px);
   }
 
   .sim-controls-row,
@@ -275,6 +331,8 @@
   .sidebar {
     width: calc(100vw - 44px);
     max-width: 380px;
+    top: var(--mobile-viewport-top, 0px);
+    height: var(--mobile-viewport-height, 100dvh);
   }
 
   .sidebar-toggle {
