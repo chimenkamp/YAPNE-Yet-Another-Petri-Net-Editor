@@ -1803,7 +1803,7 @@ class PetriNetEditor {
     this.isShiftPressed = false;
     this.ghostElement = null;
     this.ghostPosition = null;
-    this.ghostChain = null; // Array of chain links for shift+arc ghost chaining
+    this.ghostChain = null;
 
     const isMac = navigator.userAgent.includes('Mac');
     this.PAN_KEY_BUTTON_CODE = isMac ? 'MetaLeft' : 'AltLeft';
@@ -1820,7 +1820,7 @@ class PetriNetEditor {
     this._longPressGhostStartPoint = null;
     this._longPressGhostLastTouch = null;
     this._longPressGhostWasShiftPressed = false;
-    this._longPressGhostDelay = 750;
+    this._longPressGhostDelay = 600;
     this._longPressGhostMoveThreshold = 12;
     this._touchTapStart = null;
     this._lastTouchTap = null;
@@ -2544,46 +2544,37 @@ class PetriNetEditor {
       };
     }
 
-    // Build ghost chain — find the closest fitting element and create chained ghosts
-    this.ghostChain = this._buildGhostChain(this.selectedElement, this.ghostElement);
+    this.ghostChain = null;
   }
 
-  /**
-   * Build a ghost chain from the first ghost element to the closest fitting
-   * existing element. Returns an array of { element, arc } entries.
-   * Each arc connects the previous node to the current ghost/real element.
-   */
-  _buildGhostChain(sourceSelection, firstGhost) {
-    const chain = [];
-    if (!firstGhost) return chain;
+  _canConnectGhostSourceToTarget(targetElement) {
+    if (!this.selectedElement || !targetElement) return false;
+    if (this.selectedElement.id === targetElement.id) return false;
 
-    // The first link: selected element → ghost
-    const sourceObj = this._getElementObject(sourceSelection.id, sourceSelection.type);
-    if (!sourceObj) return chain;
+    const sourceIsPlace = this.selectedElement.type === 'place';
+    const sourceIsTransition = this.selectedElement.type === 'transition';
+    const targetIsPlace = targetElement.type === 'place';
+    const targetIsTransition = targetElement.type === 'transition';
 
-    chain.push({
-      from: { id: sourceSelection.id, type: sourceSelection.type, position: { ...sourceObj.position } },
-      to:   { id: null, type: firstGhost.type, position: { ...firstGhost.position }, isGhost: true },
-    });
+    return (sourceIsPlace && targetIsTransition) || (sourceIsTransition && targetIsPlace);
+  }
 
-    // Now try to find the closest existing element of the opposite type to connect to
-    const nextNeededType = firstGhost.type === 'place' ? 'transition' : 'place';
-    // Actually we want the same type as the source (place→transition→place chain)
-    // nextNeededType is the opposite of firstGhost.type
-    const closestTarget = this._findClosestElement(
-      firstGhost.position,
-      firstGhost.type === 'place' ? 'transition' : 'place',
-      sourceSelection.id // exclude the source itself
-    );
+  _getGhostDropTarget() {
+    if (!this.ghostPosition) return null;
 
-    if (this.autoConnectEnabled && closestTarget && closestTarget.distance < this.autoConnectDistance) {
-      chain.push({
-        from: { id: null, type: firstGhost.type, position: { ...firstGhost.position }, isGhost: true },
-        to:   { id: closestTarget.id, type: closestTarget.type, position: { ...closestTarget.position }, isGhost: false },
-      });
+    const hitElement = this._findElementAt(this.ghostPosition.x, this.ghostPosition.y);
+    if (!this._canConnectGhostSourceToTarget(hitElement)) {
+      return null;
     }
 
-    return chain;
+    const target = this._getElementObject(hitElement.id, hitElement.type);
+    if (!target) return null;
+
+    return {
+      id: hitElement.id,
+      type: hitElement.type,
+      position: { x: target.position.x, y: target.position.y }
+    };
   }
 
   /**
@@ -2623,6 +2614,41 @@ class PetriNetEditor {
     if (!this.ghostElement || !this.ghostPosition || !this.selectedElement) return;
 
     const ghostPos = { ...this.ghostPosition };
+    const dropTarget = this._getGhostDropTarget();
+
+    if (dropTarget) {
+      const arcId = this.generateUUID();
+      const arc = new Arc(
+        arcId,
+        this.selectedElement.id,
+        dropTarget.id,
+        1,
+        "regular",
+        [],
+        ""
+      );
+
+      if (this.petriNet.addArc(arc)) {
+        this.selectedElement = { id: arcId, type: 'arc' };
+        this.selectedElements.clear();
+        this.dragOffset = null;
+        this.ghostElement = null;
+        this.ghostPosition = null;
+        this.ghostChain = null;
+
+        if (this.callbacks.onSelect) {
+          this.callbacks.onSelect(arcId, 'arc');
+        }
+
+        if (this.callbacks.onChange) {
+          this.callbacks.onChange();
+        }
+
+        this.render();
+        return;
+      }
+    }
+
     let newElementId;
     const newElementType = this.ghostElement.type;
 
@@ -2659,24 +2685,6 @@ class PetriNetEditor {
       );
 
       if (this.petriNet.addArc(arc)) {
-        // If ghost chain has a second link (auto-connect to closest element), materialize it
-        if (this.ghostChain && this.ghostChain.length > 1) {
-          const secondLink = this.ghostChain[1];
-          if (secondLink.to && !secondLink.to.isGhost && secondLink.to.id) {
-            const chainArcId = this.generateUUID();
-            const chainArc = new Arc(
-              chainArcId,
-              newElementId,
-              secondLink.to.id,
-              1,
-              "regular",
-              [],
-              ""
-            );
-            this.petriNet.addArc(chainArc);
-          }
-        }
-
         // Select the new element so the user can keep chaining
         this.selectedElement = { id: newElementId, type: newElementType };
         this.selectedElements.clear();
@@ -3513,37 +3521,21 @@ class PetriNetEditor {
     this.renderer.ctx.translate(this.renderer.panOffset.x, this.renderer.panOffset.y);
     this.renderer.ctx.scale(this.renderer.zoomFactor, this.renderer.zoomFactor);
 
-    // Draw the first ghost element (opposite of selected)
-    if (this.ghostElement.type === 'place') {
-      this.renderer.drawGhostPlace(this.ghostPosition, true);
-    } else if (this.ghostElement.type === 'transition') {
-      this.renderer.drawGhostTransition(this.ghostPosition, true);
-    }
-
-    // Draw the primary ghost arc (selected → ghost)
     const start = { x: selectedElementObj.position.x, y: selectedElementObj.position.y };
-    const end = { x: this.ghostPosition.x, y: this.ghostPosition.y };
-    this.renderer.drawGhostArc(start, end, true);
+    const dropTarget = this._getGhostDropTarget();
 
-    // Draw the chained ghost arc to the closest fitting element (if any)
-    if (this.ghostChain && this.ghostChain.length > 1) {
-      const secondLink = this.ghostChain[1];
-      if (secondLink.to && secondLink.to.position) {
-        const chainStart = { x: this.ghostPosition.x, y: this.ghostPosition.y };
-        const chainEnd = { x: secondLink.to.position.x, y: secondLink.to.position.y };
-
-        // Draw a dashed ghost arc for the auto-connect
-        this.renderer.ctx.save();
-        this.renderer.ctx.setLineDash([6, 4]);
-        this.renderer.ctx.globalAlpha = 0.35;
-        this.renderer.drawGhostArc(chainStart, chainEnd, true);
-        this.renderer.ctx.restore();
-
-        // Highlight the target element with a subtle ring/outline
-        if (!secondLink.to.isGhost) {
-          this._renderAutoConnectHighlight(secondLink.to);
-        }
+    if (dropTarget) {
+      this.renderer.drawGhostArc(start, dropTarget.position, true);
+      this._renderAutoConnectHighlight(dropTarget);
+    } else {
+      if (this.ghostElement.type === 'place') {
+        this.renderer.drawGhostPlace(this.ghostPosition, true);
+      } else if (this.ghostElement.type === 'transition') {
+        this.renderer.drawGhostTransition(this.ghostPosition, true);
       }
+
+      const end = { x: this.ghostPosition.x, y: this.ghostPosition.y };
+      this.renderer.drawGhostArc(start, end, true);
     }
 
     this.renderer.ctx.restore();
