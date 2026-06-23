@@ -703,19 +703,6 @@ initEventHandlers() {
   closeMobilePanelsOnEditorPress() {
     if (!this.isCompactTouchLayout()) return;
 
-    const panels = [
-      this.propsPanel,
-      this.simDashboard,
-      this.verifyPanel,
-      this.generationPanel
-    ];
-
-    for (const panel of panels) {
-      if (panel?.isOpen) {
-        panel.close();
-      }
-    }
-
     const sidebar = document.getElementById('sidebar');
     const sidebarToggle = document.getElementById('sidebar-toggle');
     if (sidebar?.classList.contains('sidebar-visible')) {
