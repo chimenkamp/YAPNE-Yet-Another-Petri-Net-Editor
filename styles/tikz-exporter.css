@@ -1,0 +1,137 @@
+/* TikZ Exporter Styles */
+
+.tikz-export-container {
+  max-width: 920px;
+  width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.tikz-export-content {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.tikz-export-container .setting-item input[type="text"],
+.tikz-export-container .setting-item textarea {
+  background-color: #2E3440;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  color: #D8DEE9;
+  font-size: 13px;
+  padding: 8px;
+}
+
+.tikz-export-container .setting-item input[type="text"]:focus,
+.tikz-export-container .setting-item textarea:focus {
+  border-color: #5E81AC;
+  box-shadow: 0 0 0 2px rgba(94, 129, 172, 0.2);
+  outline: none;
+}
+
+.tikz-preview-summary {
+  background-color: #2E3440;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  color: #88C0D0;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+#tikz-preview-source {
+  background-color: #1f2430;
+  border: 1px solid #4C566A;
+  border-radius: 6px;
+  color: #ECEFF4;
+  display: block;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  min-height: 360px;
+  padding: 14px;
+  resize: vertical;
+  width: 100%;
+}
+
+.tikz-preview-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.tikz-preview-actions button {
+  background-color: #434C5E;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  color: #D8DEE9;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 8px 16px;
+  transition: background-color 0.2s ease;
+}
+
+.tikz-preview-actions button:hover {
+  background-color: #4C566A;
+}
+
+.tikz-export-container .modal-footer {
+  border-top: 1px solid #4C566A;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 20px;
+}
+
+#export-tikz-btn {
+  background-color: #5E81AC;
+  border: 1px solid #5E81AC;
+  border-radius: 4px;
+  color: #ECEFF4;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 12px 24px;
+  transition: background-color 0.2s ease;
+}
+
+#export-tikz-btn:hover {
+  background-color: #81A1C1;
+}
+
+#reset-tikz-settings,
+#cancel-tikz-btn {
+  background-color: #434C5E;
+  border: 1px solid #4C566A;
+  border-radius: 4px;
+  color: #D8DEE9;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 12px 24px;
+  transition: background-color 0.2s ease;
+}
+
+#reset-tikz-settings:hover,
+#cancel-tikz-btn:hover {
+  background-color: #4C566A;
+}
+
+@media (max-width: 768px) {
+  .tikz-export-container {
+    max-height: 95vh;
+    width: 95vw;
+  }
+
+  .tikz-preview-actions,
+  .tikz-export-container .modal-footer {
+    flex-direction: column;
+  }
+
+  .tikz-preview-actions button,
+  #export-tikz-btn,
+  #reset-tikz-settings,
+  #cancel-tikz-btn {
+    width: 100%;
+  }
+}
