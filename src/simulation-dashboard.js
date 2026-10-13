@@ -309,13 +309,17 @@ export class SimulationDashboard {
     this._triggerRender();
   }
 
+  /**
+   * Execute a silent step, record a firing, and stop on a terminal outcome.
+   * @returns {Promise<void>} Completion of the step.
+   */
   async step() {
     if (!this.app || !this.app.api) return;
 
     // Check max steps
     if (this.maxSteps > 0 && this.stepCount >= this.maxSteps) {
-      this._setStatus('completed', 'Max steps reached');
       this.stopAutoRun();
+      this._setStatus('completed', 'Max steps reached');
       return;
     }
 
@@ -325,20 +329,48 @@ export class SimulationDashboard {
     }
 
     const enabledTransitions = this.app.api.getEnabledTransitions();
-    if (enabledTransitions.length === 0) {
-      this._setStatus('deadlocked', 'No enabled transitions — deadlock');
-      this.stopAutoRun();
+    const result = await this.app.stepSimulation({ silent: true });
+    const fired = typeof result === 'boolean' ? result : result.fired;
+    if (!fired) {
+      this._finishSimulation(typeof result === 'boolean' ? 'deadlock' : result.status);
       return;
     }
 
-    // Get transition labels before firing
-    const firedLabels = enabledTransitions.map(id => {
+    const transitionIds = typeof result === 'boolean' ? enabledTransitions : [result.transitionId];
+    this._recordStep(transitionIds);
+
+    const goalCheck = this.app.checkGoalState?.();
+    if (goalCheck?.isGoal) {
+      this._finishSimulation(goalCheck.reason === 'deadlock' ? 'deadlock' : 'goal');
+    }
+  }
+
+  /**
+   * Stop the runner and preserve its final status in the dashboard.
+   * @param {'goal' | 'deadlock' | 'active'} status - Outcome of the simulation step.
+   * @returns {void}
+   */
+  _finishSimulation(status) {
+    this.stopAutoRun();
+    if (status === 'goal') {
+      this._setStatus('completed', 'Goal state reached');
+    } else if (status === 'deadlock') {
+      this._setStatus('deadlocked', 'No enabled transitions — deadlock');
+    } else {
+      this._setStatus('paused', 'Transition could not be fired');
+    }
+  }
+
+  /**
+   * Record successfully fired transitions and refresh the simulation display.
+   * @param {string[]} transitionIds - Identifiers of the transitions that fired.
+   * @returns {void}
+   */
+  _recordStep(transitionIds) {
+    const firedLabels = transitionIds.map(/** @param {string} id @returns {string} Transition label. */ id => {
       const t = this.app.api.petriNet.transitions.get(id);
       return t ? (t.label || `T${id}`) : `T${id}`;
     });
-
-    // Fire transitions (silent = true to suppress alert, dashboard handles its own refresh)
-    await this.app.stepSimulation({ silent: true });
 
     this.stepCount++;
 
@@ -455,23 +487,13 @@ export class SimulationDashboard {
 
   // ── Internal Methods ──
 
+  /** Start the runner using the same termination checks as manual steps. @returns {void} */
   _startTimer() {
     this._stopTimer();
-    this.autoRunTimer = setInterval(async () => {
-      if (this.maxSteps > 0 && this.stepCount >= this.maxSteps) {
-        this._setStatus('completed', 'Max steps reached');
-        this.stopAutoRun();
-        return;
-      }
-      
-      const enabled = this.app.api.getEnabledTransitions();
-      if (enabled.length === 0) {
-        this._setStatus('deadlocked', 'No enabled transitions');
-        this.stopAutoRun();
-        return;
-      }
-      await this.step();
-    }, this.autoRunSpeed);
+    this.autoRunTimer = setInterval(
+      /** @returns {Promise<void>} Completion of one runner step. */ () => this.step(),
+      this.autoRunSpeed
+    );
   }
 
   _stopTimer() {

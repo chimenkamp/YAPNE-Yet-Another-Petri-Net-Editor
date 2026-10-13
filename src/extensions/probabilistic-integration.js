@@ -96,8 +96,10 @@ class ProbabilisticExecutionIntegration {
          * 3. Fire selected transition
          * 
          * This correctly implements the Cloop from Figure 5.
+         * @param {{silent?: boolean}} [options] - Suppress terminal alerts for dashboard steps.
+         * @returns {ReturnType<ProbabilisticExecutionEngine['step']>} Step outcome.
          */
-        app.stepSimulationProbabilistic = async function() {
+        app.stepSimulationProbabilistic = async function(options = {}) {
             const net = this.api.petriNet;
             
             // Capture initial state on first step
@@ -132,7 +134,7 @@ class ProbabilisticExecutionIntegration {
                     ? "Goal state reached (finalMarking satisfied)"
                     : "Deadlock - no enabled transitions";
                 console.log(`[PP Step] ${message}`);
-                alert(message);
+                if (!options.silent) alert(message);
             }
             
             return result;
@@ -143,10 +145,12 @@ class ProbabilisticExecutionIntegration {
          * 
          * Always uses probabilistic step - PP-only approach
          * Uses scheduler ST for transition selection
+         * @param {{silent?: boolean}} [options] - Step options.
+         * @returns {ReturnType<ProbabilisticExecutionEngine['step']>} Step outcome.
          */
-        app.stepSimulation = async function() {
+        app.stepSimulation = async function(options = {}) {
             // Always use probabilistic step (PP-only approach)
-            return await this.stepSimulationProbabilistic();
+            return await this.stepSimulationProbabilistic(options);
         };
 
         /**
