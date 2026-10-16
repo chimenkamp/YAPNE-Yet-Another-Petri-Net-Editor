@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>PNML import checks</title>
+<body><pre id="result">Running…</pre><script type="module">
+import { runPnmlImportTests } from './pnml-import-test.js';
+try {
+  document.querySelector('#result').textContent = await runPnmlImportTests();
+  document.body.dataset.result = 'passed';
+} catch (error) {
+  document.querySelector('#result').textContent = error.stack;
+  document.body.dataset.result = 'failed';
+}
+</script></body></html>

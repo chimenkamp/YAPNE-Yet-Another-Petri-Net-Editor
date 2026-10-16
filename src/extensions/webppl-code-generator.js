@@ -1,3 +1,6 @@
+import { assessGuardCompatibility } from './guard-language/guard-compatibility.js';
+import { validateFinalMarkings } from './discovery-contract.js';
+
 /**
  * WebPPL Code Generator for Data Petri Nets
  * 
@@ -60,6 +63,8 @@ class WebPPLCodeGenerator {
      * @returns {string} Generated WebPPL code
      */
     generateCode(net, options = {}) {
+        const compatibility = assessGuardCompatibility(net).probabilistic;
+        if (!compatibility.supported) throw new Error(`Paper-based probabilistic inference is unsupported: ${compatibility.reasons.join(' ')}`);
         const includeComments = options.includeComments ?? true;
         const mode = options.mode ?? 'simulation';
         
@@ -112,6 +117,7 @@ class WebPPLCodeGenerator {
     normalizeFromMaps(net) {
         const dpn = {
             name: net.name || 'DPN',
+            finalMarkings: net.finalMarkings || [],
             places: [],
             transitions: [],
             arcs: [],
@@ -172,6 +178,7 @@ class WebPPLCodeGenerator {
     normalizeFromJSON(net) {
         return {
             name: net.name || 'DPN',
+            finalMarkings: net.finalMarkings || [],
             places: (net.places || []).map(p => ({
                 id: p.id,
                 label: p.label || p.id,
@@ -211,6 +218,8 @@ class WebPPLCodeGenerator {
      * @throws {Error} If no finalMarking is defined
      */
     validateGoalState(dpn) {
+        validateFinalMarkings(dpn.finalMarkings || [], new Set(dpn.places.map(place => place.id)));
+        if (dpn.finalMarkings?.length) return;
         const hasGoal = dpn.places.some(p => p.finalMarking > 0);
         
         if (!hasGoal) {
@@ -314,9 +323,14 @@ var maxSteps = ${this.maxSteps};`;
             `state.marking['${p.id}'] >= ${p.finalMarking}`
         );
         
-        const goalExpr = goalConditions.length > 0 
+        let goalExpr = goalConditions.length > 0
             ? goalConditions.join(' && ') 
             : 'false';
+        if (dpn.finalMarkings?.length) {
+            goalExpr = dpn.finalMarkings.map(marking => `(${dpn.places.map(place =>
+                `state.marking[${JSON.stringify(place.id)}] === ${marking[place.id] ?? 0}`
+            ).join(' && ') || 'true'})`).join(' || ');
+        }
         
         let code = '';
         

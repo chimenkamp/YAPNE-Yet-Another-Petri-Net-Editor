@@ -18,10 +18,11 @@
  * 4. Supports WebPPL mode for complex constraint postconditions
  */
 
-import { PetriNet, Place, Transition, Arc } from '../petri-net-simulator.js';
-import { DataPetriNet, DataAwareTransition, DataVariable } from './dpn-model.js';
-import { ProbabilisticExecutionEngine, createSeededRandom } from './probabilistic-execution.js';
+import { PetriNet } from '../petri-net-simulator.js';
+import { DataPetriNet } from './dpn-model.js';
+import { ProbabilisticExecutionEngine } from './probabilistic-execution.js';
 import { WebPPLCodeGenerator } from './webppl-code-generator.js';
+import { validateEventLogVariables } from '../event-log-generator.js';
 
 /**
  * ProbabilisticEventLogGenerator
@@ -53,6 +54,7 @@ class ProbabilisticEventLogGenerator {
      */
     constructor(petriNet, options = {}) {
         this.petriNet = petriNet;
+        this.completeDataSnapshots = Boolean(petriNet.discoveryMetadata) || [...petriNet.transitions.values()].some(transition => transition.discoveryContract);
         
         // Parse options
         this.options = {
@@ -99,171 +101,8 @@ class ProbabilisticEventLogGenerator {
      * @returns {PetriNet|DataPetriNet} A fresh clone of the net
      */
     cloneNet() {
-        // Export to JSON and re-import to create a clean clone
-        const netData = this.exportNetToJSON(this.petriNet);
-        return this.importNetFromJSON(netData);
-    }
-
-    /**
-     * Export net to JSON format for cloning
-     * @private
-     */
-    exportNetToJSON(net) {
-        const data = {
-            places: [],
-            transitions: [],
-            arcs: [],
-            dataVariables: []
-        };
-        
-        // Export places
-        for (const [id, place] of net.places) {
-            data.places.push({
-                id: id,
-                label: place.label,
-                tokens: place.tokens,
-                finalMarking: place.finalMarking,
-                capacity: place.capacity,
-                x: place.position?.x ?? place.x ?? 0,
-                y: place.position?.y ?? place.y ?? 0
-            });
-        }
-        
-        // Export transitions
-        for (const [id, transition] of net.transitions) {
-            const transData = {
-                id: id,
-                label: transition.label,
-                delay: transition.delay,
-                priority: transition.priority,
-                silent: transition.silent || false,
-                x: transition.position?.x ?? transition.x ?? 0,
-                y: transition.position?.y ?? transition.y ?? 0
-            };
-            
-            // DPN fields
-            if (transition.precondition !== undefined) {
-                transData.precondition = transition.precondition;
-            }
-            if (transition.postcondition !== undefined) {
-                transData.postcondition = transition.postcondition;
-            }
-            
-            data.transitions.push(transData);
-        }
-        
-        // Export arcs
-        for (const [id, arc] of net.arcs) {
-            data.arcs.push({
-                id: id,
-                source: arc.source,
-                target: arc.target,
-                weight: arc.weight,
-                type: arc.type
-            });
-        }
-        
-        // Export data variables (DPN)
-        if (net.dataVariables instanceof Map) {
-            for (const [id, variable] of net.dataVariables) {
-                data.dataVariables.push({
-                    id: id,
-                    name: variable.name,
-                    type: variable.type,
-                    currentValue: variable.currentValue
-                });
-            }
-        }
-        
-        return data;
-    }
-
-    /**
-     * Import net from JSON data
-     * @private
-     */
-    importNetFromJSON(data) {
-        // Determine if this is a DPN
-        const isDPN = data.dataVariables && data.dataVariables.length > 0;
-        
-        let net;
-        if (isDPN) {
-            net = new DataPetriNet(data.id, data.name, data.description, {
-                arcSemantics: data.arcSemantics
-            });
-        } else {
-            net = new PetriNet(data.id, data.name, data.description, {
-                arcSemantics: data.arcSemantics
-            });
-        }
-        
-        // Import places
-        for (const placeData of data.places) {
-            const place = new Place(
-                placeData.id,
-                { x: placeData.x || 0, y: placeData.y || 0 },  // position
-                placeData.label || placeData.id,               // label
-                placeData.tokens || 0,                          // tokens
-                placeData.capacity ?? null,                     // capacity
-                placeData.finalMarking ?? null                  // finalMarking
-            );
-            net.places.set(place.id, place);
-        }
-        
-        // Import transitions
-        for (const transData of data.transitions) {
-            const position = { x: transData.x || 0, y: transData.y || 0 };
-            let transition;
-            if (isDPN) {
-                transition = new DataAwareTransition(
-                    transData.id,
-                    position,
-                    transData.label || transData.id,
-                    transData.priority || 1,
-                    transData.delay || 0,
-                    transData.precondition || '',
-                    transData.postcondition || '',
-                    transData.silent || false
-                );
-            } else {
-                transition = new Transition(
-                    transData.id,
-                    position,
-                    transData.label || transData.id,
-                    transData.priority || 1,
-                    transData.delay || 0,
-                    transData.silent || false
-                );
-            }
-            net.transitions.set(transition.id, transition);
-        }
-        
-        // Import arcs
-        for (const arcData of data.arcs) {
-            const arc = new Arc(
-                arcData.id,
-                arcData.source,
-                arcData.target,
-                arcData.weight || 1
-            );
-            arc.type = arcData.type || 'regular';
-            net.arcs.set(arc.id, arc);
-        }
-        
-        // Import data variables (DPN)
-        if (isDPN && data.dataVariables) {
-            for (const varData of data.dataVariables) {
-                const variable = new DataVariable(
-                    varData.id,
-                    varData.name,
-                    varData.type || 'int'
-                );
-                variable.currentValue = varData.currentValue ?? 0;
-                net.dataVariables.set(variable.id, variable);
-            }
-        }
-        
-        return net;
+        const model = this.petriNet.dataVariables instanceof Map ? DataPetriNet : PetriNet;
+        return model.fromJSON(this.petriNet.toJSON());
     }
 
     /**
@@ -312,6 +151,8 @@ class ProbabilisticEventLogGenerator {
      * @returns {Promise<Array>} The generated event log
      */
     async generateCases(numCases, callbacks = {}) {
+        this.petriNet.assertNativeExecutionSupported?.();
+        validateEventLogVariables(this.petriNet, this.options.eventLogFormat);
         // [Section 5.1] Validate goal state definition
         this.validateGoalStateDefinition();
         
@@ -353,7 +194,7 @@ class ProbabilisticEventLogGenerator {
             let variablesBefore = null;
             const isDPN = net.dataVariables instanceof Map;
             if (isDPN && typeof net.getDataValuation === 'function') {
-                variablesBefore = net.getDataValuation();
+                variablesBefore = net.getDataValuation(true);
             }
             
             // Log case start (lifecycle format only)
@@ -372,6 +213,7 @@ class ProbabilisticEventLogGenerator {
             let status = 'active';
             
             while (stepNum < this.options.maxStepsPerCase) {
+                if (isDPN) variablesBefore = net.getDataValuation(true);
                 // [Section 5.2] Execute probabilistic step
                 const stepResult = await this.engine.step(net);
                 
@@ -394,7 +236,7 @@ class ProbabilisticEventLogGenerator {
                 // Get variable state after firing
                 let variablesAfter = null;
                 if (isDPN && typeof net.getDataValuation === 'function') {
-                    variablesAfter = net.getDataValuation();
+                    variablesAfter = net.getDataValuation(true);
                 }
                 
                 // Calculate timestamp
@@ -411,7 +253,8 @@ class ProbabilisticEventLogGenerator {
                         'case:concept:name': caseId,
                         'concept:name': transitionName,
                         'time:timestamp': eventTime.toISOString(),
-                        'lifecycle:transition': 'start'
+                        'lifecycle:transition': 'start',
+                        ...(this.options.includeVariables && variablesBefore ? { variables_before: JSON.stringify(variablesBefore) } : {})
                     });
                     
                     // Complete event
@@ -419,7 +262,8 @@ class ProbabilisticEventLogGenerator {
                         'case:concept:name': caseId,
                         'concept:name': transitionName,
                         'time:timestamp': currentTime.toISOString(),
-                        'lifecycle:transition': 'complete'
+                        'lifecycle:transition': 'complete',
+                        ...(this.options.includeVariables && variablesAfter ? { variables_after: JSON.stringify(variablesAfter) } : {})
                     });
                 }
                 
@@ -439,6 +283,11 @@ class ProbabilisticEventLogGenerator {
                 }
             }
             
+            if (stepNum >= this.options.maxStepsPerCase) {
+                const goalCheck = this.engine.checkGoalState(net);
+                status = goalCheck.isGoal ? (goalCheck.reason === 'deadlock' ? 'deadlock' : 'goal') : 'max_steps_exceeded';
+            }
+
             // Log case end (lifecycle format only)
             if (this.options.eventLogFormat === 'lifecycle') {
                 this.eventLog.push({
@@ -481,25 +330,17 @@ class ProbabilisticEventLogGenerator {
      * @private
      */
     logClassicEvent(caseId, activity, timestamp, variablesAfter) {
+        const previous = this.previousVariableValues[caseId] || {};
+        const values = this.options.includeVariables ? variablesAfter || {} : {};
+        const columns = Object.fromEntries(Object.entries(values).map(([name, value]) =>
+            [name, this.completeDataSnapshots || !Object.hasOwn(previous, name) || previous[name] !== value ? value : '']));
         const logEntry = {
             'case:concept:name': caseId,
             'concept:name': activity,
-            'time:timestamp': timestamp.toISOString()
+            'time:timestamp': timestamp.toISOString(),
+            ...columns
         };
-        
-        // Add variable columns - only include changed values
-        if (this.options.includeVariables && variablesAfter) {
-            for (const [varName, currentValue] of Object.entries(variablesAfter)) {
-                const previousValue = this.previousVariableValues[caseId][varName];
-                
-                if (previousValue !== currentValue) {
-                    logEntry[varName] = currentValue;
-                    this.previousVariableValues[caseId][varName] = currentValue;
-                } else {
-                    logEntry[varName] = '';
-                }
-            }
-        }
+        this.previousVariableValues[caseId] = { ...previous, ...values };
         
         this.eventLog.push(logEntry);
     }

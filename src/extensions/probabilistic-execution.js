@@ -21,6 +21,7 @@
  */
 
 import { WebPPLCodeGenerator } from './webppl-code-generator.js';
+import { assessGuardCompatibility } from './guard-language/guard-compatibility.js';
 
 /**
  * Seeded random number generator (Mulberry32)
@@ -213,27 +214,7 @@ class ProbabilisticExecutionEngine {
      * @returns {boolean} True if WebPPL is needed
      */
     netRequiresWebPPL(net) {
-        // Check if any transition has constraint-style postconditions
-        for (const [id, transition] of net.transitions) {
-            const postcondition = transition.postcondition || '';
-            
-            // Constraint patterns that require probabilistic inference
-            if (postcondition.match(/[a-zA-Z_][a-zA-Z0-9_]*'\s*[<>=!]+/)) {
-                // Has primed variable with comparison
-                const hasInequality = postcondition.match(/'[^=]*[<>][^=]*/) ||
-                                     postcondition.match(/'\s*[<>]/);
-                if (hasInequality) {
-                    return true; // Needs sampling + observe
-                }
-            }
-            
-            // Check for sampling keywords
-            if (postcondition.match(/\b(sample|uniform|gaussian|bernoulli|categorical)\b/i)) {
-                return true;
-            }
-        }
-        
-        return false;
+        return !assessGuardCompatibility(net).simulation.supported;
     }
 
     /**
@@ -315,6 +296,13 @@ class ProbabilisticExecutionEngine {
             reason: null,
             details: {}
         };
+
+        if (net.finalMarkings?.length) {
+            const reached = net.finalMarkings.some(marking => [...net.places].every(([id, place]) => place.tokens === (marking[id] ?? 0)));
+            if (reached) return { isGoal: true, reason: 'final_marking_reached', details: { exactFinalMarking: true } };
+            const deadlock = this.getEnabledTransitions(net).length === 0;
+            return { isGoal: deadlock, reason: deadlock ? 'deadlock' : null, details: {} };
+        }
         
         // [Section 5.1] Check if all places with finalMarking have reached it
         let hasAnyFinalMarking = false;
@@ -366,6 +354,7 @@ class ProbabilisticExecutionEngine {
      * @throws {Error} If no finalMarking is defined
      */
     validateGoalStateDefinition(net) {
+        if (net.finalMarkings?.length) return;
         let hasAnyFinalMarking = false;
         
         for (const [id, place] of net.places) {
@@ -400,6 +389,8 @@ class ProbabilisticExecutionEngine {
      * @returns {Promise<Object>} Step result with {fired, transitionId, status}
      */
     async stepNative(net) {
+        const compatibility = assessGuardCompatibility(net).simulation;
+        if (!compatibility.supported) throw new Error(`Native simulation is unsupported: ${compatibility.reasons.join(' ')}`);
         // [Section 5.1] Check goal state first
         const goalCheck = this.checkGoalState(net);
         if (goalCheck.isGoal) {
@@ -432,7 +423,7 @@ class ProbabilisticExecutionEngine {
         let fireResult;
         if (typeof net.fireTransition === 'function') {
             // DataPetriNet.fireTransition is async
-            fireResult = await net.fireTransition(selectedTransition);
+            fireResult = await net.fireTransition(selectedTransition, this.random);
         } else {
             fireResult = false;
         }
@@ -445,7 +436,7 @@ class ProbabilisticExecutionEngine {
         return {
             fired: fireResult,
             transitionId: selectedTransition,
-            status: 'active',
+            status: fireResult ? 'active' : 'failed',
             enabledBefore: enabledTransitions.length
         };
     }
@@ -459,6 +450,7 @@ class ProbabilisticExecutionEngine {
      * @returns {Promise<Object>} Step result with {fired, transitionId, status}
      */
     async step(net) {
+        if (this.executionMode === 'webppl') throw new Error('Step execution is native. Use full simulation for an explicitly requested WebPPL run.');
         return this.stepNative(net);
     }
 
@@ -475,28 +467,19 @@ class ProbabilisticExecutionEngine {
      * @returns {Promise<Object>} Simulation result with trace, final state, status
      */
     async runWebPPLSimulation(net, options = {}) {
+        const code = this.generateWebPPLCode(net, { includeComments: false });
         const webppl = await this.getWebPPL();
         
         if (!webppl) {
-            console.warn('[PP Engine] WebPPL unavailable, falling back to native simulation');
-            return this.runNativeSimulation(net, options);
+            throw new Error('WebPPL is unavailable. The requested paper-based execution cannot run.');
         }
-        
-        // Generate WebPPL code
-        const code = this.generateWebPPLCode(net, { includeComments: false });
         
         console.log('[PP Engine] Executing WebPPL simulation...');
         console.log('[PP Engine] Generated code:\n', code.substring(0, 500), '...');
         
         return new Promise((resolve, reject) => {
             try {
-                webppl.run(code, (err, result) => {
-                    if (err) {
-                        console.error('[PP Engine] WebPPL execution error:', err);
-                        reject(err);
-                        return;
-                    }
-                    
+                webppl.run(code, (_store, result) => {
                     // Convert WebPPL result to our format
                     const simulationResult = {
                         status: result.status || 'completed',
@@ -568,7 +551,9 @@ class ProbabilisticExecutionEngine {
         }
         
         if (stepCount >= this.maxSteps) {
-            status = 'max_steps_exceeded';
+            const goalCheck = this.checkGoalState(net);
+            status = goalCheck.isGoal ? (goalCheck.reason === 'deadlock' ? 'deadlock' : 'goal') : 'max_steps_exceeded';
+            goalDetails = goalCheck.details;
         }
         
         const finalMarking = {};
@@ -656,12 +641,7 @@ class ProbabilisticExecutionEngine {
         console.log(`[PP Engine] Running full simulation in ${mode} mode`);
         
         if (mode === 'webppl') {
-            try {
-                return await this.runWebPPLSimulation(net, options);
-            } catch (error) {
-                console.warn('[PP Engine] WebPPL simulation failed, falling back to native:', error.message);
-                return this.runNativeSimulation(net, options);
-            }
+            return this.runWebPPLSimulation(net, options);
         }
         
         return this.runNativeSimulation(net, options);

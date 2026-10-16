@@ -4,8 +4,8 @@
  * This file contains the implementation of a web application that uses the Petri Net Editor library.
  * It demonstrates how to create, edit, simulate, and analyze Petri nets.
  */
-import { PetriNetAPI, Place, Transition, Arc } from './petri-net-simulator.js';
-import { DataAwareTransition, DataVariable } from './extensions/dpn-model.js';
+import { PetriNetAPI, PetriNet } from './petri-net-simulator.js';
+import { DataPetriNet } from './extensions/dpn-model.js';
 import HistoryDialog from './history-dialog.js';
 import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
 import { SimulationDashboard } from './simulation-dashboard.js';
@@ -261,6 +261,7 @@ class PetriNetApp {
 
   /**
    * Captures the current state as the initial state for simulation reset
+   * @returns {void}
    */
   captureInitialState() {
     this.initialState = {
@@ -273,15 +274,10 @@ class PetriNetApp {
       this.initialState.places.set(id, place.tokens);
     }
 
-    // Capture data variables if DPN integration is available
-    if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataVariables) {
-      this.initialState.dataVariables = new Map();
-      for (const [name, variable] of window.dataPetriNetIntegration.dataVariables) {
-        this.initialState.dataVariables.set(name, {
-          value: variable.value,
-          type: variable.type
-        });
-      }
+    if (this.api.petriNet.dataVariables instanceof Map) {
+      this.initialState.dataVariables = new Map(
+        [...this.api.petriNet.dataVariables].map(([id, variable]) => [id, variable.currentValue])
+      );
     }
 
     this.simulationStarted = true;
@@ -290,6 +286,7 @@ class PetriNetApp {
 
   /**
    * Restores the simulation to its initial captured state
+   * @returns {boolean} Whether a captured state was restored.
    */
   restoreInitialState() {
     if (!this.initialState) {
@@ -305,20 +302,14 @@ class PetriNetApp {
       }
     }
 
-    // Restore data variables if they exist
-    if (this.initialState.dataVariables && window.dataPetriNetIntegration) {
-      for (const [name, initialVar] of this.initialState.dataVariables) {
-        const variable = window.dataPetriNetIntegration.dataVariables.get(name);
-        if (variable) {
-          variable.value = initialVar.value;
-        }
+    if (this.initialState.dataVariables && this.api.petriNet.dataVariables instanceof Map) {
+      for (const [id, currentValue] of this.initialState.dataVariables) {
+        const variable = this.api.petriNet.dataVariables.get(id);
+        if (variable) variable.currentValue = currentValue;
       }
-      
-      // Update data variables display if available
-      if (window.dataPetriNetIntegration.updateDataValuesDisplay) {
-        window.dataPetriNetIntegration.updateDataValuesDisplay();
-      }
+      this.dataPetriNetUI?.updateDataValuesDisplay();
     }
+    this.api.petriNet.updateEnabledTransitions();
 
     // Update displays
     this.updateTokensDisplay();
@@ -984,13 +975,16 @@ initEventHandlers() {
   }
 
   /**
-   * Updates only the status portion of the transition properties panel
+   * Updates only the status portion of the transition properties panel.
+   * @param {string} id - Transition identifier.
+   * @returns {void}
    */
   updateTransitionStatus(id) {
     const transition = this.api.petriNet.transitions.get(id);
     if (!transition) return;
 
-    const isEnabled = this.api.petriNet.isTransitionEnabled(id);
+    this.api.petriNet.updateEnabledTransitions();
+    const isEnabled = transition.isEnabled;
 
 
     const statusContainer = document.getElementById(
@@ -1004,6 +998,11 @@ initEventHandlers() {
                 ${isEnabled ? "✅ Enabled" : "❌ Disabled"}
             </div>
         `;
+      if (transition.nativeExecutionError) {
+        const diagnostic = document.createElement('p');
+        diagnostic.textContent = transition.nativeExecutionError;
+        statusContainer.appendChild(diagnostic);
+      }
     }
 
 
@@ -1143,6 +1142,14 @@ initEventHandlers() {
     if (!finalMarkingContent) return;
 
     const results = this.api.checkFinalMarkings();
+
+    if (results.exactFinalMarkings) {
+      const count = results.finalMarkingAlternatives.length;
+      finalMarkingContent.textContent = results.allSatisfied
+        ? `An exact final marking has been reached (${count} alternative goals).`
+        : `No exact final marking has been reached (${count} alternative goals).`;
+      return;
+    }
     
     if (results.placesWithFinalMarkings === 0) {
       finalMarkingContent.innerHTML = "<p>No final markings defined.</p>";
@@ -1242,70 +1249,32 @@ initEventHandlers() {
     this.updateUndoRedoButtons();
   }
 
-  /**
-   * Restore a JSON snapshot into the current PetriNet **in-place**
-   * (without recreating the editor).
+  /** Restore a validated snapshot while preserving model and map references.
+   * @param {string} json - Serialized Petri net snapshot.
+   * @returns {void}
    */
   _restoreSnapshot(json) {
     this._isRestoring = true;
     try {
-      const data = JSON.parse(json);
       const net = this.api.petriNet;
-
-      // 1. Clear current data
-      net.places.clear();
-      net.transitions.clear();
-      net.arcs.clear();
-
-      // 2. Restore net-level metadata
-      if (data.id) net.id = data.id;
-      if (data.name !== undefined) net.name = data.name;
-      if (data.description !== undefined) net.description = data.description;
-
-      // 3. Rebuild from snapshot using the imported classes directly
-      if (data.places) {
-        for (const pd of data.places) {
-          const place = new Place(pd.id, pd.position, pd.label, pd.tokens, pd.capacity, pd.finalMarking);
-          net.places.set(place.id, place);
-        }
+      const Model = net.dataVariables instanceof Map ? DataPetriNet : PetriNet;
+      const restored = Model.fromJSON(json);
+      restored.updateEnabledTransitions();
+      for (const property of ['places', 'transitions', 'arcs', 'dataVariables']) {
+        if (!(restored[property] instanceof Map)) continue;
+        net[property].clear();
+        for (const [id, value] of restored[property]) net[property].set(id, value);
       }
-      if (data.transitions) {
-        for (const td of data.transitions) {
-          const isSilent = td.silent || !td.label || td.label.trim() === '';
-          const hasPrecondition = td.precondition && td.precondition.trim() !== '';
-          const hasPostcondition = td.postcondition && td.postcondition.trim() !== '';
-          let tr;
-          if (hasPrecondition || hasPostcondition) {
-            tr = new DataAwareTransition(
-              td.id, td.position, td.label || '', td.priority, td.delay,
-              td.precondition || '', td.postcondition || '', isSilent
-            );
-          } else {
-            tr = new Transition(td.id, td.position, td.label || '', td.priority, td.delay, isSilent);
-          }
-          net.transitions.set(tr.id, tr);
-        }
-      }
-      if (data.arcs) {
-        for (const ad of data.arcs) {
-          const arc = new Arc(ad.id, ad.source, ad.target, ad.weight, ad.type, ad.points || [], ad.label);
-          net.arcs.set(arc.id, arc);
-        }
-      }
+      net.id = restored.id;
+      net.name = restored.name;
+      net.description = restored.description;
+      net.setArcSemantics(restored.getArcSemantics());
+      net.finalMarkings = restored.finalMarkings || [];
+      net.discoveryMetadata = restored.discoveryMetadata;
 
-      // 3b. Restore data variables (DPN)
-      if (data.dataVariables && net.dataVariables) {
-        net.dataVariables.clear();
-        for (const vd of data.dataVariables) {
-          let varType = vd.type;
-          if (varType === 'number') varType = 'int';
-          const variable = new DataVariable(vd.id, vd.name, varType, vd.currentValue, vd.description);
-          net.dataVariables.set(variable.id, variable);
-        }
-      }
-
-      // 4. Refresh everything
       this.editor.selectedElement = null;
+      this.dataPetriNetUI?.updateDataVariablesDisplay();
+      this.dataPetriNetUI?.updateDataValuesDisplay();
       this.editor.render();
       this.updateTokensDisplay();
       this.updateFinalMarkingDisplay();

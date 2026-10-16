@@ -3,6 +3,7 @@ import { DPNRefinementEngine } from './DPN-refinement-engine.js';
 import { Z3Solver } from './z3-solver-wrapper.js';
 import { parse } from '../../guard-language/guard-parser.js';
 import { toSmtLib2 } from '../../guard-language/guard-smt-emitter.js';
+import { assessGuardCompatibility } from '../../guard-language/guard-compatibility.js';
 
 
 /**
@@ -12,6 +13,10 @@ import { toSmtLib2 } from '../../guard-language/guard-smt-emitter.js';
  */
 class SuvorovLomazovaVerifier {
   constructor(petriNet, options = {}) {
+    const compatibility = assessGuardCompatibility(petriNet).soundness;
+    if (!compatibility.supported) {
+      throw new Error(`Model is outside the soundness paper grammar: ${compatibility.reasons.join(' ')}`);
+    }
     this.originalPetriNet = petriNet;
     console.log(
       "Suvorov–Lomazova Verifier initialized with Petri Net:",
@@ -46,6 +51,8 @@ class SuvorovLomazovaVerifier {
         : Array.isArray(net.places) 
         ? net.places
         : [];
+
+      if (!places.some(place => place.finalMarking !== null && place.finalMarking !== undefined && place.finalMarking >= 0)) return [];
       
       for (const place of places) {
         if (place && place.id) {
@@ -57,7 +64,8 @@ class SuvorovLomazovaVerifier {
       return markings;
     };
 
-    this.finalMarkings = getFinalMarkingsFromPetriNet(petriNet);
+    this.finalMarkings = petriNet.finalMarkings?.length
+      ? structuredClone(petriNet.finalMarkings) : getFinalMarkingsFromPetriNet(petriNet);
 
     if (this.finalMarkings.length === 0) {
       throw new Error(

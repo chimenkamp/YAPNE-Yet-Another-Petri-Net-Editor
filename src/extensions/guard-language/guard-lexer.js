@@ -39,6 +39,7 @@ export const TokenType = Object.freeze({
   // Delimiters
   LPAREN:     'LPAREN',      // (
   RPAREN:     'RPAREN',      // )
+  COMMA:      'COMMA',       // legacy Z3 function arguments
 
   // Prime
   PRIME:      'PRIME',       // '
@@ -58,6 +59,8 @@ const KEYWORDS = new Map([
   ['true',     TokenType.BOOL_LIT],
   ['false',    TokenType.BOOL_LIT],
   ['ite',      TokenType.ITE],
+  ['if',       TokenType.ITE],
+  ['implies',  TokenType.IMPLIES],
   ['distinct', TokenType.DISTINCT],
   ['exists',   TokenType.EXISTS],
   ['forall',   TokenType.FORALL],
@@ -119,6 +122,7 @@ export function tokenize(input) {
     // Single-character tokens
     if (ch === '(') { tokens.push(new Token(TokenType.LPAREN, '(', i)); i++; continue; }
     if (ch === ')') { tokens.push(new Token(TokenType.RPAREN, ')', i)); i++; continue; }
+    if (ch === ',') { tokens.push(new Token(TokenType.COMMA, ',', i)); i++; continue; }
     if (ch === '*') { tokens.push(new Token(TokenType.STAR, '*', i)); i++; continue; }
     if (ch === '/') { tokens.push(new Token(TokenType.SLASH, '/', i)); i++; continue; }
     if (ch === "'") { tokens.push(new Token(TokenType.PRIME, "'", i)); i++; continue; }
@@ -150,6 +154,7 @@ export function tokenize(input) {
       i += 2;
       continue;
     }
+    if (ch === '!') { tokens.push(new Token(TokenType.NOT, 'not', i)); i++; continue; }
 
     // <= (LE)
     if (ch === '<' && i + 1 < len && input[i + 1] === '=') {
@@ -193,12 +198,26 @@ export function tokenize(input) {
       continue;
     }
 
+    if (ch === '|') {
+      const start = i++;
+      while (i < len && input[i] !== '|') {
+        if (input[i] === '\\') throw new LexerError('Backslashes are not allowed in SMT quoted symbols', i);
+        i++;
+      }
+      if (i === len) throw new LexerError('Unterminated quoted symbol', start);
+      if (i === start + 1) throw new LexerError('Quoted variable names must not be empty', start);
+      tokens.push(new Token(TokenType.IDENT, input.slice(start + 1, i), start));
+      i++;
+      continue;
+    }
+
     // + / - : could be operator or part of a number
     if (ch === '+' || ch === '-') {
       // Check if this is a sign for a number (not preceded by a value token)
       const prevToken = tokens.length > 0 ? tokens[tokens.length - 1] : null;
       const isSign = !prevToken ||
         prevToken.type === TokenType.LPAREN ||
+        prevToken.type === TokenType.COMMA ||
         prevToken.type === TokenType.EQ ||
         prevToken.type === TokenType.LT ||
         prevToken.type === TokenType.LE ||
@@ -286,6 +305,7 @@ export function tokenize(input) {
 
 /**
  * Read a number (integer or real) starting at position `i` in `input`.
+ * Integers must be exactly representable. Real literals retain JavaScript Number precision.
  * @param {string} input
  * @param {number} i - Position of first digit
  * @param {number} tokenStart - Position of the token start (may include sign)
@@ -294,6 +314,7 @@ export function tokenize(input) {
 function readNumber(input, i, tokenStart) {
   let end = i;
   const len = input.length;
+  let real = false;
 
   while (end < len && /\d/.test(input[end])) {
     end++;
@@ -301,14 +322,25 @@ function readNumber(input, i, tokenStart) {
 
   // Check for decimal point
   if (end < len && input[end] === '.' && end + 1 < len && /\d/.test(input[end + 1])) {
+    real = true;
     end++; // skip '.'
     while (end < len && /\d/.test(input[end])) {
       end++;
     }
-    const value = input.slice(tokenStart, end);
-    return new Token(TokenType.REAL, value, tokenStart);
+  }
+
+  if (end < len && /[eE]/.test(input[end])) {
+    real = true;
+    end++;
+    if (/[+-]/.test(input[end] || '')) end++;
+    const exponentStart = end;
+    while (end < len && /\d/.test(input[end])) end++;
+    if (end === exponentStart) throw new LexerError('Expected digits in numeric exponent', end);
   }
 
   const value = input.slice(tokenStart, end);
-  return new Token(TokenType.INTEGER, value, tokenStart);
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) throw new LexerError('Numeric literals must be finite', tokenStart);
+  if (!real && !Number.isSafeInteger(numeric)) throw new LexerError('Integer literals must be safe integers', tokenStart);
+  return new Token(real ? TokenType.REAL : TokenType.INTEGER, value, tokenStart);
 }

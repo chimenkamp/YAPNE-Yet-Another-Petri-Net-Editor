@@ -80,4 +80,13 @@ function netWithPlaceAndTransition(tokens = 0, capacity = null) {
   assert.equal(place.tokens, 1, 'clamp mode preserves the previous YAPNE capacity behavior');
 }
 
+{
+  const { net, place } = netWithPlaceAndTransition();
+  place.finalMarking = 0;
+  net.addPlace(new Place('unspecified', { x: 0, y: 100 }));
+  const restored = PetriNet.fromJSON(net.toJSON());
+  assert.equal(restored.places.get(place.id).finalMarking, 0, 'JSON retains an explicitly empty final marking');
+  assert.equal(restored.places.get('unspecified').finalMarking, null, 'unspecified final markings stay unspecified');
+}
+
 console.log('Petri net arc semantics tests passed.');

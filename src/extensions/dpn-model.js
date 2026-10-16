@@ -1,7 +1,11 @@
 import { Transition, PetriNet, Place, Arc } from '../petri-net-simulator.js';
-import { solveExpressionWithWebPPL } from './probabilistic-execution.js';
 import { parse } from './guard-language/guard-parser.js';
-import { evaluatePrecondition as evalPre, evaluatePostcondition as evalPost, checkConstraint, constraintToString, getWrittenVariables } from './guard-language/guard-evaluator.js';
+import { evaluatePrecondition as evalPre, evaluatePostcondition as evalPost, checkConstraint, getWrittenVariables, getPostconditionUpdates, EvaluationDomainError } from './guard-language/guard-evaluator.js';
+import { addSuccessor, equalValuations, getObservedSuccessors, isDataValue, selectSuccessor, validateDiscoveryContract, validateFinalMarkings } from './discovery-contract.js';
+import { assessGuardCompatibility, hasQuantifier } from './guard-language/guard-compatibility.js';
+
+/** A valid guard requires an execution method unavailable in native simulation. */
+export class UnsupportedNativeGuardError extends Error {}
 
 /**
  * Represents a data variable in a Data Petri Net
@@ -11,25 +15,27 @@ class DataVariable {
    * Create a new data variable
    * @param {string} id - Unique identifier for the variable
    * @param {string} name - Human-readable name of the variable
-   * @param {string} type - Data type ('int'|'integer'|'bool'|'boolean'|'real')
+   * @param {string} type - Data type ('int'|'integer'|'bool'|'boolean'|'real'|'data')
    * @param {*} initialValue - Initial value of the variable
    * @param {string} description - Optional description of the variable
    */
-  constructor(id, name, type, initialValue = null, description = "") {
+  constructor(id, name, type, initialValue = undefined, description = "") {
     this.id = id;
     this.name = name;
     this.type = DataVariable.normalizeType(type);
-    this.currentValue = initialValue;
+    this.initialValue = initialValue === undefined && this.type !== 'data' ? null : initialValue;
+    this.currentValue = this.initialValue;
     this.description = description;
   }
 
   /**
    * Normalize type aliases to canonical forms
    * @param {string} type - Raw type string
-   * @returns {string} Normalized type: 'int', 'bool', or 'real'
+   * @returns {string} Normalized type: 'int', 'bool', 'real', or 'data'
    */
   static normalizeType(type) {
     const t = (type || 'real').toLowerCase();
+    if (t === 'data') return 'data';
     if (t === 'int' || t === 'integer') return 'int';
     if (t === 'bool' || t === 'boolean') return 'bool';
     if (t === 'real' || t === 'float' || t === 'number') return 'real';
@@ -43,6 +49,7 @@ class DataVariable {
    * @returns {*} The current value with the correct type
    */
   getValue() {
+    if (this.type === 'data') return this.currentValue;
     if (this.currentValue === null) return null;
 
     switch (this.type) {
@@ -64,6 +71,10 @@ class DataVariable {
   setValue(value) {
     try {
       switch (this.type) {
+        case 'data':
+          if (value !== undefined && !isDataValue(value)) throw new Error('Not a finite JSON scalar');
+          this.currentValue = value;
+          break;
         case 'int': {
           const intValue = Number(value);
           if (isNaN(intValue)) {
@@ -98,6 +109,13 @@ class DataVariable {
   reset() {
     this.currentValue = this.initialValue;
   }
+
+  /** Preserve an absent initial state separately from a later current value.
+   * @returns {Object} JSON-serializable variable state.
+   */
+  toJSON() {
+    return { ...this, initialValuePresent: this.initialValue !== undefined };
+  }
 }
 
 /**
@@ -121,112 +139,62 @@ class DataAwareTransition extends Transition {
     this.postcondition = postcondition;
   }
 
-  /**
-   * Evaluate the precondition guard with the current data valuation
-   * @param {Object} valuation - Map of variable names to current values
-   * @returns {boolean} Whether the precondition is satisfied
+  /** Return all distinct native successors permitted by this transition.
+   * @param {import('./discovery-contract.js').Valuation} valuation
+   * @returns {import('./discovery-contract.js').Valuation[]}
+   */
+  getSuccessorValuations(valuation) {
+    const contract = this.discoveryContract;
+    const successors = contract ? getObservedSuccessors(contract, valuation) : [];
+    if (!contract || contract.generalized) {
+      const candidate = this.getDeterministicSuccessor(valuation);
+      if (candidate !== null) addSuccessor(successors, candidate);
+    }
+    return successors;
+  }
+
+  /** Evaluate the symbolic branch using simultaneous assignments and its full predicate.
+   * @param {import('./discovery-contract.js').Valuation} valuation
+   * @returns {import('./discovery-contract.js').Valuation | null}
+   */
+  getDeterministicSuccessor(valuation) {
+    try {
+      const pre = parse(this.precondition || '', { isPostcondition: false }).ast;
+      const post = parse(this.postcondition || '', { isPostcondition: true }).ast;
+      if (hasQuantifier(pre) || hasQuantifier(post)) {
+        throw new UnsupportedNativeGuardError('Quantified guards cannot be executed in native simulation.');
+      }
+      if (!evalPre(pre, valuation)) return null;
+      const updates = getPostconditionUpdates(post);
+      if ([...getWrittenVariables(post)].some(name => !updates.assignments.has(name))) {
+        throw new UnsupportedNativeGuardError('Native simulation requires deterministic assignments for every written variable; this postcondition requires constraint sampling.');
+      }
+      const { assignments } = evalPost(post, valuation);
+      if (this.discoveryContract && [...assignments.values()].some(value => typeof value !== 'number' || !Number.isFinite(value))) return null;
+      const candidate = { ...valuation, ...Object.fromEntries(assignments) };
+      return post === null || checkConstraint(post, valuation, candidate) ? candidate : null;
+    } catch (error) {
+      if (error instanceof EvaluationDomainError) return null;
+      throw error;
+    }
+  }
+
+  /** Check whether at least one complete data successor is available.
+   * @param {import('./discovery-contract.js').Valuation} valuation
+   * @returns {boolean}
    */
   evaluatePrecondition(valuation) {
-    if (!this.precondition || this.precondition.trim() === "") {
-      return true; // No precondition means it's always satisfied
-    }
-
-    try {
-      const { ast } = parse(this.precondition, { isPostcondition: false });
-      return evalPre(ast, valuation);
-    } catch (error) {
-      console.error(`Error evaluating precondition for transition ${this.id}:`, error);
-      console.error(`Precondition: ${this.precondition}`);
-      console.error(`Valuation:`, valuation);
-      return false; // On error, disable the transition for safety
-    }
+    return this.getSuccessorValuations(valuation).length > 0;
   }
 
-  /**
-   * Evaluate the postcondition and compute the new data valuation (ASYNC)
-   * @param {Object} valuation - Map of variable names to current values
-   * @returns {Promise<Object>} New valuation after applying the postcondition
+  /** Select one valid successor without mutating the current data state.
+   * @param {import('./discovery-contract.js').Valuation} valuation
+   * @param {() => number} random
+   * @returns {Promise<import('./discovery-contract.js').Valuation>}
    */
-  async evaluatePostcondition(valuation) {
-    if (!this.postcondition || this.postcondition.trim() === "") {
-      return valuation; // No postcondition means no changes
-    }
-  
-    try {
-      const newValuation = { ...valuation };
-      const { ast } = parse(this.postcondition, { isPostcondition: true });
-      const { assignments, constraints } = evalPost(ast, valuation);
-
-      // Apply direct assignments
-      for (const [varName, value] of assignments) {
-        if (varName in valuation) {
-          newValuation[varName] = value;
-        }
-      }
-
-      // Handle constraint-based assignments via WebPPL solver
-      if (constraints.length > 0) {
-        const primedVars = getWrittenVariables(ast);
-        
-        for (const variableName of primedVars) {
-          if (!(variableName in valuation)) continue;
-          // Skip if already handled by direct assignment
-          if (assignments.has(variableName)) continue;
-
-          const currentValue = valuation[variableName];
-
-          // For boolean variables, try both values directly
-          if (typeof currentValue === 'boolean') {
-            const trueOk = constraints.every(c => checkConstraint(c, valuation, { ...newValuation, [variableName]: true }));
-            const falseOk = constraints.every(c => checkConstraint(c, valuation, { ...newValuation, [variableName]: false }));
-            if (trueOk) { newValuation[variableName] = true; continue; }
-            if (falseOk) { newValuation[variableName] = false; continue; }
-            continue;
-          }
-
-          // For numeric variables, use WebPPL solver
-          if (typeof currentValue === 'number') {
-            try {
-              const combinedConstraint = constraints.map(c => constraintToString(c)).join(' && ');
-              let variableType = 'int';
-              if (window.petriApp && window.petriApp.api && window.petriApp.api.petriNet && window.petriApp.api.petriNet.dataVariables) {
-                for (const [, variable] of window.petriApp.api.petriNet.dataVariables) {
-                  if (variable.name === variableName) {
-                    variableType = variable.type;
-                    break;
-                  }
-                }
-              }
-              
-              const result = await solveExpressionWithWebPPL(
-                combinedConstraint, 
-                newValuation, 
-                variableType === 'real' ? 'float' : 'int'
-              );
-              
-              if (result && result.success && result.newValues && result.newValues[variableName] !== undefined) {
-                if (variableType === 'int') {
-                  newValuation[variableName] = Math.floor(Number(result.newValues[variableName]));
-                } else {
-                  newValuation[variableName] = Number(result.newValues[variableName]);
-                }
-              }
-            } catch (error) {
-              console.error('[DPN] Error using WebPPL solver:', error);
-            }
-          }
-        }
-      }
-      
-      return newValuation;
-    } catch (error) {
-      console.error(`Error evaluating postcondition for transition ${this.id}:`, error);
-      console.error(`Postcondition: ${this.postcondition}`);
-      console.error(`Valuation:`, valuation);
-      return valuation; // On error, keep the original valuation
-    }
+  async evaluatePostcondition(valuation, random = Math.random) {
+    return selectSuccessor(this.getSuccessorValuations(valuation), random);
   }
-  
 }
 
 /**
@@ -242,6 +210,8 @@ class DataPetriNet extends PetriNet {
   constructor(id, name = "New Data Petri Net", description = "", options = {}) {
     super(id, name, description, options);
     this.dataVariables = new Map(); // Map of data variable ID -> DataVariable object
+    /** @type {Record<string, number>[]} */
+    this.finalMarkings = [];
   }
 
   /**
@@ -272,46 +242,69 @@ class DataPetriNet extends PetriNet {
 
   /**
    * Get the current data valuation (map of variable names to values)
+   * @param {boolean} useSourceNames - Use original Discovery labels for exported events.
    * @returns {Object} The current data valuation
    */
-  getDataValuation() {
-    const valuation = {};
-    for (const [, variable] of this.dataVariables) {
-      valuation[variable.name] = variable.getValue();
-    }
-    return valuation;
+  getDataValuation(useSourceNames = false) {
+    return Object.fromEntries([...this.dataVariables.values()]
+      .filter(variable => variable.getValue() !== undefined)
+      .map(variable => [useSourceNames ? variable.sourceName || variable.name : variable.name, variable.getValue()]));
   }
 
-  /**
-   * Update the current data valuation
-   * @param {Object} valuation - Map of variable names to new values
+  /** Validate a candidate without changing any variable.
+   * @param {import('./discovery-contract.js').Valuation} valuation
+   * @returns {void}
    */
-  setDataValuation(valuation) {
+  validateDataValuation(valuation) {
+    const variables = new Map([...this.dataVariables.values()].map(variable => [variable.name, variable]));
     for (const [name, value] of Object.entries(valuation)) {
-      for (const [, variable] of this.dataVariables) {
-        if (variable.name === name) {
-          variable.setValue(value);
-          break;
-        }
+      const variable = variables.get(name);
+      if (!variable) throw new Error(`Undeclared data variable '${name}'.`);
+      const valid = variable.type === 'data' ? isDataValue(value) : value === null ||
+        (variable.type === 'bool' ? typeof value === 'boolean' :
+          typeof value === 'number' && Number.isFinite(value) && (variable.type !== 'int' || Number.isInteger(value)));
+      if (!valid) throw new Error(`Value for '${name}' does not satisfy its ${variable.type} type.`);
+    }
+  }
+
+  /** Apply a validated state; replacement also preserves absent Discovery values.
+   * @param {import('./discovery-contract.js').Valuation} valuation
+   * @param {boolean} replace
+   * @returns {void}
+   */
+  setDataValuation(valuation, replace = false) {
+    this.validateDataValuation(valuation);
+    for (const variable of this.dataVariables.values()) {
+      if (Object.hasOwn(valuation, variable.name)) {
+        variable.currentValue = valuation[variable.name];
+      } else if (replace && variable.type === 'data') {
+        variable.currentValue = undefined;
       }
     }
   }
 
-  /**
-   * Override the parent updateEnabledTransitions method to check data preconditions
+  /** Keep unsupported native guards visible for editing and formal analysis.
+   * @returns {void}
    */
   updateEnabledTransitions() {
-    super.updateEnabledTransitions();
-
-    const valuation = this.getDataValuation();
-
     for (const [id, transition] of this.transitions) {
-      if (transition.isEnabled) {
-        if (typeof transition.evaluatePrecondition === 'function') {
-          transition.isEnabled = transition.evaluatePrecondition(valuation);
-        }
+      transition.nativeExecutionError = null;
+      try {
+        transition.isEnabled = this.isTransitionEnabled(id);
+      } catch (error) {
+        if (!(error instanceof UnsupportedNativeGuardError)) throw error;
+        transition.isEnabled = false;
+        transition.nativeExecutionError = error.message;
       }
     }
+  }
+
+  /** Reject unsupported native models before simulation can report a false deadlock.
+   * @returns {void}
+   */
+  assertNativeExecutionSupported() {
+    const profile = assessGuardCompatibility(this).simulation;
+    if (!profile.supported) throw new UnsupportedNativeGuardError(profile.reasons.join('\n'));
   }
 
   /**
@@ -338,31 +331,19 @@ class DataPetriNet extends PetriNet {
   /**
    * Override the parent fireTransition method to handle data updates (ASYNC)
    * @param {string} transitionId - ID of the transition to fire
+   * @param {() => number} random - Configured source for native successor choices.
    * @returns {Promise<boolean>} Whether the transition fired successfully
    */
-  async fireTransition(transitionId) {
-    if (!this.isTransitionEnabled(transitionId)) {
-      return false;
-    }
-
+  async fireTransition(transitionId, random = Math.random) {
+    if (!this.isTransitionEnabled(transitionId)) return false;
     const transition = this.transitions.get(transitionId);
-    if (!transition) return false;
-
     const valuation = this.getDataValuation();
-    const fired = super.fireTransition(transitionId);
-    if (!fired) return false;
-
-    // Handle data updates (this is now async)
-    if (typeof transition.evaluatePostcondition === 'function') {
-      try {
-        const newValuation = await transition.evaluatePostcondition(valuation);
-        this.setDataValuation(newValuation);
-      } catch (error) {
-        console.error('Error evaluating postcondition:', error);
-        // Continue with execution even if postcondition fails
-      }
-    }
-
+    const nextValuation = typeof transition.evaluatePostcondition === 'function'
+      ? await transition.evaluatePostcondition(valuation, random) : valuation;
+    this.validateDataValuation(nextValuation);
+    if (!equalValuations(valuation, this.getDataValuation())) return false;
+    if (!super.fireTransition(transitionId)) return false;
+    this.setDataValuation(nextValuation, true);
     return true;
   }
 
@@ -378,38 +359,27 @@ class DataPetriNet extends PetriNet {
    * Fire multiple transitions simultaneously in one atomic step (synchronous step semantics)
    * All transitions that are enabled at the start of the step will fire together
    * @param {Array<string>} transitionIds - Array of transition IDs to fire
+   * @param {() => number} random - Configured source for native successor choices.
    * @returns {Promise<boolean>} - True if at least one transition was successfully fired
    */
-  async fireTransitionsSynchronously(transitionIds) {
+  async fireTransitionsSynchronously(transitionIds, random = Math.random) {
     const transitionsToFire = this.planSynchronousTransitions(transitionIds);
-
-    if (transitionsToFire.length === 0) {
-      return false;
+    if (transitionsToFire.length === 0) return false;
+    if (transitionsToFire.length > 1 && transitionsToFire.some(id => this.transitions.get(id).discoveryContract)) {
+      throw new Error('Discovery contracts use interleaving execution; fire one transition at a time.');
     }
-
-    const fired = super.fireTransitionsSynchronously(transitionsToFire);
-    if (!fired) return false;
-
-    // Handle data updates for all fired transitions
-    // Note: For synchronous semantics, we need to decide how to handle multiple postconditions
-    // Option 1: Apply them sequentially in the order of transition IDs
-    // Option 2: Compose them somehow
-    // We'll use Option 1 for now
-    for (const transitionId of transitionsToFire) {
-      const transition = this.transitions.get(transitionId);
-      if (!transition) continue;
-
+    const initialValuation = this.getDataValuation();
+    let valuation = initialValuation;
+    for (const id of transitionsToFire) {
+      const transition = this.transitions.get(id);
       if (typeof transition.evaluatePostcondition === 'function') {
-        try {
-          const newValuation = await transition.evaluatePostcondition(this.getDataValuation());
-          this.setDataValuation(newValuation);
-        } catch (error) {
-          console.error(`Error evaluating postcondition for transition ${transitionId}:`, error);
-          // Continue with execution even if postcondition fails
-        }
+        valuation = await transition.evaluatePostcondition(valuation, random);
+        this.validateDataValuation(valuation);
       }
     }
-
+    if (!equalValuations(initialValuation, this.getDataValuation())) return false;
+    if (!super.fireTransitionsSynchronously(transitionsToFire)) return false;
+    this.setDataValuation(valuation, true);
     return true;
   }
 
@@ -423,6 +393,8 @@ class DataPetriNet extends PetriNet {
       name: this.name,
       description: this.description,
       arcSemantics: this.getArcSemantics(),
+      finalMarkings: this.finalMarkings,
+      discoveryMetadata: this.discoveryMetadata,
       places: Array.from(this.places.values()),
       transitions: Array.from(this.transitions.values()),
       arcs: Array.from(this.arcs.values()),
@@ -441,6 +413,9 @@ class DataPetriNet extends PetriNet {
       arcSemantics: data.arcSemantics
     });
 
+    net.finalMarkings = data.finalMarkings || [];
+    net.discoveryMetadata = data.discoveryMetadata;
+
     data.places.forEach((placeData) => {
       const place = new Place(
         placeData.id,
@@ -448,10 +423,11 @@ class DataPetriNet extends PetriNet {
         placeData.label,
         placeData.tokens,
         placeData.capacity,
-        placeData.finalMarking || null
+        placeData.finalMarking ?? null
       );
       net.places.set(place.id, place);
     });
+    validateFinalMarkings(net.finalMarkings, new Set(net.places.keys()));
 
     data.transitions.forEach((transitionData) => {
       // Only create DataAwareTransition if it has precondition or postcondition
@@ -462,7 +438,7 @@ class DataPetriNet extends PetriNet {
       const isSilent = transitionData.silent || !transitionData.label || transitionData.label.trim() === '';
       
       let transition;
-      if (hasPrecondition || hasPostcondition) {
+      if (hasPrecondition || hasPostcondition || transitionData.discoveryContract) {
         transition = new DataAwareTransition(
           transitionData.id,
           transitionData.position,
@@ -483,6 +459,10 @@ class DataPetriNet extends PetriNet {
           transitionData.delay,
           isSilent
         );
+      }
+      if (transitionData.discoveryContract) {
+        validateDiscoveryContract(transitionData.discoveryContract);
+        transition.discoveryContract = transitionData.discoveryContract;
       }
       net.transitions.set(transition.id, transition);
     });
@@ -506,9 +486,12 @@ class DataPetriNet extends PetriNet {
           variableData.id,
           variableData.name,
           variableData.type, // normalizeType is called in the constructor
-          variableData.currentValue,
+          variableData.initialValuePresent === false ? undefined :
+            Object.hasOwn(variableData, 'initialValue') ? variableData.initialValue : variableData.currentValue,
           variableData.description
         );
+        if (Object.hasOwn(variableData, 'currentValue')) variable.currentValue = variableData.currentValue;
+        variable.sourceName = variableData.sourceName;
         net.dataVariables.set(variable.id, variable);
       });
     }
@@ -546,6 +529,9 @@ class DataPetriNet extends PetriNet {
       <source>
          <text>Generated by YAPNE - Yet Another Petri Net Editor</text>
       </source>
+      <toolspecific tool="YAPNE" version="2">
+         <model-json>${this.escapeXML(this.toJSON())}</model-json>
+      </toolspecific>
       <page id="n0">`;
 
     // Export places
@@ -659,14 +645,18 @@ class DataPetriNet extends PetriNet {
             javaType = 'java.lang.Double';
             maxValue = '100000.0';
             break;
+          case 'data':
+            javaType = 'java.lang.Object';
+            break;
           case 'bool':
             javaType = 'java.lang.Boolean';
             maxValue = '100000';
             break;
         }
 
+        const bounds = variable.type === 'data' ? '' : ` maxValue="${this.escapeXML(maxValue)}" minValue="${this.escapeXML(minValue)}"`;
         pnml += `
-         <variable maxValue="${this.escapeXML(maxValue)}" minValue="${this.escapeXML(minValue)}" type="${this.escapeXML(javaType)}">
+         <variable${bounds} type="${this.escapeXML(javaType)}">
             <name>${this.escapeXML(variable.name)}</name>
          </variable>`;
       }

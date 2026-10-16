@@ -1,0 +1,85 @@
+<?xml version='1.0' encoding='utf-8'?>
+<pnml xmlns="http://www.pnml.org/version-2009/grammar/pnml">
+  <net id="net_0" type="http://www.pnml.org/version-2009/grammar/ptnet">
+    <name>
+      <text>Discovery cvc5 interoperability fixture</text>
+    </name>
+    <page id="page_0">
+      <place id="place_0">
+        <name>
+          <text>finish</text>
+        </name>
+      </place>
+      <place id="place_1">
+        <name>
+          <text>ready</text>
+        </name>
+      </place>
+      <place id="place_2">
+        <name>
+          <text>start</text>
+        </name>
+        <initialMarking>
+          <text>1</text>
+        </initialMarking>
+      </place>
+      <transition id="transition_0">
+        <name>
+          <text>Initialize</text>
+        </name>
+        <toolspecific tool="dpn-discovery" version="2.0">
+          <guard syntax="smtlib2">true</guard>
+          <update variable="loan amount" syntax="smtlib2">5.0</update>
+          <update variable="true" syntax="smtlib2">13.0</update>
+          <update variable="x" syntax="smtlib2">2.0</update>
+          <update variable="x\y" syntax="smtlib2">11.0</update>
+          <update variable="x|y" syntax="smtlib2">7.0</update>
+          <update variable="y" syntax="smtlib2">3.0</update>
+          <contract generalized="true" observedPairCount="1">
+            <observedPair>
+              <before>{}</before>
+              <after>{"loan amount":5,"true":13,"x":2,"x\\y":11,"x|y":7,"y":3}</after>
+            </observedPair>
+          </contract>
+        </toolspecific>
+      </transition>
+      <arc id="arc_0" source="place_2" target="transition_0" />
+      <arc id="arc_1" source="transition_0" target="place_1" />
+      <transition id="transition_1">
+        <name>
+          <text>Swap and increment</text>
+        </name>
+        <toolspecific tool="dpn-discovery" version="2.0">
+          <guard syntax="smtlib2">(let ((_let_1 (&lt; 0.0 dpn_var_5))) (let ((_let_2 (&gt;= (/ 21 2) dpn_var_2))) (and (or _let_2 _let_1) (or _let_2 (not _let_1)))))</guard>
+          <update variable="x" syntax="smtlib2">dpn_var_5</update>
+          <update variable="y" syntax="smtlib2">(+ dpn_var_2 1.0)</update>
+          <contract generalized="true" observedPairCount="1">
+            <observedPair>
+              <before>{"loan amount":5,"true":13,"x":2,"x\\y":11,"x|y":7,"y":3}</before>
+              <after>{"loan amount":5,"true":13,"x":99,"x\\y":11,"x|y":7,"y":88}</after>
+            </observedPair>
+          </contract>
+        </toolspecific>
+      </transition>
+      <arc id="arc_2" source="place_1" target="transition_1" />
+      <arc id="arc_3" source="transition_1" target="place_0" />
+    </page>
+    <toolspecific tool="dpn-discovery" version="1.0">
+      <variable name="loan amount" symbol="dpn_var_0" />
+      <variable name="true" symbol="dpn_var_1" />
+      <variable name="x" symbol="dpn_var_2" />
+      <variable name="x\y" symbol="dpn_var_3" />
+      <variable name="x|y" symbol="dpn_var_4" />
+      <variable name="y" symbol="dpn_var_5" />
+    </toolspecific>
+    <toolspecific tool="dpn-discovery" version="2.0">
+      <finalmarkings>
+        <marking id="marking_0">
+          <place idref="place_0">
+            <text>1</text>
+          </place>
+        </marking>
+      </finalmarkings>
+    </toolspecific>
+  </net>
+</pnml>

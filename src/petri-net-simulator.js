@@ -595,7 +595,7 @@ class PetriNet {
         placeData.label,
         placeData.tokens,
         placeData.capacity,
-        placeData.finalMarking || null
+        placeData.finalMarking ?? null
       );
       net.places.set(place.id, place);
     });
@@ -3086,16 +3086,16 @@ class PetriNetEditor {
     return this._clonePlainValue(arc);
   }
 
+  /** Copy nested metadata without interpreting data keys as object setters.
+   * @param {unknown} value
+   * @returns {unknown}
+   */
   _clonePlainValue(value) {
     if (value === null || typeof value !== 'object') return value;
     if (Array.isArray(value)) {
       return value.map(item => this._clonePlainValue(item));
     }
-    const clone = {};
-    for (const key of Object.keys(value)) {
-      clone[key] = this._clonePlainValue(value[key]);
-    }
-    return clone;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, this._clonePlainValue(item)]));
   }
 
   _restoreElementClone(snapshot, id, offset, type) {
@@ -4171,6 +4171,15 @@ class PetriNetAPI {
 
     results.allSatisfied = results.placesWithFinalMarkings > 0 && 
                           results.satisfiedFinalMarkings === results.placesWithFinalMarkings;
+
+    if (this.petriNet.finalMarkings?.length) {
+      results.exactFinalMarkings = true;
+      results.finalMarkingAlternatives = this.petriNet.finalMarkings.map(marking => ({
+        marking,
+        reached: [...this.petriNet.places].every(([id, place]) => place.tokens === (marking[id] ?? 0))
+      }));
+      results.allSatisfied = results.finalMarkingAlternatives.some(alternative => alternative.reached);
+    }
 
     return results;
   }

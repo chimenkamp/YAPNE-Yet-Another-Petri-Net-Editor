@@ -12,6 +12,26 @@
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   }
+
+  .pnml-data-preview {
+    border: 1px solid #4C566A;
+    border-radius: 8px;
+    padding: 16px;
+    line-height: 1.5;
+  }
+
+  .pnml-data-preview[hidden] { display: none; }
+  .pnml-data-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .pnml-data-table th, .pnml-data-table td { text-align: left; padding: 8px; border-bottom: 1px solid #4C566A; vertical-align: top; }
+  .pnml-data-table input, .pnml-data-table select { box-sizing: border-box; max-width: 100%; width: 100%; padding: 6px; }
+  .pnml-data-table small, .pnml-condition code { display: block; }
+  .pnml-data-warning { color: #EBCB8B; }
+  .pnml-feature-row { padding: 10px 0; border-top: 1px solid #4C566A; }
+  .pnml-feature-row p { margin: 4px 0; }
+  .pnml-condition { margin: 12px 0; padding: 10px; background: #2E3440; border-radius: 4px; }
+  .pnml-condition code { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; }
+  .pnml-data-preview details { margin-top: 16px; }
+  .pnml-data-preview summary { cursor: pointer; }
   
   .pnml-import-content {
     display: flex;
@@ -522,6 +542,3 @@
   .upload-area:hover .file-type-indicator {
     opacity: 1;
   }
-  
-
- 
