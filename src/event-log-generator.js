@@ -1,5 +1,23 @@
-import { PetriNet, Place, Transition, Arc } from './petri-net-simulator.js';
-import { DataPetriNet, DataAwareTransition, DataVariable } from './extensions/dpn-model.js';
+import { PetriNet } from './petri-net-simulator.js';
+import { DataPetriNet } from './extensions/dpn-model.js';
+
+/** @type {Set<string>} XES fields that cannot also carry flat variable values. */
+const EVENT_METADATA_COLUMNS = new Set(['case:concept:name', 'concept:name', 'time:timestamp', 'lifecycle:transition', 'org:resource']);
+
+/** Reject flat field collisions while preserving the original data names.
+ * @param {PetriNet | DataPetriNet} net
+ * @param {string} format
+ * @returns {void}
+ */
+export function validateEventLogVariables(net, format) {
+  if (format !== 'classic' || !(net.dataVariables instanceof Map)) return;
+  for (const variable of net.dataVariables.values()) {
+    const name = variable.sourceName ?? variable.name;
+    if (EVENT_METADATA_COLUMNS.has(name)) {
+      throw new Error(`Variable '${name}' conflicts with event metadata in classic logs. Use lifecycle format to keep its value in the nested data snapshot.`);
+    }
+  }
+}
 
 /**
  * Petri Net Simulator
@@ -29,7 +47,8 @@ class EventLogGenerator {
      */
     constructor(petriNet, options = {}) {
       this.petriNet = petriNet;
-
+      petriNet.assertNativeExecutionSupported?.();
+      this.completeDataSnapshots = Boolean(petriNet.discoveryMetadata) || [...petriNet.transitions.values()].some(transition => transition.discoveryContract);
 
       this.options = {
         startTimestamp: options.startTimestamp || new Date(),
@@ -48,6 +67,7 @@ class EventLogGenerator {
         seed: options.seed || null,
         eventLogFormat: options.eventLogFormat || 'lifecycle'
       };
+      validateEventLogVariables(petriNet, this.options.eventLogFormat);
       
       // Track previous variable values for classic format (per case)
       this.previousVariableValues = {};
@@ -164,7 +184,7 @@ class EventLogGenerator {
       let initialVariables = null;
       
       if (isDataPetriNet && net.dataVariables) {
-        initialVariables = net.getDataValuation();
+        initialVariables = net.getDataValuation(true);
       }
       
       // Create the new case
@@ -210,93 +230,8 @@ class EventLogGenerator {
      * @private
      */
     clonePetriNet() {
-      // Check if this is a Data Petri Net
-      const isDataPetriNet = this.petriNet instanceof DataPetriNet || 
-                             this.petriNet.dataVariables instanceof Map;
-      
-      // Create the appropriate type of clone
-      const clone = isDataPetriNet
-        ? new DataPetriNet(
-            this.petriNet.id,
-            this.petriNet.name,
-            this.petriNet.description,
-            { arcSemantics: this.petriNet.getArcSemantics?.() }
-          )
-        : new PetriNet(
-            this.petriNet.id,
-            this.petriNet.name,
-            this.petriNet.description,
-            { arcSemantics: this.petriNet.getArcSemantics?.() }
-          );
-      
-      // Clone places
-      for (const [id, place] of this.petriNet.places) {
-        const placeClone = new Place(
-          id,
-          { x: place.position.x, y: place.position.y },
-          place.label,
-          place.tokens,
-          place.capacity
-        );
-        clone.places.set(id, placeClone);
-      }
-      
-      // Clone transitions (including data-aware transitions)
-      for (const [id, transition] of this.petriNet.transitions) {
-        let transitionClone;
-        
-        if (transition instanceof DataAwareTransition || 
-            (transition.precondition !== undefined && transition.postcondition !== undefined)) {
-          transitionClone = new DataAwareTransition(
-            id,
-            { x: transition.position.x, y: transition.position.y },
-            transition.label,
-            transition.priority,
-            transition.delay,
-            transition.precondition || "",
-            transition.postcondition || ""
-          );
-        } else {
-          transitionClone = new Transition(
-            id,
-            { x: transition.position.x, y: transition.position.y },
-            transition.label,
-            transition.priority,
-            transition.delay
-          );
-        }
-        clone.transitions.set(id, transitionClone);
-      }
-      
-      // Clone arcs
-      for (const [id, arc] of this.petriNet.arcs) {
-        const arcClone = new Arc(
-          id,
-          arc.source,
-          arc.target,
-          arc.weight,
-          arc.type,
-          [...arc.points],
-          arc.label
-        );
-        clone.arcs.set(id, arcClone);
-      }
-      
-      // Clone data variables if this is a Data Petri Net
-      if (isDataPetriNet && this.petriNet.dataVariables) {
-        for (const [id, variable] of this.petriNet.dataVariables) {
-          const variableClone = new DataVariable(
-            id,
-            variable.name,
-            variable.type,
-            variable.currentValue,
-            variable.description
-          );
-          clone.dataVariables.set(id, variableClone);
-        }
-      }
-      
-      return clone;
+      const model = this.petriNet.dataVariables instanceof Map ? DataPetriNet : PetriNet;
+      return model.fromJSON(this.petriNet.toJSON());
     }
     
     /**
@@ -373,30 +308,19 @@ class EventLogGenerator {
       if (!this.previousVariableValues[caseId]) {
         this.previousVariableValues[caseId] = {};
       }
+
+      const previous = this.previousVariableValues[caseId];
+      const columns = Object.fromEntries(Object.entries(event.variablesAfter || {}).map(([name, value]) =>
+        [name, this.completeDataSnapshots || !Object.hasOwn(previous, name) || previous[name] !== value ? value : '']));
       
       // Create base log entry with standard XES attributes
       const logEntry = {
         'case:concept:name': caseId,
         'concept:name': event.activity,
-        'time:timestamp': event.timestamp.toISOString()
+        'time:timestamp': event.timestamp.toISOString(),
+        ...columns
       };
-      
-      // Add variable columns - only include values that changed
-      if (event.variablesAfter) {
-        for (const [varName, currentValue] of Object.entries(event.variablesAfter)) {
-          const previousValue = this.previousVariableValues[caseId][varName];
-          
-          // Only add the value if it changed (or if it's the first time we see this variable)
-          if (previousValue !== currentValue) {
-            logEntry[varName] = currentValue;
-            // Update the previous value for next comparison
-            this.previousVariableValues[caseId][varName] = currentValue;
-          } else {
-            // Leave empty if unchanged (don't add the key at all, or set to empty string)
-            logEntry[varName] = '';
-          }
-        }
-      }
+      this.previousVariableValues[caseId] = { ...previous, ...event.variablesAfter };
       
       // Add to main event log
       this.eventLog.push(logEntry);
@@ -547,7 +471,9 @@ class EventLogGenerator {
      */
     isCaseComplete(simulationCase) {
       const net = simulationCase.net;
-      
+      if (net.finalMarkings?.length) {
+        return net.finalMarkings.some(marking => [...net.places].every(([id, place]) => place.tokens === (marking[id] ?? 0)));
+      }
 
       for (const placeId of this.options.endPlaces) {
         const place = net.places.get(placeId);
@@ -577,7 +503,11 @@ class EventLogGenerator {
      */
     async processCase(simulationCase) {
       // If already complete, return false
-      if (simulationCase.state === 'complete') {
+      if (simulationCase.state !== 'active') {
+        return false;
+      }
+      if (simulationCase.net.finalMarkings?.length && this.isCaseComplete(simulationCase)) {
+        this.completeCase(simulationCase);
         return false;
       }
       
@@ -585,12 +515,8 @@ class EventLogGenerator {
       const transitionId = this.selectNextTransition(simulationCase);
       
       if (!transitionId) {
-        // No enabled transitions - check if case is complete
-        if (this.isCaseComplete(simulationCase)) {
-          this.completeCase(simulationCase);
-          return false;
-        }
-        return true; // Case is not complete but stuck (deadlock)
+        this.completeCase(simulationCase, this.isCaseComplete(simulationCase) ? 'complete' : 'deadlock');
+        return false;
       }
       
       // Get the transition and its name
@@ -607,17 +533,24 @@ class EventLogGenerator {
       let preconditionResult = null;
       
       if (isDataPetriNet && simulationCase.net.dataVariables) {
-        variablesBefore = simulationCase.net.getDataValuation();
+        variablesBefore = simulationCase.net.getDataValuation(true);
         
         // Evaluate precondition for logging (only if not silent)
         if (!isSilentTransition && transition.precondition && transition.precondition.trim() !== "") {
           preconditionResult = {
             expression: transition.precondition,
-            satisfied: transition.evaluatePrecondition(variablesBefore)
+            satisfied: transition.evaluatePrecondition(simulationCase.net.getDataValuation())
           };
         }
       }
       
+      const duration = transition.delay || this.options.defaultTransitionDuration;
+      const fired = await simulationCase.net.fireTransition(transitionId, this.random);
+      if (!fired) {
+        this.completeCase(simulationCase, 'failed');
+        return false;
+      }
+
       // Log transition start event (skip for silent transitions and classic format)
       if (!isSilentTransition && this.options.eventLogFormat === 'lifecycle') {
         const startEventData = { transitionId };
@@ -638,16 +571,6 @@ class EventLogGenerator {
         });
       }
       
-      // Calculate duration
-      const duration = transition.delay || this.options.defaultTransitionDuration;
-      
-      // Fire the transition (async for DPN)
-      if (isDataPetriNet && typeof simulationCase.net.fireTransition === 'function') {
-        await simulationCase.net.fireTransition(transitionId);
-      } else {
-        simulationCase.net.fireTransition(transitionId);
-      }
-      
       simulationCase.steps++;
       
       // Get variable state AFTER transition firing (for DPN)
@@ -656,7 +579,7 @@ class EventLogGenerator {
       let variableChanges = null;
       
       if (isDataPetriNet && simulationCase.net.dataVariables) {
-        variablesAfter = simulationCase.net.getDataValuation();
+        variablesAfter = simulationCase.net.getDataValuation(true);
         
         // Track variable changes (only if not silent)
         if (!isSilentTransition && variablesBefore && variablesAfter) {
@@ -738,10 +661,11 @@ class EventLogGenerator {
     /**
      * Marks a case as complete
      * @param {Object} simulationCase - The simulation case to complete
+     * @param {string} status - Completion, deadlock, failure, or step-limit status.
      * @private
      */
-    completeCase(simulationCase) {
-      simulationCase.state = 'complete';
+    completeCase(simulationCase, status = 'complete') {
+      simulationCase.state = status;
       simulationCase.endTime = new Date(simulationCase.currentTime);
       
       // Capture final variable state for DPN
@@ -750,14 +674,15 @@ class EventLogGenerator {
       let finalVariables = null;
       
       if (isDataPetriNet && simulationCase.net.dataVariables) {
-        finalVariables = simulationCase.net.getDataValuation();
+        finalVariables = simulationCase.net.getDataValuation(true);
       }
       
       // Log case end with final variables (skip for classic format)
       if (this.options.eventLogFormat !== 'classic') {
         const endData = { 
           duration: simulationCase.endTime - simulationCase.startTime,
-          steps: simulationCase.steps
+          steps: simulationCase.steps,
+          status
         };
         
         if (finalVariables) {
@@ -792,6 +717,8 @@ class EventLogGenerator {
      * @returns {Promise<Array>} The generated event log
      */
     async simulateCases(numCases, maxSteps = 1000) {
+      this.petriNet.assertNativeExecutionSupported?.();
+      validateEventLogVariables(this.petriNet, this.options.eventLogFormat);
       // Reset simulation state
       this.activeCases = [];
       this.completedCases = [];
@@ -861,7 +788,7 @@ class EventLogGenerator {
           }
         } else {
           // Max steps reached, force complete
-          this.completeCase(currentCase);
+          this.completeCase(currentCase, 'max_steps_exceeded');
         }
       }
       

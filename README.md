@@ -358,6 +358,18 @@ YAPNE JSON stores the full editor model, including places, transitions, arcs, la
 
 PNML support is intended for interoperability with other Petri net tools. Some YAPNE-specific DPN and UI metadata may not have a direct PNML equivalent.
 
+Discovery PNML imports include variables, prefix SMT-LIB guards, simultaneous updates, observed before/after relations, and alternative exact final markings. The import dialog previews data and conditions and reports feature compatibility. Legacy files without initial values require explicit values before import. Current Discovery contracts start with an empty data state. YAPNE PNML exports include a `YAPNE/model-json` extension for lossless YAPNE round trips; other tools may ignore this extension.
+
+Native simulation and event logs support Discovery's deterministic updates and retained finite relations. Native choices are uniform over distinct permitted successors, not learned probabilities or the paper's conditioned distribution. Arithmetic uses JavaScript Number precision. Unsafe integer data imports are rejected; exact rational arithmetic is not implemented. Older ambiguous solver pretty-printed expressions must be re-exported with the updated Discovery exporter.
+
+The paper-based features keep separate compatibility checks. Suvorov–Lomazova verification accepts real/Boolean variable/constant comparisons within its supported grammar, not arithmetic updates or retained Discovery relations. WebPPL currently rejects writes and unsupported syntax/relations because its translator does not implement their required scheduler semantics. It also rejects special arcs, parallel arcs, and capacities that the translator does not preserve. An explicitly requested WebPPL run never silently falls back to native execution. A compatibility hint is not a proof of soundness or probabilistic equivalence.
+
+### Compatibility checks
+
+Run `node --test tests/guard-discovery-test.js tests/guard-numeric-soundness-test.js tests/discovery-execution-test.js tests/feature-gates-test.js tests/simulation-reset-test.js tests/simulation-dashboard-test.js` and `node tests/petri-net-semantics-test.js`. Run `npm run build` for the production bundle.
+
+With the development server running, open `tests/pnml-import-test.html` for real browser XML parsing, exports from Z3/CVC5/Yices2, the supplied legacy example, execution, logs, and PNML round trips. Open `tests/pnml-numeric-test.html` for numeric import boundaries. `tests/pnml-dialog-test.html` loads the actual editor import dialog; add `?fixture=current` for a current Discovery contract.
+
 ## Examples
 
 Example models are stored in `public/examples/`. They include basic soundness examples, violation examples, concurrency examples, and Data Petri net models such as order processing, emergency triage, and Fibonacci.

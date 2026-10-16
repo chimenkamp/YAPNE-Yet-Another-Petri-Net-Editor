@@ -1,8 +1,9 @@
-import { PetriNetAPI, Place, Transition, Arc } from '../petri-net-simulator.js';
+import { PetriNetAPI, PetriNet } from '../petri-net-simulator.js';
 import { DataPetriNetAPI } from './dpn-api.js';
-import { DataAwareTransition, DataVariable } from './dpn-model.js';
+import { DataPetriNet } from './dpn-model.js';
 import { DataPetriNetRenderer } from './dpn-renderer.js';
-import { migratePrecondition, migratePostcondition } from './guard-language/guard-migrator.js';
+import { readPNML } from './pnml-reader.js';
+import { renderDataPreview, isImportDataReady } from './pnml-data-preview.js';
 
 /**
  * PNML Importer Extension with Improved BPMN Layout Algorithm
@@ -45,6 +46,7 @@ class PNMLImporter {
     }
   
     showImportDialog() {
+      this.currentParsedNet = null;
       const dialog = this.createImportDialog();
       document.body.appendChild(dialog);
       
@@ -133,6 +135,8 @@ class PNMLImporter {
                 </div>
               </div>
   
+              <section id="pnml-data-preview" class="pnml-data-preview" hidden></section>
+
               <!-- Preview Section -->
               <div class="preview-section" id="preview-section" style="display: none;">
                 <h3>👁️ Preview</h3>
@@ -268,6 +272,9 @@ class PNMLImporter {
     }
   
     async handleFileUpload(file, dialog) {
+        this.currentParsedNet = null;
+        dialog.querySelector('#btn-apply-import').disabled = true;
+        dialog.querySelector('#pnml-data-preview').hidden = true;
         try {
           await this.showProgress(dialog, 'Reading file...', 10);
           
@@ -282,6 +289,9 @@ class PNMLImporter {
           }
       
           this.currentParsedNet = parsedNet;
+          renderDataPreview(dialog.querySelector('#pnml-data-preview'), parsedNet, () => {
+            dialog.querySelector('#btn-apply-import').disabled = !isImportDataReady(parsedNet);
+          });
           
           // Check if we have data variables and ensure integration is ready
           if (parsedNet.dataVariables && parsedNet.dataVariables.length > 0) {
@@ -312,7 +322,7 @@ class PNMLImporter {
           await this.showProgress(dialog, 'Generating preview...', 80);
           
           // Enable import button
-          dialog.querySelector('#btn-apply-import').disabled = false;
+          dialog.querySelector('#btn-apply-import').disabled = !isImportDataReady(parsedNet);
           
           // Generate initial layout and preview
           await this.updatePreview(dialog);
@@ -362,238 +372,6 @@ class PNMLImporter {
         });
       }
       
-      // Complete importToEditor method
-      async importToEditor(dialog) {
-        if (!this.currentParsedNet) return;
-        
-        this.app.resetPetriNet();
-      
-        try {
-          await this.showProgress(dialog, 'Importing to editor...', 0);
-      
-          // Stop any auto-run simulation
-          if (this.app.autoRunInterval) {
-            this.app.stopAutoRun();
-          }
-      
-          await this.showProgress(dialog, 'Creating API instance...', 20);
-      
-          // Create new API instance based on data content
-          let newAPI;
-          if (this.currentParsedNet.dataVariables.length > 0 || 
-              this.currentParsedNet.transitions.some(t => t.isDataAware)) {
-            newAPI = new DataPetriNetAPI(
-              this.currentParsedNet.id,
-              this.currentParsedNet.name,
-              this.currentParsedNet.description
-            );
-          } else {
-            newAPI = new PetriNetAPI(
-              this.currentParsedNet.id,
-              this.currentParsedNet.name,
-              this.currentParsedNet.description
-            );
-          }
-      
-          await this.showProgress(dialog, 'Applying layout...', 40);
-      
-          // Get final layout settings and apply layout
-          const settings = this.getLayoutSettings(dialog);
-          const netWithLayout = await this.applyLayout(this.currentParsedNet, settings);
-      
-          await this.showProgress(dialog, 'Creating places...', 60);
-      
-          // Import places with proper positioning
-          netWithLayout.places.forEach(placeData => {
-            const place = new Place(
-              placeData.id,
-              placeData.position || { x: 100, y: 100 },
-              placeData.label,
-              placeData.tokens,
-              placeData.capacity
-            );
-            newAPI.petriNet.places.set(placeData.id, place);
-          });
-      
-          await this.showProgress(dialog, 'Creating transitions...', 70);
-      
-          // Import transitions with proper positioning and data-awareness detection
-          netWithLayout.transitions.forEach(transitionData => {
-            let transition;
-            
-            // Check if this should be a data-aware transition
-            const shouldBeDataAware = transitionData.isDataAware || 
-                                     transitionData.precondition || 
-                                     transitionData.postcondition ||
-                                     (newAPI instanceof DataPetriNetAPI);
-            
-            if (shouldBeDataAware && typeof DataAwareTransition !== 'undefined') {
-              transition = new DataAwareTransition(
-                transitionData.id,
-                transitionData.position || { x: 100, y: 100 },
-                transitionData.label,
-                transitionData.priority,
-                transitionData.delay,
-                transitionData.precondition,
-                transitionData.postcondition,
-                transitionData.silent || false
-              );
-            } else {
-              transition = new Transition(
-                transitionData.id,
-                transitionData.position || { x: 100, y: 100 },
-                transitionData.label,
-                transitionData.priority,
-                transitionData.delay,
-                transitionData.silent || false
-              );
-            }
-            newAPI.petriNet.transitions.set(transitionData.id, transition);
-          });
-      
-          await this.showProgress(dialog, 'Creating arcs...', 80);
-      
-          // Import arcs
-          netWithLayout.arcs.forEach(arcData => {
-            const arc = new Arc(
-              arcData.id,
-              arcData.source,
-              arcData.target,
-              arcData.weight,
-              arcData.type,
-              arcData.points,
-              arcData.label || arcData.weight.toString()
-            );
-            newAPI.petriNet.arcs.set(arcData.id, arc);
-          });
-      
-          await this.showProgress(dialog, 'Importing data variables...', 90);
-      
-          // Import data variables if present
-          if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
-            console.log("Importing data variables:", netWithLayout.dataVariables);
-            netWithLayout.dataVariables.forEach(varData => {
-              const variable = new DataVariable(
-                varData.id,
-                varData.name,
-                varData.type,
-                varData.currentValue,
-                varData.description
-              );
-              newAPI.petriNet.dataVariables.set(varData.id, variable);
-              console.log(`Imported data variable: ${varData.name} = ${varData.currentValue}`);
-            });
-          }
-      
-          await this.showProgress(dialog, 'Finalizing...', 95);
-      
-          // Replace the app's API
-          this.app.api = newAPI;
-          this.app.editor = newAPI.attachEditor(this.app.canvas);
-      
-          // Set up renderer based on API type
-          if (newAPI instanceof DataPetriNetAPI) {
-            this.app.editor.renderer = new DataPetriNetRenderer(this.app.canvas, newAPI.petriNet);
-          }
-      
-          // Restore app functionality
-          this.app.editor.app = this.app;
-          this.app.editor.setOnSelectCallback(this.app.handleElementSelected.bind(this.app));
-          this.app.editor.setOnChangeCallback(this.app.handleNetworkChanged.bind(this.app));
-          if (this.app.applyEditorSettings) {
-            this.app.applyEditorSettings(this.app.editorSettings, { persist: false });
-          }
-          this.app.editor.setMode('select');
-          this.app.updateActiveButton('btn-select');
-      
-          // Render and update displays
-          this.app.editor.render();
-          this.app.updateTokensDisplay();
-          this.app.updateZoomDisplay();
-          this.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
-        
-
-          // Update data displays - use multiple approaches to ensure it works
-          if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
-            console.log("Attempting to update data variables UI...");
-            
-            // Approach 1: Try through app.dataPetriNetUI
-            if (this.app.dataPetriNetUI) {
-              console.log("Updating data variables UI through app.dataPetriNetUI");
-              this.app.dataPetriNetUI.updateDataVariablesDisplay();
-              this.app.dataPetriNetUI.updateDataValuesDisplay();
-            } else {
-              console.log("app.dataPetriNetUI not available");
-            }
-            
-            // Approach 2: Try through global integration object
-            if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI) {
-              console.log("Updating data variables UI through global integration");
-              window.dataPetriNetIntegration.dataPetriNetUI.updateDataVariablesDisplay();
-              window.dataPetriNetIntegration.dataPetriNetUI.updateDataValuesDisplay();
-            } else {
-              console.log("Global dataPetriNetIntegration not available");
-            }
-            
-            // Approach 3: Force update after a short delay to ensure everything is initialized
-            setTimeout(() => {
-              console.log("Attempting delayed update of data variables UI");
-              if (this.app.dataPetriNetUI) {
-                console.log("Delayed update of data variables UI through app");
-                this.app.dataPetriNetUI.updateDataVariablesDisplay();
-                this.app.dataPetriNetUI.updateDataValuesDisplay();
-              } else if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI) {
-                console.log("Delayed update through global integration");
-                window.dataPetriNetIntegration.dataPetriNetUI.updateDataVariablesDisplay();
-                window.dataPetriNetIntegration.dataPetriNetUI.updateDataValuesDisplay();
-              } else {
-                console.warn("No data UI integration available for update");
-              }
-              
-              // Additional debug info
-              console.log("Final data variables count:", newAPI.petriNet.dataVariables.size);
-              console.log("Final data variables:", Array.from(newAPI.petriNet.dataVariables.values()));
-            }, 100);
-            
-            // Approach 4: Even longer delay as a last resort
-            setTimeout(() => {
-              console.log("Final attempt at updating data variables UI");
-              if (this.app.dataPetriNetUI) {
-                this.app.dataPetriNetUI.updateDataVariablesDisplay();
-                this.app.dataPetriNetUI.updateDataValuesDisplay();
-                console.log("Final update successful through app");
-              } else if (window.dataPetriNetIntegration && window.dataPetriNetIntegration.dataPetriNetUI) {
-                window.dataPetriNetIntegration.dataPetriNetUI.updateDataVariablesDisplay();
-                window.dataPetriNetIntegration.dataPetriNetUI.updateDataValuesDisplay();
-                console.log("Final update successful through global");
-              }
-            }, 500);
-          }
-      
-          await this.showProgress(dialog, 'Complete!', 100);
-      
-          // Clean up
-          this.currentParsedNet = null;
-      
-          // Close dialog and show success
-          setTimeout(() => {
-            document.body.removeChild(dialog);
-            
-            // Show detailed success message with data variable info
-            let successMessage = 'PNML file imported successfully!';
-            if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
-              successMessage += `\n\nImported ${netWithLayout.dataVariables.length} data variables.`;
-            }
-            alert(successMessage);
-          }, 500);
-      
-        } catch (error) {
-          this.hideProgress(dialog);
-          console.error('Error importing PNML:', error);
-          alert('Error importing PNML file: ' + error.message);
-        }
-      }
-  
     async showProgress(dialog, text, percentage) {
       const progressContainer = dialog.querySelector('#progress-container');
       const progressText = dialog.querySelector('#progress-text');
@@ -623,189 +401,9 @@ class PNMLImporter {
       });
     }
   
+    /** Parse PNML without guessing missing data or discarding conditions. */
     parsePNML(xmlContent) {
-      try {
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
-        
-        const parseError = xmlDoc.querySelector('parsererror');
-        if (parseError) {
-          throw new Error('Invalid XML format');
-        }
-  
-        const net = xmlDoc.querySelector('net');
-        if (!net) {
-          throw new Error('No net element found in PNML file');
-        }
-  
-        const parsedNet = {
-          id: net.getAttribute('id') || this.generateUUID(),
-          name: this.getTextContent(net.querySelector('name text')) || 'Imported Net',
-          description: this.getTextContent(net.querySelector('description text')) || '',
-          places: [],
-          transitions: [],
-          arcs: [],
-          dataVariables: []
-        };
-  
-        // Parse places
-        const places = net.querySelectorAll('place');
-        places.forEach(place => {
-          const placeData = {
-            id: place.getAttribute('id'),
-            label: this.getTextContent(place.querySelector('name text')) || place.getAttribute('id'),
-            tokens: parseInt(this.getTextContent(place.querySelector('initialMarking text')) || '0'),
-            position: this.getPosition(place),
-            capacity: null
-            };
-          const finalMarkingElement = place.querySelector('finalMarking text');
-          if (finalMarkingElement) {
-            const finalMarkingValue = parseInt(this.getTextContent(finalMarkingElement));
-            if (!isNaN(finalMarkingValue) && finalMarkingValue >= 0) {
-              placeData.finalMarking = finalMarkingValue;
-            }
-          }
-
-          parsedNet.places.push(placeData);
-        });
-  
-        // Parse transitions
-        const transitions = net.querySelectorAll('transition');
-        transitions.forEach(transition => {
-          // Check for data-aware attributes
-          let precondition = this.getTextContent(transition.querySelector('dataGuard text')) || 
-                             this.unescapeXML(transition.getAttribute('guard')) || '';
-
-          let postcondition = this.getTextContent(transition.querySelector('dataUpdate text')) || 
-                              this.getTextContent(transition.querySelector('dataAction text')) || '';
-          
-          let isDataAware = !!(precondition || postcondition || 
-                               transition.querySelector('guard') ||
-                               transition.querySelector('dataGuard') ||
-                               transition.querySelector('dataUpdate') ||
-                               transition.querySelector('dataAction'));
-
-          const { pre, post } = this.splitPrePostConditions(precondition)
-
-          precondition = pre || '';
-          postcondition = post || '';
-          
-          // Check for silent transition (toolspecific attribute or empty label)
-          const isSilent = transition.getAttribute('silent') === 'true' ||
-                           transition.querySelector('toolspecific[tool="YAPNE"] silent')?.textContent === 'true';
-          
-          const transitionData = {
-            id: transition.getAttribute('id'),
-            label: this.getTextContent(transition.querySelector('name text')) || transition.getAttribute('id'),
-            position: this.getPosition(transition),
-            priority: 1,
-            delay: 0,
-            precondition: migratePrecondition(precondition.replace(/'/g, "")),
-            postcondition: migratePostcondition(postcondition),
-            isDataAware: isDataAware,
-            silent: isSilent
-          };
-          parsedNet.transitions.push(transitionData);
-        });
-  
-        // Parse arcs
-        const arcs = net.querySelectorAll('arc');
-        arcs.forEach(arc => {
-          const arcData = {
-            id: arc.getAttribute('id') || this.generateUUID(),
-            source: arc.getAttribute('source'),
-            target: arc.getAttribute('target'),
-            weight: parseInt(this.getTextContent(arc.querySelector('inscription text')) || '1'),
-            type: this.getTextContent(arc.querySelector('arctype text')) || 'regular',
-            points: [],
-            label: ''
-          };
-          parsedNet.arcs.push(arcData);
-        });
-  
-        // Parse data variables
-        const variablesSection = net.querySelector('dataVariables') || net.querySelector('variables');
-  
-        if (variablesSection) {
-          const variables = variablesSection.querySelectorAll('variable');
-          variables.forEach(variable => {
-            const varData = {
-              id: variable.getAttribute('id') || this.generateUUID(),
-              name: variable.querySelector("name").textContent || "Unnamed Variable",
-              type: variable.getAttribute("type") || 'string',
-              currentValue: this.getTextContent(variable.querySelector('initialValue text')),
-              description: this.getTextContent(variable.querySelector('description text')) || ''
-            };
-            let minValue = variable.getAttribute('minValue')|| "";
-            let maxValue = variable.getAttribute('maxValue')|| "";
-            let initialValue =  variable.querySelector("initialValue") ? variable.querySelector("initialValue").textContent : "";
-            // Convert value to appropriate type
-            if (varData.type === 'number' || varData.type === 'java.lang.Double' || varData.type === 'java.lang.Integer') {
-              varData.type = 'number';
-              varData.currentValue = parseFloat(initialValue) || 0;
-            } else if (varData.type === 'boolean' || varData.type === 'java.lang.Boolean') {
-              varData.type = 'boolean';
-              varData.currentValue = varData.currentValue === 'true';
-            } else {
-              varData.type = 'string';
-              varData.currentValue = String(varData.currentValue || '');
-            }
-            
-            parsedNet.dataVariables.push(varData);
-          });
-        }
-  
-        return parsedNet;
-      } catch (error) {
-        console.error('Error parsing PNML:', error);
-        return null;
-      }
-    }
-
-    splitPrePostConditions(inputString) {
-      // Default return object in case of invalid input format
-      const result = { pre: 'Invalid input format', post: 'Invalid input format' };
-
-      // Find the boundary between the pre and post conditions.
-      // We use ' | post: ' as the unique delimiter.
-      const postMarker = ' | post: ';
-      const postIndex = inputString.indexOf(postMarker);
-
-      if (postIndex !== -1) {
-
-          let prePart = inputString.substring(0, postIndex);
-
-          let postPart = inputString.substring(postIndex + postMarker.length);
-
-          // Clean up the 'pre' condition by removing the "pre: " prefix.
-          if (prePart.startsWith('pre: ')) {
-              result.pre = prePart.substring(5).trim();
-          } else {
-              result.pre = "";
-          }
-
-          // Clean up the 'post' condition by replacing all instances of ' | ' with ' ; '.
-          // A global regex is used to ensure all occurrences are replaced.
-          result.post = postPart.replace(/ \| /g, ' ; ').trim();
-      }
-      console.log("Split pre/post conditions:", result);
-
-      return result;
-    }
-  
-    /**
-     * Unescapes XML entities back to their original characters
-     * @param {string} str - The string to unescape
-     * @returns {string} The unescaped string
-     */
-    unescapeXML(str) {
-      if (str == null || str === '') return '';
-      return String(str)
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'")
-        .replace(/&amp;/g, '&'); // Must be last to avoid double-unescaping
+      return readPNML(xmlContent);
     }
 
     getTextContent(element) {
@@ -902,7 +500,7 @@ class PNMLImporter {
     }
   
     async applyLayout(parsedNet, settings) {
-      const netCopy = JSON.parse(JSON.stringify(parsedNet));
+      const netCopy = structuredClone(parsedNet);
       
       // Check if we need to generate positions
       const hasPositions = netCopy.places.some(p => p.position) || netCopy.transitions.some(t => t.position);
@@ -1150,8 +748,9 @@ class PNMLImporter {
       this.updatePreview(dialog);
     }
   
+    /** Build the complete validated model before replacing the editor. */
     async importToEditor(dialog) {
-      if (!this.currentParsedNet) return;
+      if (!isImportDataReady(this.currentParsedNet)) return;
   
       try {
         await this.showProgress(dialog, 'Importing to editor...', 0);
@@ -1165,7 +764,7 @@ class PNMLImporter {
   
         // Create new API instance based on data content
         let newAPI;
-        if (this.currentParsedNet.dataVariables.length > 0 || 
+        if (this.currentParsedNet.dataVariables.length > 0 || this.currentParsedNet.finalMarkings?.length ||
             this.currentParsedNet.transitions.some(t => t.isDataAware)) {
           newAPI = new DataPetriNetAPI(
             this.currentParsedNet.id,
@@ -1186,88 +785,14 @@ class PNMLImporter {
         const settings = this.getLayoutSettings(dialog);
         const netWithLayout = await this.applyLayout(this.currentParsedNet, settings);
   
-        await this.showProgress(dialog, 'Creating places...', 60);
-  
-        // Import places with proper positioning
-        netWithLayout.places.forEach(placeData => {
-          const place = new Place(
-            placeData.id,
-            placeData.position || { x: 100, y: 100 },
-            placeData.label,
-            placeData.tokens,
-            placeData.capacity
-          );
-          newAPI.petriNet.places.set(placeData.id, place);
-        });
-  
-        await this.showProgress(dialog, 'Creating transitions...', 70);
-  
-        // Import transitions with proper positioning and data-awareness detection
-        netWithLayout.transitions.forEach(transitionData => {
-          let transition;
-          
-          // Check if this should be a data-aware transition
-          const shouldBeDataAware = transitionData.isDataAware || 
-                                   transitionData.precondition || 
-                                   transitionData.postcondition ||
-                                   (newAPI instanceof DataPetriNetAPI);
-          
-          if (shouldBeDataAware && typeof DataAwareTransition !== 'undefined') {
-            transition = new DataAwareTransition(
-              transitionData.id,
-              transitionData.position || { x: 100, y: 100 },
-              transitionData.label,
-              transitionData.priority,
-              transitionData.delay,
-              transitionData.precondition,
-              transitionData.postcondition,
-              transitionData.silent || false
-            );
-          } else {
-            transition = new Transition(
-              transitionData.id,
-              transitionData.position || { x: 100, y: 100 },
-              transitionData.label,
-              transitionData.priority,
-              transitionData.delay,
-              transitionData.silent || false
-            );
-          }
-          newAPI.petriNet.transitions.set(transitionData.id, transition);
-        });
-  
-        await this.showProgress(dialog, 'Creating arcs...', 80);
-  
-        // Import arcs
-        netWithLayout.arcs.forEach(arcData => {
-          const arc = new Arc(
-            arcData.id,
-            arcData.source,
-            arcData.target,
-            arcData.weight,
-            arcData.type,
-            arcData.points,
-            arcData.label || arcData.weight.toString()
-          );
-          newAPI.petriNet.arcs.set(arcData.id, arc);
-        });
-  
-        await this.showProgress(dialog, 'Importing data variables...', 90);
-  
-        // Import data variables if present
-        if (newAPI instanceof DataPetriNetAPI && netWithLayout.dataVariables.length > 0) {
-          netWithLayout.dataVariables.forEach(varData => {
-            const variable = new DataVariable(
-              varData.id,
-              varData.name,
-              varData.type,
-              varData.currentValue,
-              varData.description
-            );
-            newAPI.petriNet.dataVariables.set(varData.id, variable);
-          });
+        await this.showProgress(dialog, 'Creating model...', 60);
+        if (newAPI instanceof DataPetriNetAPI) {
+          newAPI.petriNet = DataPetriNet.fromJSON(JSON.stringify(netWithLayout));
+        } else {
+          newAPI.petriNet = PetriNet.fromJSON(JSON.stringify(netWithLayout));
         }
-  
+        newAPI.petriNet.updateEnabledTransitions();
+
         await this.showProgress(dialog, 'Finalizing...', 95);
   
         // Replace the app's API
@@ -1295,6 +820,13 @@ class PNMLImporter {
         this.app.updateZoomDisplay();
         this.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
   
+        if (window.dataPetriNetIntegration) {
+          window.dataPetriNetIntegration.app = this.app;
+        }
+        this.app.initialState = null;
+        this.app.simulationStarted = false;
+        this.app.handleNetworkChanged();
+
         // Update data displays if DataPetriNet
         if (this.app.dataPetriNetUI) {
           this.app.dataPetriNetUI.updateDataVariablesDisplay();

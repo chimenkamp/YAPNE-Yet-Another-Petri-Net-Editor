@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>PNML dialog integration check</title>
+<style>html,body,iframe{width:100%;height:100%;margin:0;border:0}#status{position:fixed;top:0;right:0;background:white;color:black;z-index:10000}</style>
+<body><output id="status">Loading editor…</output><iframe title="YAPNE import test" src="../index.html"></iframe>
+<script type="module">
+const frame = document.querySelector('iframe');
+const status = document.querySelector('#status');
+const READY_TIMEOUT_MS = 15000;
+const READY_POLL_MS = 100;
+const started = Date.now();
+const fixture = new URLSearchParams(location.search).get('fixture') === 'current' ? 'discovery-cvc5.pnml' : 'discovery-prefix-example.pnml';
+const timer = setInterval(async () => {
+  const importer = frame.contentWindow.pnmlImporter;
+  if (!importer) {
+    if (Date.now() - started > READY_TIMEOUT_MS) { clearInterval(timer); status.textContent = 'Editor initialization timed out'; }
+    return;
+  }
+  clearInterval(timer);
+  try {
+    frame.contentDocument.querySelector('#help-dialog-close')?.click();
+    importer.showImportDialog();
+    const response = await fetch(`./fixtures/${fixture}`);
+    if (!response.ok) throw new Error('Fixture unavailable');
+    const file = new frame.contentWindow.File([await response.text()], fixture, {type: 'application/xml'});
+    await importer.handleFileUpload(file, frame.contentDocument.querySelector('#pnml-import-dialog'));
+    status.textContent = 'Actual editor import dialog';
+  } catch (error) { status.textContent = error.message; }
+}, READY_POLL_MS);
+</script></body></html>

@@ -596,6 +596,14 @@ export class SimulationDashboard {
     const net = this.app.api.petriNet;
     const results = this.app.api.checkFinalMarkings();
 
+    if (results.exactFinalMarkings) {
+      const count = results.finalMarkingAlternatives.length;
+      container.textContent = results.allSatisfied
+        ? `An exact final marking has been reached (${count} alternative goals).`
+        : `No exact final marking has been reached (${count} alternative goals).`;
+      return;
+    }
+
     if (results.placesWithFinalMarkings === 0) {
       container.innerHTML = '<p class="sim-empty-state-text">No final markings defined.</p>';
       return;

@@ -81,8 +81,9 @@ YAPNE includes a PNML importer with an integrated layout algorithm to automatica
 -   **Import Process:**
     1.  **Upload:** Drag-and-drop or browse for your `.pnml` file.
     2.  **Layout Settings:** Before importing, you can configure the layout algorithm. You can choose to preserve the positions from the file or apply the automatic layout. Settings include element spacing, size, centering, and overlap prevention.
-    3.  **Preview:** A preview of the layout is shown on a mini-canvas.
-    4.  **Import:** Click "Import to Editor" to load the model onto the main canvas.
+    3.  **Data and compatibility:** Review extracted variables, types, and conditions. Supply initial values when an older file omits them. Expand each restriction to see which transitions prevent use of a feature. Current Discovery before/after contracts retain their typed values and start with empty data.
+    4.  **Preview:** A preview of the layout is shown on a mini-canvas.
+    5.  **Import:** Click "Import to Editor" to load the model onto the main canvas.
 -   **Layout Algorithm:** The importer uses an algorithm based on the principles of the "Simple Algorithm for Automatic Layout of BPMN Processes". It performs a modified topological sort to arrange elements in a logical flow from left to right, minimizing crossed arcs and applying heuristics for compaction and clarity.
 
 
@@ -111,23 +112,27 @@ YAPNE's DPN extension allows for modeling with data variables and conditions.
 
 #### 3.4.1 Data Variables
 -   **Management:** In the "Model" tab, the "Data Variables" panel allows you to create, edit, and delete variables.
--   **Types:** Supported types include `int`, `float`, `string`, and `boolean`.
+-   **Import types:** Numeric and Boolean declarations retain their types. Current Discovery contracts use typed observed data, preserving numbers, Booleans, strings, and absent keys. Strings are retained in observed states; arbitrary string expressions are not part of the guard grammar.
 
 #### 3.4.2 Pre- and Postconditions
 Data-aware transitions are controlled by expressions in their properties panel:
--   **Precondition (Guard):** A JavaScript expression that must evaluate to `true` for the transition to be enabled. It can reference any data variable (e.g., `counter > 0 && status === "active"`).
+-   **Precondition (Guard):** A Boolean expression in YAPNE's guard language, such as `counter > 0`, or prefix SMT-LIB such as `(>= (+ 5 (* -1 a)) 0)`. Imported Discovery expressions use the shared parser, not JavaScript evaluation.
 -   **Postcondition (Update):** Defines how data variables change when the transition fires.
     -   **Direct Assignment:** Use a prime (`'`) to denote the new value (e.g., `counter' = counter - 1;`).
-    -   **Constraint-based Assignment:** Define a logical constraint for the new value (e.g., `x' > 0 && x' < x*2;`).
+    -   **Simultaneous updates:** `x' = y` and `y' = x + 1` both read the values before firing. All postcondition constraints must hold before tokens or data change.
+    -   **Relational writes:** A constraint such as `x' > 0` without a deterministic value is rejected by native execution. It is never treated as an unchanged variable or an arbitrary sampled value.
 
-#### 3.4.3 Condition Evaluation with Z3
-To handle complex constraint-based postconditions, YAPNE integrates the **Z3 SMT Solver**.
--   **How It Works:** When a postcondition contains a constraint (not a direct assignment), YAPNE's expression evaluation engine:
-    1.  Parses the expression into a format Z3 understands.
-    2.  Provides the solver with the current values of all non-primed variables.
-    3.  Asks the solver to find a value for the primed variable(s) that satisfies the constraint.
-    4.  If a range of valid values exists (for `int` or `float`), a random value within that range is chosen.
--   **Purpose:** This allows for non-deterministic modeling where the system, rather than the user, finds a valid subsequent state based on logical rules.
+#### 3.4.3 Discovery execution and feature boundaries
+
+For current Discovery exports, a transition permits its recorded before/after pairs, plus its guard/update branch when `generalized` is enabled. Matching uses the complete state, including value types and missing keys. Firing replaces the complete state with the selected successor. Native execution chooses uniformly among distinct allowed successors; it does not infer empirical probabilities. Discovery transitions use interleaving execution, not simultaneous multi-transition firing.
+
+Event logs retain original source variable names and complete after-state data for Discovery activities, including unchanged values. Classic flat logs reject names that collide with log metadata; use the nested lifecycle format for those names. Save/load and reset preserve the empty initial data state of current contracts.
+
+Native arithmetic uses JavaScript Number precision, not exact rationals. Integer input outside the safe range is rejected, and native execution stops if arithmetic leaves that range; decimal arithmetic may still round. The updated Discovery exporter emits explicit SMT-LIB syntax and a symbol map for all supported solver backends. Re-export old files whose pretty-printed expressions are ambiguous.
+
+Paper-based probabilistic inference and soundness verification have narrower supported profiles. The probabilistic translator currently rejects writes, unsupported guard syntax, and retained observed relations instead of changing scheduler/conditioning semantics. The soundness checker rejects arithmetic terms, generic observed data, and unbounded integer domains outside its supported paper profile. Neither a successful import nor a compatibility hint establishes soundness or probabilistic equivalence.
+
+If a file has no final marking, set one explicitly for completion analysis. YAPNE does not infer a goal or missing loop guards from transition names. Alternative final markings in current Discovery files are exact, with omitted places requiring zero tokens.
 
 ### 3.5 Soundness Checker
 
@@ -143,8 +148,8 @@ When you run the "Soundness Verification" from the **Verification** panel (toggl
     c.  The process is repeated for each new state discovered until no new states can be reached. This creates a Labeled Transition System (LTS), which is a graph of all possible states and the transitions between them.
 3.  **Property Checking:** Once the state space is explored, the verifier checks it against three fundamental soundness properties:
 
-    -   **P1: Reachability & Deadlock Freedom:** It verifies that every reachable state in the model can eventually reach a designated final state. If a state is found that has no enabled transitions and is not a final state, it is considered a **deadlock**.
-    -   **P2: Proper Termination:** This property ensures that once the model reaches a final state, no transitions are still enabled. It checks for states where the token marking *strictly covers* the final marking (i.e., has more tokens) but still has enabled transitions, which would be an improper termination.
+    -   **P1: Option to Complete:** From every reachable state, at least one path must reach a designated final state. This does not require every possible execution to terminate. A deadlock outside the final states violates P1.
+    -   **P2: Proper Completion:** No reachable marking may strictly cover a final marking: it cannot have all the required final tokens plus additional tokens. This condition does not depend on whether another transition is enabled.
     -   **P3: No Dead Transitions:** The verifier checks if every single transition in the model can be fired in at least one reachable state. A transition that can never be fired under any circumstance is considered **dead** and usually indicates a flaw in the model's logic.
 
 #### 3.5.2 Interpreting Results and Counterexamples

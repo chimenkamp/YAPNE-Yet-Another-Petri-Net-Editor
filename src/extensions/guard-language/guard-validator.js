@@ -140,7 +140,7 @@ export function validatePrecondition(expression, variableNames = []) {
 
 /**
  * Validate a postcondition expression (convenience wrapper).
- * Additional checks: at least one primed variable should appear if the expression is non-empty.
+ * Read-only predicates and true are legal postconditions as well as writes.
  *
  * @param {string} expression
  * @param {string[]} variableNames
@@ -148,45 +148,5 @@ export function validatePrecondition(expression, variableNames = []) {
  */
 export function validatePostcondition(expression, variableNames = []) {
   const result = validate(expression, variableNames, false);
-  if (!result.valid) {
-    return { valid: false, error: result.error, pos: result.pos };
-  }
-
-  // If non-empty, check that at least one primed variable appears
-  if (result.ast) {
-    const hasPrimed = containsPrimedVar(result.ast);
-    if (!hasPrimed) {
-      return {
-        valid: false,
-        error: `Postcondition must contain at least one primed variable (e.g., x' = ...). ` +
-               `Use variable' to denote the next-state value.`,
-        pos: null
-      };
-    }
-  }
-
-  return { valid: true, error: null, pos: null };
-}
-
-/**
- * Check if an AST contains any primed variable reference.
- */
-function containsPrimedVar(node) {
-  if (!node) return false;
-  switch (node.type) {
-    case NodeType.VAR:
-      return node.primed;
-    case NodeType.BINOP:
-      return containsPrimedVar(node.left) || containsPrimedVar(node.right);
-    case NodeType.UNARYOP:
-      return containsPrimedVar(node.operand);
-    case NodeType.CALL:
-      return node.args.some(containsPrimedVar);
-    case NodeType.QUANTIFIER:
-      return containsPrimedVar(node.body);
-    case NodeType.LET_EXPR:
-      return node.bindings.some(b => containsPrimedVar(b.expr)) || containsPrimedVar(node.body);
-    default:
-      return false;
-  }
+  return { valid: result.valid, error: result.error, pos: result.pos };
 }

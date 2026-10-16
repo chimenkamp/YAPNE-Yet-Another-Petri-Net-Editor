@@ -2,7 +2,7 @@
  * Guard Language Parser
  * Parses tokenized guard expressions into an AST.
  * Supports both SMT-LIB2 prefix form and restricted infix form.
- * The two forms may not be mixed within a single expression.
+ * Also accepts grouped infix expressions and legacy Z3 function notation.
  */
 
 import { tokenize, TokenType, LexerError } from './guard-lexer.js';
@@ -76,9 +76,9 @@ export class ParseError extends Error {
  * null for maxArgs means unbounded.
  */
 const SMT_ARITY = new Map([
-  ['and',      [1, null]],
-  ['or',       [1, null]],
-  ['not',      [1, null]],   // not: ≥1 (spec says ≥1)
+  ['and',      [0, null]],
+  ['or',       [0, null]],
+  ['not',      [1, 1]],
   ['+',        [1, null]],
   ['-',        [1, null]],
   ['*',        [2, null]],
@@ -93,12 +93,19 @@ const SMT_ARITY = new Map([
   ['ite',      [3, 3]],
 ]);
 
-/** Set of all valid SMT operator names */
-const SMT_OPS = new Set(SMT_ARITY.keys());
-// Add quantifiers and let (handled separately)
-SMT_OPS.add('exists');
-SMT_OPS.add('forall');
-SMT_OPS.add('let');
+/** Tokens that unambiguously begin a prefix application. */
+const PREFIX_OPERATORS = new Set([
+  TokenType.AND, TokenType.OR, TokenType.NOT, TokenType.IMPLIES, TokenType.ITE,
+  TokenType.DISTINCT, TokenType.EXISTS, TokenType.FORALL, TokenType.LET,
+  TokenType.EQ, TokenType.LT, TokenType.LE, TokenType.GT, TokenType.GE,
+  TokenType.PLUS, TokenType.MINUS, TokenType.STAR, TokenType.SLASH,
+]);
+
+/** Legacy function spellings normalized to the same AST operators. */
+const LEGACY_OPERATORS = new Map([
+  [TokenType.AND, 'and'], [TokenType.OR, 'or'], [TokenType.NOT, 'not'],
+  [TokenType.ITE, 'ite'], [TokenType.IMPLIES, '=>'], [TokenType.DISTINCT, 'distinct'],
+]);
 
 // ─── Parser Class ─────────────────────────────────────────────────────────
 
@@ -152,20 +159,14 @@ class Parser {
 
   /**
    * Parse the full expression.
-   * If the first non-whitespace token is '(', parse as SMT prefix form.
-   * Otherwise, parse as infix form.
+   * Prefix applications, legacy calls and grouped infix share one expression tree.
    */
   parseExpression() {
     if (this.check(TokenType.EOF)) {
       return null; // empty expression
     }
 
-    let ast;
-    if (this.check(TokenType.LPAREN)) {
-      ast = this.parseSmt();
-    } else {
-      ast = this.parseDisjunction();
-    }
+    const ast = this.parseDisjunction();
 
     // Must consume all tokens
     if (!this.check(TokenType.EOF)) {
@@ -354,12 +355,20 @@ class Parser {
 
   /** Parse a number in SMT context */
   parseSmtNumber() {
+    const numerator = this.parseNumericAtom();
+    if (!this.check(TokenType.SLASH)) return numerator;
+    this.advance();
+    return callNode('/', [numerator, this.parseNumericAtom()]);
+  }
+
+  /** Parse a signed numeric literal without consuming following arithmetic. */
+  parseNumericAtom() {
     const tok = this.peek();
     // Handle signed numbers
     if (tok.type === TokenType.PLUS || tok.type === TokenType.MINUS) {
       const sign = this.advance();
       const numTok = this.peek();
-      if (numTok.type === TokenType.INTEGER || numTok.type === TokenType.REAL) {
+      if ((numTok.type === TokenType.INTEGER || numTok.type === TokenType.REAL) && sign.pos + 1 === numTok.pos) {
         this.advance();
         const value = sign.value + numTok.value;
         return litNode(numTok.type === TokenType.REAL ? 'Real' : 'Int',
@@ -368,6 +377,9 @@ class Parser {
       throw new ParseError(`Expected number after '${sign.value}'`, sign.pos);
     }
 
+    if (tok.type !== TokenType.INTEGER && tok.type !== TokenType.REAL) {
+      throw new ParseError('Expected a numeric literal', tok.pos);
+    }
     const numTok = this.advance();
     if (numTok.type === TokenType.REAL) {
       return litNode('Real', parseFloat(numTok.value));
@@ -417,7 +429,7 @@ class Parser {
    * neg ::= ('not' neg) | cmp
    */
   parseNegation() {
-    if (this.check(TokenType.NOT)) {
+    if (this.check(TokenType.NOT) && this.tokens[this.pos + 1]?.type !== TokenType.LPAREN) {
       const tok = this.advance();
       const operand = this.parseNegation();
       return unaryNode('not', operand);
@@ -483,13 +495,12 @@ class Parser {
   parseFactor() {
     const tok = this.peek();
 
-    // Parenthesized expression
-    if (tok.type === TokenType.LPAREN) {
-      this.advance(); // (
-      const inner = this.parseDisjunction();
-      this.expect(TokenType.RPAREN);
-      return inner;
+    if (LEGACY_OPERATORS.has(tok.type) && this.tokens[this.pos + 1]?.type === TokenType.LPAREN) {
+      return this.parseLegacyCall();
     }
+
+    // Parenthesized expression
+    if (tok.type === TokenType.LPAREN) return this.parseParenthesized();
 
     // Number literals
     if (tok.type === TokenType.INTEGER || tok.type === TokenType.REAL) {
@@ -545,12 +556,62 @@ class Parser {
       tok.pos
     );
   }
+
+  /** Distinguish prefix applications from ordinary parenthesized infix notation. */
+  parseParenthesized() {
+    const start = this.pos;
+    const operator = this.tokens[start + 1];
+    const following = this.tokens[start + 2];
+    const attachedUnary = [TokenType.MINUS, TokenType.PLUS].includes(operator?.type) &&
+      operator.pos + 1 === following?.pos;
+    let prefixError;
+    if (PREFIX_OPERATORS.has(operator?.type) && !attachedUnary) {
+      try {
+        return this.parseSmt();
+      } catch (error) {
+        if (!(error instanceof ParseError)) throw error;
+        prefixError = error;
+        this.pos = start;
+      }
+    }
+    try {
+      this.expect(TokenType.LPAREN);
+      const expression = this.parseDisjunction();
+      this.expect(TokenType.RPAREN);
+      return expression;
+    } catch (error) {
+      throw prefixError || error;
+    }
+  }
+
+  /** Parse a legacy Z3 And(...), Or(...), Not(...), If(...), or Implies(...). */
+  parseLegacyCall() {
+    const token = this.advance();
+    const op = LEGACY_OPERATORS.get(token.type);
+    this.expect(TokenType.LPAREN);
+    const args = [];
+    if (!this.check(TokenType.RPAREN)) {
+      args.push(this.parseDisjunction());
+      while (this.check(TokenType.COMMA)) {
+        this.advance();
+        args.push(this.parseDisjunction());
+      }
+    }
+    this.expect(TokenType.RPAREN);
+    const [minimum, maximum] = SMT_ARITY.get(op);
+    if (args.length < minimum || (maximum !== null && args.length > maximum)) {
+      throw new ParseError(`Operator '${op}' has an invalid number of arguments`, token.pos);
+    }
+    return callNode(op, args);
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────
 
 /**
  * Parse a guard expression string into an AST.
+ * Integer-form literals must be safe integers; real literals and native arithmetic
+ * use JavaScript Number precision rather than exact rational arithmetic.
  *
  * @param {string} input - The expression string
  * @param {Object} [options]
@@ -574,3 +635,38 @@ export function parse(input, options = {}) {
 }
 
 export { LexerError };
+
+/**
+ * Render an identifier without losing punctuation, keyword names, or priming.
+ * @param {string} name Variable name.
+ * @returns {string} Plain or SMT quoted identifier.
+ */
+export function quoteGuardIdentifier(name) {
+  if (!name || /[|\\]/.test(name)) throw new Error('Variable names containing | or backslash require a safe import alias');
+  const reserved = /^(and|or|not|true|false|ite|if|implies|distinct|exists|forall|let)$/i.test(name) || /_(r|w|prime)$/i.test(name);
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !reserved ? name : `|${name}|`;
+}
+
+/**
+ * Emit canonical prefix guard syntax, preserving old/new variable references.
+ * @param {Object|null} node Guard AST.
+ * @returns {string} Round-trippable guard expression.
+ */
+export function toGuardString(node) {
+  if (!node) return 'true';
+  switch (node.type) {
+    case NodeType.LITERAL: {
+      const literal = String(node.value);
+      return node.sort === 'Real' && !/[.eE]/.test(literal) ? `${literal}.0` : literal;
+    }
+    case NodeType.VAR: return quoteGuardIdentifier(node.name) + (node.primed ? "'" : '');
+    case NodeType.BINOP: return `(${node.op} ${toGuardString(node.left)} ${toGuardString(node.right)})`;
+    case NodeType.UNARYOP: return `(${node.op} ${toGuardString(node.operand)})`;
+    case NodeType.CALL: return `(${node.op}${node.args.length ? ' ' + node.args.map(toGuardString).join(' ') : ''})`;
+    case NodeType.QUANTIFIER:
+      return `(${node.kind} (${node.bindings.map(binding => `(${quoteGuardIdentifier(binding.name)} ${binding.sort})`).join(' ')}) ${toGuardString(node.body)})`;
+    case NodeType.LET_EXPR:
+      return `(let (${node.bindings.map(binding => `(${quoteGuardIdentifier(binding.name)} ${toGuardString(binding.expr)})`).join(' ')}) ${toGuardString(node.body)})`;
+    default: throw new Error(`Unsupported guard AST node: ${node.type}`);
+  }
+}

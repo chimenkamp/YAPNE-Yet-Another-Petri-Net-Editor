@@ -321,3 +321,28 @@ test('a rejected firing propagates without recording a step or trace',
     assert.equal(dashboard.stepCount, 0);
     assert.deepEqual(dashboard.traceLog, []);
   });
+
+test('dashboard displays exact alternative goals without per-place final flags',
+  /** Check imported goal display through the real API. @returns {void} Assertions completed. */
+  () => {
+    const { api, start, goal } = createGoalApi();
+    for (const place of api.petriNet.places.values()) place.finalMarking = null;
+    api.petriNet.finalMarkings = [{ [goal]: 1 }, {}];
+    const container = { innerHTML: '', textContent: '' };
+    const dashboard = Object.create(SimulationDashboard.prototype);
+    dashboard.app = { api };
+    dashboard.panel = {
+      /** Select the final-marking output. @param {string} selector CSS selector. @returns {typeof container|null} Matching output. */
+      querySelector: selector => selector === '#sim-final-markings' ? container : null
+    };
+    dashboard._updateFinalMarkings();
+    assert.match(container.textContent, /no.*exact.*reached/i);
+    assert.match(container.textContent, /2 alternative goals/);
+    api.petriNet.places.get(start).tokens = 0;
+    api.petriNet.places.get(goal).tokens = 1;
+    dashboard._updateFinalMarkings();
+    assert.match(container.textContent, /^an exact final marking.*reached/i);
+    api.petriNet.places.get(start).tokens = 1;
+    dashboard._updateFinalMarkings();
+    assert.match(container.textContent, /no.*exact.*reached/i);
+  });

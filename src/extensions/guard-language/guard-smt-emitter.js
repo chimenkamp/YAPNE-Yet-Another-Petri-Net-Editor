@@ -7,6 +7,36 @@
 import { NodeType } from './guard-parser.js';
 
 /**
+ * Expand a finite nonnegative Number's scientific notation into SMT decimal syntax.
+ * @param {number} value Finite nonnegative numeric value.
+ * @returns {string} Decimal representation of the stored Number.
+ */
+function decimalNumber(value) {
+  const [coefficient, exponent] = String(value).split('e');
+  if (exponent === undefined) return coefficient;
+  const [whole, fraction = ''] = coefficient.split('.');
+  const digits = whole + fraction;
+  const point = whole.length + Number(exponent);
+  if (point <= 0) return `0.${'0'.repeat(-point)}${digits}`;
+  if (point >= digits.length) return digits + '0'.repeat(point - digits.length);
+  return `${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
+/**
+ * Emit a stored numeric value with decimal syntax and standard SMT unary minus.
+ * This preserves the Number value's decimal representation, not arbitrary precision input.
+ * @param {number} value Finite numeric value.
+ * @param {'Int'|'Real'} sort Numeric SMT sort.
+ * @returns {string} SMT numeric term.
+ */
+export function toSmtNumericLiteral(value, sort) {
+  if (!Number.isFinite(value)) throw new Error('SMT numeric literals must be finite numbers');
+  const decimal = decimalNumber(Math.abs(value));
+  const unsigned = sort === 'Real' && !decimal.includes('.') ? `${decimal}.0` : decimal;
+  return value < 0 ? `(- ${unsigned})` : unsigned;
+}
+
+/**
  * Convert an AST to SMT-LIB2 prefix form with step-indexed variables.
  *
  * - Reads (unprimed idents): variable v → v_<step>
@@ -42,12 +72,7 @@ export function toSmtLib2(ast, step, dataVarsList, isPost, symFn) {
     switch (node.type) {
       case NodeType.LITERAL:
         if (node.sort === 'Bool') return node.value ? 'true' : 'false';
-        if (node.sort === 'Real') {
-          // Ensure real literals have decimal point
-          const s = String(node.value);
-          return s.includes('.') ? s : s + '.0';
-        }
-        return String(node.value);
+        return toSmtNumericLiteral(node.value, node.sort);
 
       case NodeType.VAR:
         return steppedVar(node.name, node.primed);
@@ -118,11 +143,7 @@ export function toSmtLib2ForTau(ast, step, dataVarsList, symFn) {
     switch (node.type) {
       case NodeType.LITERAL:
         if (node.sort === 'Bool') return node.value ? 'true' : 'false';
-        if (node.sort === 'Real') {
-          const s = String(node.value);
-          return s.includes('.') ? s : s + '.0';
-        }
-        return String(node.value);
+        return toSmtNumericLiteral(node.value, node.sort);
 
       case NodeType.VAR:
         return steppedVar(node.name, node.primed);

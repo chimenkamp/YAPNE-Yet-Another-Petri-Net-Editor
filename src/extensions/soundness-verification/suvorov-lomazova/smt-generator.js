@@ -3,7 +3,7 @@
  * Refactored to use SMT-based verification with SmtFromDpnGenerator integration
  */
 import { parse } from '../../guard-language/guard-parser.js';
-import { toSmtLib2, toSmtLib2ForTau, extractWrittenVars } from '../../guard-language/guard-smt-emitter.js';
+import { toSmtLib2, toSmtLib2ForTau, toSmtNumericLiteral, extractWrittenVars } from '../../guard-language/guard-smt-emitter.js';
 
 class SmtFromDpnGenerator {
   /**
@@ -659,7 +659,7 @@ class SmtFromDpnGenerator {
    */
   _lit(v, sort) {
     if (sort === "Bool") return v ? "true" : "false";
-    if (typeof v === "number") return Number.isFinite(v) ? `${v}` : "0";
+    if (typeof v === "number") return toSmtNumericLiteral(v, sort);
     if (typeof v === "boolean") return v ? "true" : "false";
     return `${v}`;
   }

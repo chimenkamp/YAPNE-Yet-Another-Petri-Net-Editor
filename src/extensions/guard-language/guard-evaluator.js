@@ -10,11 +10,43 @@ import { NodeType } from './guard-parser.js';
  * Evaluation error with optional position
  */
 export class EvalError extends Error {
+  /** Create an evaluation error with an optional source position. */
   constructor(message, pos) {
     super(message);
     this.name = 'EvalError';
     this.pos = pos;
   }
+}
+
+/** A predicate or update is undefined for the supplied data values. */
+export class EvaluationDomainError extends EvalError {}
+
+/** Require a Boolean value instead of applying JavaScript truthiness. */
+function requireBoolean(value) {
+  if (typeof value !== 'boolean') throw new EvaluationDomainError('Expected a Boolean value');
+  return value;
+}
+
+/** Require a finite numeric value instead of coercing strings or booleans. */
+function requireNumber(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new EvaluationDomainError('Expected a finite numeric value');
+  }
+  return requireSafeIntegerValue(value);
+}
+
+/**
+ * Reject integral numeric values whose identity cannot be preserved by a Number.
+ * Precision failures are execution errors, not domain mismatches that may discard
+ * one generalized branch while retaining observed alternatives.
+ * @param {*} value Evaluated scalar value.
+ * @returns {*} Original value within the supported integer range.
+ */
+function requireSafeIntegerValue(value) {
+  if (typeof value === 'number' && Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    throw new EvalError('Numeric execution exceeded the safe integer range; the transition was not applied.');
+  }
+  return value;
 }
 
 // ─── Precondition Evaluation ──────────────────────────────────────────────
@@ -30,7 +62,7 @@ export class EvalError extends Error {
 export function evaluatePrecondition(ast, valuation) {
   if (ast === null) return true;
   const result = evaluate(ast, valuation, {});
-  return Boolean(result);
+  return requireBoolean(result);
 }
 
 // ─── Postcondition Evaluation ─────────────────────────────────────────────
@@ -50,25 +82,28 @@ export function evaluatePrecondition(ast, valuation) {
  *   - constraints: Array of AST nodes representing constraint expressions
  */
 export function evaluatePostcondition(ast, valuation) {
-  if (ast === null) {
-    return { assignments: new Map(), constraints: [] };
+  const updates = getPostconditionUpdates(ast);
+  const assignments = new Map();
+  for (const [name, rhs] of updates.assignments) {
+    assignments.set(name, evaluate(rhs, valuation, {}));
   }
+  return { assignments, constraints: updates.constraints };
+}
 
+/**
+ * Extract deterministic candidate updates while preserving all other clauses.
+ * @param {Object|null} ast Postcondition AST.
+ * @returns {{assignments: Map<string, Object>, constraints: Object[]}} Candidate expressions and remaining predicates.
+ */
+export function getPostconditionUpdates(ast) {
   const assignments = new Map();
   const constraints = [];
-
-  // Decompose the AST into individual assignment/constraint clauses
-  const clauses = flattenConjunction(ast);
-
-  for (const clause of clauses) {
+  for (const clause of ast ? flattenConjunction(ast) : []) {
     const assignment = tryExtractAssignment(clause);
-    if (assignment) {
-      // Direct assignment: x' = expr → evaluate expr in current valuation
+    if (assignment && !assignments.has(assignment.varName)) {
       const { varName, rhsAst } = assignment;
-      const value = evaluate(rhsAst, valuation, {});
-      assignments.set(varName, value);
+      assignments.set(varName, rhsAst);
     } else {
-      // It's a constraint — collect it
       constraints.push(clause);
     }
   }
@@ -86,8 +121,9 @@ export function evaluatePostcondition(ast, valuation) {
  * @returns {boolean}
  */
 export function checkConstraint(constraintAst, readValuation, writeValuation) {
+  if (!constraintAst) return true;
   const result = evaluate(constraintAst, readValuation, writeValuation);
-  return Boolean(result);
+  return requireBoolean(result);
 }
 
 /**
@@ -97,10 +133,7 @@ export function checkConstraint(constraintAst, readValuation, writeValuation) {
  * @returns {Set<string>} Set of variable names that appear primed
  */
 export function getWrittenVariables(ast) {
-  const written = new Set();
-  if (!ast) return written;
-  collectPrimedVars(ast, written);
-  return written;
+  return getVariableReferences(ast).written;
 }
 
 /**
@@ -128,16 +161,15 @@ export function constraintToString(ast) {
 function evaluate(node, readVals, writeVals) {
   switch (node.type) {
     case NodeType.LITERAL:
-      return node.value;
+      return requireSafeIntegerValue(node.value);
 
     case NodeType.VAR:
       if (node.primed) {
-        if (node.name in writeVals) return writeVals[node.name];
-        if (node.name in readVals) return readVals[node.name];
-        throw new EvalError(`Primed variable '${node.name}'' has no value`);
+        if (Object.hasOwn(writeVals, node.name)) return requireSafeIntegerValue(writeVals[node.name]);
+        throw new EvaluationDomainError(`Primed variable '${node.name}'' has no value`);
       }
-      if (node.name in readVals) return readVals[node.name];
-      throw new EvalError(`Variable '${node.name}' is not defined`);
+      if (Object.hasOwn(readVals, node.name)) return requireSafeIntegerValue(readVals[node.name]);
+      throw new EvaluationDomainError(`Variable '${node.name}' is not defined`);
 
     case NodeType.BINOP:
       return evalBinop(node, readVals, writeVals);
@@ -155,7 +187,7 @@ function evaluate(node, readVals, writeVals) {
       );
 
     case NodeType.LET_EXPR: {
-      const extendedRead = { ...readVals };
+      const extendedRead = Object.assign(Object.create(null), readVals);
       for (const binding of node.bindings) {
         extendedRead[binding.name] = evaluate(binding.expr, readVals, writeVals);
       }
@@ -167,55 +199,28 @@ function evaluate(node, readVals, writeVals) {
   }
 }
 
+/** Evaluate a binary expression using the shared operator semantics. */
 function evalBinop(node, readVals, writeVals) {
-  const l = evaluate(node.left, readVals, writeVals);
-  const r = evaluate(node.right, readVals, writeVals);
-
-  switch (node.op) {
-    case 'and':      return Boolean(l) && Boolean(r);
-    case 'or':       return Boolean(l) || Boolean(r);
-    case '=>':       return !Boolean(l) || Boolean(r);
-    case '=':        return l === r;
-    case 'distinct': return l !== r;
-    case '<':        return l < r;
-    case '<=':       return l <= r;
-    case '>':        return l > r;
-    case '>=':       return l >= r;
-    case '+':        return Number(l) + Number(r);
-    case '-':        return Number(l) - Number(r);
-    case '*':        return Number(l) * Number(r);
-    case '/':
-      if (Number(r) === 0) throw new EvalError('Division by zero');
-      return Number(l) / Number(r);
-    default:
-      throw new EvalError(`Unknown binary operator: ${node.op}`);
-  }
+  return evalCall({ op: node.op, args: [node.left, node.right] }, readVals, writeVals);
 }
 
+/** Evaluate a unary expression using the shared operator semantics. */
 function evalUnary(node, readVals, writeVals) {
-  const v = evaluate(node.operand, readVals, writeVals);
-  switch (node.op) {
-    case 'not': return !Boolean(v);
-    case '-':   return -Number(v);
-    default:
-      throw new EvalError(`Unknown unary operator: ${node.op}`);
-  }
+  return evalCall({ op: node.op, args: [node.operand] }, readVals, writeVals);
 }
 
+/** Evaluate lazy Boolean operators and strict scalar arithmetic/comparisons. */
 function evalCall(node, readVals, writeVals) {
+  if (node.op === 'and') return node.args.every(arg => requireBoolean(evaluate(arg, readVals, writeVals)));
+  if (node.op === 'or') return node.args.some(arg => requireBoolean(evaluate(arg, readVals, writeVals)));
+  if (node.op === 'not') return !requireBoolean(evaluate(node.args[0], readVals, writeVals));
+  if (node.op === 'ite') {
+    const selected = requireBoolean(evaluate(node.args[0], readVals, writeVals)) ? 1 : 2;
+    return evaluate(node.args[selected], readVals, writeVals);
+  }
+  if (node.op === '=>') return evaluateImplication(node.args, readVals, writeVals);
   const args = node.args.map(a => evaluate(a, readVals, writeVals));
-
   switch (node.op) {
-    case 'and':
-      return args.every(a => Boolean(a));
-    case 'or':
-      return args.some(a => Boolean(a));
-    case 'not':
-      return !Boolean(args[0]);
-    case '=>':
-      return !Boolean(args[0]) || Boolean(args[1]);
-    case 'ite':
-      return Boolean(args[0]) ? args[1] : args[2];
     case '=':
       return args.every((a, i) => i === 0 || a === args[0]);
     case 'distinct':
@@ -226,24 +231,46 @@ function evalCall(node, readVals, writeVals) {
         }
       }
       return true;
-    case '<':  return args[0] < args[1];
-    case '<=': return args[0] <= args[1];
-    case '>':  return args[0] > args[1];
-    case '>=': return args[0] >= args[1];
-    case '+':  return args.reduce((a, b) => Number(a) + Number(b), 0);
-    case '-':
-      if (args.length === 1) return -Number(args[0]);
-      return args.reduce((a, b) => Number(a) - Number(b));
-    case '*':  return args.reduce((a, b) => Number(a) * Number(b), 1);
-    case '/':
-      if (args.length < 2) throw new EvalError(`'/' requires at least 2 arguments`);
-      return args.reduce((a, b) => {
-        if (Number(b) === 0) throw new EvalError('Division by zero');
-        return Number(a) / Number(b);
-      });
+    case '<': case '<=': case '>': case '>=':
+      return evaluateComparison(node.op, args.map(requireNumber));
+    case '+': case '-': case '*': case '/':
+      return evaluateArithmetic(node.op, args.map(requireNumber));
     default:
       throw new EvalError(`Unknown SMT operator: ${node.op}`);
   }
+}
+
+/** Evaluate right-associative SMT implication without evaluating unused terms. */
+function evaluateImplication(args, readVals, writeVals) {
+  for (let index = 0; index < args.length - 1; index++) {
+    if (!requireBoolean(evaluate(args[index], readVals, writeVals))) return true;
+  }
+  return requireBoolean(evaluate(args[args.length - 1], readVals, writeVals));
+}
+
+/** Evaluate every adjacent pair in an SMT comparison chain. */
+function evaluateComparison(op, args) {
+  return args.every((value, index) => {
+    if (index === 0) return true;
+    const previous = args[index - 1];
+    if (op === '<') return previous < value;
+    if (op === '<=') return previous <= value;
+    if (op === '>') return previous > value;
+    return previous >= value;
+  });
+}
+
+/** Evaluate finite arithmetic and report undefined operations explicitly. */
+function evaluateArithmetic(op, args) {
+  // shortcut: Fractions use Number precision; exact-real execution requires rational arithmetic.
+  if (op === '+') return args.reduce((left, right) => requireNumber(left + right), 0);
+  if (op === '*') return args.reduce((left, right) => requireNumber(left * right), 1);
+  if (op === '-' && args.length === 1) return requireNumber(-args[0]);
+  return args.reduce((left, right) => {
+    if (op === '-') return requireNumber(left - right);
+    if (right === 0) throw new EvaluationDomainError('Division by zero');
+    return requireNumber(left / right);
+  });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -269,12 +296,12 @@ function flattenConjunction(node) {
 function tryExtractAssignment(node) {
   // BinOp('=', Var(x, primed=true), rhs) or Call('=', [Var(x, primed=true), rhs])
   if (node.type === NodeType.BINOP && node.op === '=') {
-    if (node.left.type === NodeType.VAR && node.left.primed) {
+    if (node.left.type === NodeType.VAR && node.left.primed && getWrittenVariables(node.right).size === 0) {
       return { varName: node.left.name, rhsAst: node.right };
     }
   }
   if (node.type === NodeType.CALL && node.op === '=' && node.args.length === 2) {
-    if (node.args[0].type === NodeType.VAR && node.args[0].primed) {
+    if (node.args[0].type === NodeType.VAR && node.args[0].primed && getWrittenVariables(node.args[1]).size === 0) {
       return { varName: node.args[0].name, rhsAst: node.args[1] };
     }
   }
@@ -282,30 +309,38 @@ function tryExtractAssignment(node) {
 }
 
 /**
- * Recursively collect all primed variable names from an AST.
+ * Collect free current-state and next-state variable references.
+ * @param {Object|null} ast Guard AST.
+ * @returns {{read: Set<string>, written: Set<string>}} Free variable names by role.
  */
-function collectPrimedVars(node, set) {
+export function getVariableReferences(ast) {
+  const references = { read: new Set(), written: new Set() };
+  collectReferences(ast, references, new Set());
+  return references;
+}
+
+/** Traverse references while respecting simultaneous let and quantifier bindings. */
+function collectReferences(node, references, bound) {
   if (!node) return;
   switch (node.type) {
     case NodeType.VAR:
-      if (node.primed) set.add(node.name);
+      if (node.primed) references.written.add(node.name);
+      else if (!bound.has(node.name)) references.read.add(node.name);
       break;
     case NodeType.BINOP:
-      collectPrimedVars(node.left, set);
-      collectPrimedVars(node.right, set);
+      collectReferences(node.left, references, bound);
+      collectReferences(node.right, references, bound);
       break;
     case NodeType.UNARYOP:
-      collectPrimedVars(node.operand, set);
+      collectReferences(node.operand, references, bound);
       break;
     case NodeType.CALL:
-      for (const arg of node.args) collectPrimedVars(arg, set);
+      for (const arg of node.args) collectReferences(arg, references, bound);
       break;
     case NodeType.QUANTIFIER:
-      collectPrimedVars(node.body, set);
-      break;
     case NodeType.LET_EXPR:
-      for (const b of node.bindings) collectPrimedVars(b.expr, set);
-      collectPrimedVars(node.body, set);
+      for (const binding of node.bindings) collectReferences(binding.expr, references, bound);
+      collectReferences(node.body, references, new Set([...bound, ...node.bindings.map(binding => binding.name)]));
       break;
   }
 }
@@ -350,7 +385,9 @@ function astToInfix(node) {
       if (node.op === 'ite') return `(${args[0]} ? ${args[1]} : ${args[2]})`;
       if (node.op === '=>') return `(!(${args[0]}) || (${args[1]}))`;
       if (node.op === '=') return args.map((a, i) => i === 0 ? a : `(${args[0]} == ${a})`).slice(1).join(' && ');
-      if (node.op === 'distinct') return `(${args[0]} != ${args[1]})`;
+      if (node.op === 'distinct') {
+        return args.flatMap((left, index) => args.slice(index + 1).map(right => `(${left} != ${right})`)).join(' && ');
+      }
       // Arithmetic
       if (['+', '-', '*', '/'].includes(node.op)) {
         if (args.length === 1 && node.op === '-') return `(-(${args[0]}))`;
@@ -358,12 +395,12 @@ function astToInfix(node) {
       }
       // Comparisons
       if (['<', '<=', '>', '>='].includes(node.op)) {
-        return `(${args[0]} ${node.op} ${args[1]})`;
+        return args.slice(1).map((right, index) => `(${args[index]} ${node.op} ${right})`).join(' && ');
       }
       return args.join(` ${node.op} `);
     }
 
     default:
-      return 'true';
+      throw new EvalError(`Cannot render AST node '${node.type}' as a runtime constraint`);
   }
 }

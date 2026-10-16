@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- User-provided example; whitespace compacted. -->
+<pnml><net id="dpn_net" type="http://www.pnml.org/version-2009/grammar/pnml"><page id="page0"><place id="p_r0_q0"><name><text>p_r0_q0</text></name><initialMarking><text>1</text></initialMarking></place>
+<place id="p_r1_q1_q2_q3_+4"><name><text>p_r1_q1_q2_q3_+4</text></name></place>
+<place id="p_r2_q1_q31"><name><text>p_r2_q1_q31</text></name></place>
+<place id="p_r3_q2"><name><text>p_r3_q2</text></name></place>
+<place id="p_r4_q3"><name><text>p_r4_q3</text></name></place>
+<place id="p_r5_q4"><name><text>p_r5_q4</text></name></place>
+<place id="p_r6_q5"><name><text>p_r6_q5</text></name></place>
+<transition id="t_T_CalcTemp_1"><name><text>T_CalcTemp</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>true</guard></toolspecific><toolspecific tool="dpn-discovery" version="1.0"><update variable="temp">(+ a b)</update></toolspecific></transition>
+<arc id="arc_p_r1_q1_q2_q3_+4_to_t_T_CalcTemp_1" source="p_r1_q1_q2_q3_+4" target="t_T_CalcTemp_1"/>
+<arc id="arc_p_r3_q2_to_t_T_CalcTemp_1" source="p_r3_q2" target="t_T_CalcTemp_1"/>
+<arc id="arc_t_T_CalcTemp_1_to_p_r4_q3" source="t_T_CalcTemp_1" target="p_r4_q3"/>
+<arc id="arc_t_T_CalcTemp_1_to_p_r1_q1_q2_q3_+4" source="t_T_CalcTemp_1" target="p_r1_q1_q2_q3_+4"/>
+<transition id="t_T_CheckDone_2"><name><text>T_CheckDone</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>true</guard></toolspecific><toolspecific tool="dpn-discovery" version="1.0"><update variable="result">13</update></toolspecific></transition>
+<arc id="arc_p_r2_q1_q31_to_t_T_CheckDone_2" source="p_r2_q1_q31" target="t_T_CheckDone_2"/>
+<arc id="arc_p_r1_q1_q2_q3_+4_to_t_T_CheckDone_2" source="p_r1_q1_q2_q3_+4" target="t_T_CheckDone_2"/>
+<arc id="arc_t_T_CheckDone_2_to_p_r1_q1_q2_q3_+4" source="t_T_CheckDone_2" target="p_r1_q1_q2_q3_+4"/>
+<transition id="t_T_CheckLoop_3"><name><text>T_CheckLoop</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>true</guard></toolspecific></transition>
+<arc id="arc_p_r2_q1_q31_to_t_T_CheckLoop_3" source="p_r2_q1_q31" target="t_T_CheckLoop_3"/>
+<arc id="arc_p_r1_q1_q2_q3_+4_to_t_T_CheckLoop_3" source="p_r1_q1_q2_q3_+4" target="t_T_CheckLoop_3"/>
+<arc id="arc_t_T_CheckLoop_3_to_p_r1_q1_q2_q3_+4" source="t_T_CheckLoop_3" target="p_r1_q1_q2_q3_+4"/>
+<arc id="arc_t_T_CheckLoop_3_to_p_r3_q2" source="t_T_CheckLoop_3" target="p_r3_q2"/>
+<transition id="t_T_IncI_4"><name><text>T_IncI</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>(=&gt; (&gt;= (+ 5 (* -1 a)) 0) (&gt;= (+ 5 (* -1 a)) 0))</guard></toolspecific><toolspecific tool="dpn-discovery" version="1.0"><update variable="i">(+ 1 i)</update></toolspecific></transition>
+<arc id="arc_p_r6_q5_to_t_T_IncI_4" source="p_r6_q5" target="t_T_IncI_4"/>
+<arc id="arc_p_r1_q1_q2_q3_+4_to_t_T_IncI_4" source="p_r1_q1_q2_q3_+4" target="t_T_IncI_4"/>
+<arc id="arc_t_T_IncI_4_to_p_r2_q1_q31" source="t_T_IncI_4" target="p_r2_q1_q31"/>
+<arc id="arc_t_T_IncI_4_to_p_r1_q1_q2_q3_+4" source="t_T_IncI_4" target="p_r1_q1_q2_q3_+4"/>
+<transition id="t_T_SetA_5"><name><text>T_SetA</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>true</guard></toolspecific><toolspecific tool="dpn-discovery" version="1.0"><update variable="a">(+ (* -1 a) temp)</update></toolspecific></transition>
+<arc id="arc_p_r4_q3_to_t_T_SetA_5" source="p_r4_q3" target="t_T_SetA_5"/>
+<arc id="arc_p_r1_q1_q2_q3_+4_to_t_T_SetA_5" source="p_r1_q1_q2_q3_+4" target="t_T_SetA_5"/>
+<arc id="arc_t_T_SetA_5_to_p_r1_q1_q2_q3_+4" source="t_T_SetA_5" target="p_r1_q1_q2_q3_+4"/>
+<arc id="arc_t_T_SetA_5_to_p_r5_q4" source="t_T_SetA_5" target="p_r5_q4"/>
+<transition id="t_T_SetB_6"><name><text>T_SetB</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>true</guard></toolspecific><toolspecific tool="dpn-discovery" version="1.0"><update variable="b">temp</update></toolspecific></transition>
+<arc id="arc_p_r1_q1_q2_q3_+4_to_t_T_SetB_6" source="p_r1_q1_q2_q3_+4" target="t_T_SetB_6"/>
+<arc id="arc_p_r5_q4_to_t_T_SetB_6" source="p_r5_q4" target="t_T_SetB_6"/>
+<arc id="arc_t_T_SetB_6_to_p_r6_q5" source="t_T_SetB_6" target="p_r6_q5"/>
+<arc id="arc_t_T_SetB_6_to_p_r1_q1_q2_q3_+4" source="t_T_SetB_6" target="p_r1_q1_q2_q3_+4"/>
+<transition id="t_T_Setup_7"><name><text>T_Setup</text></name><toolspecific tool="dpn-discovery" version="1.0"><guard>true</guard></toolspecific><toolspecific tool="dpn-discovery" version="1.0"><update variable="a">0</update><update variable="b">1</update><update variable="i">1</update><update variable="n">n</update><update variable="result">0</update><update variable="temp">0</update></toolspecific></transition>
+<arc id="arc_p_r0_q0_to_t_T_Setup_7" source="p_r0_q0" target="t_T_Setup_7"/>
+<arc id="arc_t_T_Setup_7_to_p_r2_q1_q31" source="t_T_Setup_7" target="p_r2_q1_q31"/>
+<arc id="arc_t_T_Setup_7_to_p_r1_q1_q2_q3_+4" source="t_T_Setup_7" target="p_r1_q1_q2_q3_+4"/></page><toolspecific tool="dpn-discovery" version="1.0"><variable name="a"/><variable name="b"/><variable name="i"/><variable name="n"/><variable name="result"/><variable name="temp"/></toolspecific></net></pnml>
