@@ -371,6 +371,7 @@
     <div class="container">
         <div class="editor-container">
             <div class="canvas-container">
+                <div id="model-save-status" role="status" aria-live="polite">No unsaved changes</div>
                 <div class="vertical-toolbar">
                     <div class="toolbar-group vertical">
                         <button id="btn-select" class="active" title="Select tool - Hold Shift while selected element to create connected elements">✓</button>
@@ -458,6 +459,10 @@
                                     <button id="btn-load">Load (JSON)</button>
                                     <button id="btn-save" style="background-color: rgb(101, 127, 152);">Save (JSON)</button>
                                     <input type="file" id="file-input" class="hidden" accept=".json">
+                                </div>
+                                <div class="button-group">
+                                    <button id="btn-load-browser" disabled>Load (Browser)</button>
+                                    <button id="btn-save-browser" style="background-color: rgb(101, 127, 152);" disabled>Save (Browser)</button>
                                 </div>
                                 <div class="button-group" id="pnml-button-group">
                                     <button id="btn-export-pnml" style="background-color: rgb(101, 127, 152);">Save (PNML)</button>
@@ -617,6 +622,24 @@
     </div>
 
     <!-- Help Dialog Overlay -->
+    <dialog id="browser-storage-dialog" aria-labelledby="browser-storage-title" aria-describedby="browser-storage-warning">
+        <form>
+            <h2 id="browser-storage-title">Browser models</h2>
+            <p id="browser-storage-warning">Models are stored only in this browser on this device. They do not transfer between browsers and can be lost when you clear the browser cache or site data. Save as JSON for a backup.</p>
+            <label>Model name
+                <input id="browser-model-name" type="text" autocomplete="off">
+            </label>
+            <label>Saved models
+                <select id="browser-model-list" size="6"></select>
+            </label>
+            <p role="alert"></p>
+            <div class="button-group">
+                <button type="button" data-cancel>Cancel</button>
+                <button type="submit">Save</button>
+            </div>
+        </form>
+    </dialog>
+
     <div id="help-dialog-overlay" class="help-dialog-overlay">
         <div class="help-dialog">
 

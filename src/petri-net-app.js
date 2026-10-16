@@ -6,8 +6,12 @@
  */
 import { PetriNetAPI, PetriNet } from './petri-net-simulator.js';
 import { DataPetriNet } from './extensions/dpn-model.js';
+import { DataPetriNetAPI } from './extensions/dpn-api.js';
+import { DataPetriNetRenderer } from './extensions/dpn-renderer.js';
+import { AutoSaveManager } from './auto-save.js';
+import { BrowserStorageDialog } from './browser-storage-dialog.js';
 import HistoryDialog from './history-dialog.js';
-import { ActionHistory, createAction, ACTION_ICONS } from './action-history.js';
+import { ActionHistory, ACTION_ICONS } from './action-history.js';
 import { SimulationDashboard } from './simulation-dashboard.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { VerificationPanel } from './verification-panel.js';
@@ -121,6 +125,36 @@ class PetriNetApp {
     // Setup panel layout management (stacking)
     this._setupPanelLayout();
 
+  }
+
+  /** Start persistence after the data-net extension has finished initializing.
+   * @returns {void}
+   */
+  initializeBrowserStorage() {
+    if (this.autoSave) return;
+    this._resetUndoHistory();
+    this.autoSave = new AutoSaveManager(
+      () => this.api?.exportAsJSON() ?? null,
+      json => this.loadModelJSON(json),
+      status => this.updateSaveStatus(status)
+    );
+    this.autoSave.offerRestore();
+    this.autoSave.start();
+    this.browserStorageDialog = new BrowserStorageDialog(this);
+    document.getElementById('btn-load-browser').disabled = false;
+    document.getElementById('btn-save-browser').disabled = false;
+  }
+
+  /** Display persistence failures and whether an explicit save is needed.
+   * @param {import('./auto-save.js').SaveStatus} status Current persistence state.
+   * @returns {void}
+   */
+  updateSaveStatus({ dirty, error }) {
+    const indicator = document.getElementById('model-save-status');
+    const text = error || (dirty ? 'Unsaved changes · browser draft saved' : 'No unsaved changes');
+    if (indicator.textContent !== text) indicator.textContent = text;
+    indicator.dataset.dirty = String(dirty);
+    indicator.dataset.error = String(Boolean(error));
   }
 
   applyEditorSettings(nextSettings = {}, options = {}) {
@@ -1343,6 +1377,7 @@ initEventHandlers() {
     const btnRedo = document.getElementById("btn-redo");
     if (btnUndo) btnUndo.disabled = this._undoStack.length < 2;
     if (btnRedo) btnRedo.disabled = this._redoStack.length === 0;
+    if (!this._isRestoring) this.autoSave?.saveNow();
   }
 
   /** Reset the undo/redo stacks (called on file load / reset) */
@@ -1715,35 +1750,29 @@ initEventHandlers() {
     return file;
   }
 
-  /**
-   * Loads a template Petri net
+  /** Fetch a template and preserve the shared loader's cancellation result.
+   * @param {string} templatePath Template URL.
+   * @returns {Promise<boolean>} Whether loading succeeded.
    */
-  loadTemplate(template_path) {
+  async loadTemplate(templatePath) {
     this.stopAutoRun();
-    fetch(template_path)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then((jsonData) => {
-        const file = this.createFileFromJSON(jsonData);
-        return this.loadFromFile(file);
-      }).then(() => {
-        setTimeout(() => {
-          this.fitNetworkToCanvas();
-        }, 100);
-      })
-      .catch((error) => {
-        console.error("Error loading template:", error);
-      });
+    try {
+      const response = await fetch(templatePath);
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      const jsonData = await response.json();
+      return await this.loadFromFile(this.createFileFromJSON(jsonData));
+    } catch (error) {
+      console.error('Error loading template:', error);
+      return false;
+    }
   }
 
   /**
    * Saves the current Petri net to a JSON file
+   * @returns {void}
    */
   saveToFile() {
+    this.commitFocusedPropertiesInput();
     const json = this.api.exportAsJSON();
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1754,104 +1783,87 @@ initEventHandlers() {
     a.click();
 
     URL.revokeObjectURL(url);
+    this.autoSave?.markSaved();
   }
 
-  /**
-   * Loads a Petri net from a JSON file
+  /** Load JSON files through the same validated path as browser recovery.
+   * @param {File} file Selected or generated JSON file.
+   * @returns {Promise<boolean>} Whether loading succeeded.
    */
-  loadFromFile(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const json = e.target?.result;
-        if (!json) return;
+  async loadFromFile(file) {
+    try {
+      const json = await file.text();
+      this.autoSave?.saveNow();
+      if (this.autoSave?.isDirty && !confirm('Replace the current model and its unsaved draft? Save it first to keep it.')) return false;
+      this.loadModelJSON(json);
+      this.autoSave?.markSaved();
+      return true;
+    } catch (error) {
+      alert(`Error loading file: ${error.message}`);
+      return false;
+    }
+  }
 
-        // Stop all running processes
-        this.stopAutoRun();
-        this.stopAllInteractions();
+  /** Validate a complete model before replacing the editor, for every JSON source.
+   * @param {string} json Complete model JSON.
+   * @returns {void}
+   */
+  loadModelJSON(json) {
+    const net = DataPetriNet.fromJSON(json);
+    net.updateEnabledTransitions();
+    this.stopAutoRun();
+    this.simDashboard?.stopAutoRun();
+    this.stopAllInteractions();
+    clearTimeout(this.fitCanvasTimeout);
+    clearTimeout(this._resetTimeout);
+    this._isRestoring = true;
+    try {
+      this.destroyCurrentEditor();
+      this._installLoadedModel(net);
+      this._refreshLoadedModel();
+    } finally {
+      this._isRestoring = false;
+    }
+  }
 
-        // Clear any pending timeouts
-        if (this.fitCanvasTimeout) {
-          clearTimeout(this.fitCanvasTimeout);
-          this.fitCanvasTimeout = null;
-        }
+  /** Attach a data-aware editor and reconnect the existing application handlers.
+   * @param {DataPetriNet} net Validated model.
+   * @returns {void}
+   */
+  _installLoadedModel(net) {
+    this.api = new DataPetriNetAPI();
+    this.api.petriNet = net;
+    this.editor = this.api.attachEditor(this.canvas);
+    this.editor.renderer = new DataPetriNetRenderer(this.canvas, net);
+    this.editor.app = this;
+    this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
+    this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
+    this.initEventHandlers();
+    this.applyEditorSettings(this.editorSettings, { persist: false });
+    this.editor.setMode('select');
+    this.updateActiveButton('btn-select');
+    this.initialState = null;
+    this.simulationStarted = false;
+  }
 
-        // Completely destroy the old editor and clean up event listeners
-        this.destroyCurrentEditor();
-
-        // Clear the canvas completely and keep it clear
-        const canvas = this.canvas;
-        const ctx = canvas.getContext('2d');
-        
-        // Force complete canvas reset - this prevents any cached render data
-        const width = canvas.width;
-        const height = canvas.height;
-        canvas.width = width;  // Resetting width clears the entire canvas buffer
-        canvas.height = height;
-        
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, width, height);
-
-        // Small delay to ensure cleanup is complete
-        setTimeout(() => {
-          // Create completely new API and editor instances
-          this.api = PetriNetAPI.importFromJSON(json);
-          this.editor = this.api.attachEditor(this.canvas);
-
-          // CRITICAL FIX: Ensure all references point to the new petriNet
-          // The editor and renderer must both reference the same new PetriNet instance
-          if (this.editor.renderer) {
-            this.editor.renderer.petriNet = this.api.petriNet;
-          }
-          if (this.editor) {
-            this.editor.petriNet = this.api.petriNet;
-          }
-
-          // Re-establish app reference and callbacks
-          this.editor.app = this;
-          this.editor.setOnSelectCallback(this.handleElementSelected.bind(this));
-          this.editor.setOnChangeCallback(this.handleNetworkChanged.bind(this));
-          
-          // Reinitialize all handlers
-          this.initEventHandlers();
-
-          // Reset undo/redo stacks for the new editor
-          this._resetUndoHistory();
-
-          // Reset all simulation and UI state
-          this.initialState = null;
-          this.simulationStarted = false;
-          this.applyEditorSettings(this.editorSettings, { persist: false });
-          this.editor.setMode("select");
-          this.updateActiveButton("btn-select");
-          this.propertiesPanel.innerHTML = "<p>No element selected.</p>";
-
-          // Force immediate render
-          this.editor.render();
-          this.updateTokensDisplay();
-          this.updateZoomDisplay();
-          this.updateFinalMarkingDisplay();
-
-          // Reset simulation dashboard
-          if (this.simDashboard) {
-            this.simDashboard.stepCount = 0;
-            this.simDashboard.traceLog = [];
-            this.simDashboard.refresh();
-          }
-
-          // Fit canvas to new network
-          this.fitCanvasTimeout = setTimeout(() => {
-            this.fitNetworkToCanvas();
-          }, 100);
-
-        }, 50);
-
-      } catch (error) {
-        console.error("Error loading file:", error);
-        alert("Error loading file: " + error);
-      }
-    };
-    reader.readAsText(file);
+  /** Refresh panels, history and viewport for the newly loaded model.
+   * @returns {void}
+   */
+  _refreshLoadedModel() {
+    this._resetUndoHistory();
+    this.propertiesPanel.innerHTML = '<p>No element selected.</p>';
+    this.dataPetriNetUI?.updateDataVariablesDisplay();
+    this.dataPetriNetUI?.updateDataValuesDisplay();
+    this.updateTokensDisplay();
+    this.updateFinalMarkingDisplay();
+    if (this.simDashboard) {
+      this.simDashboard.stepCount = 0;
+      this.simDashboard.traceLog = [];
+      this.simDashboard.refresh();
+    }
+    this.fitNetworkToCanvas();
+    this.updateZoomDisplay();
+    this.editor.render();
   }
 
   loadTemplateFile(file) {
