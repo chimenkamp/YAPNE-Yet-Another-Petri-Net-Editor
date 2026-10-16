@@ -25,16 +25,11 @@ class DataPetriNetIntegration {
     DataPetriNetIntegration.initialized = true;
     this.app = app;
     
-    // Patch loadFromFile SYNCHRONOUSLY to prevent race conditions.
-    // On slower connections (e.g. GitHub Pages), async init may not complete
-    // before the user loads a template, causing data transitions and final
-    // markings to be lost when the base PetriNetAPI loader is used instead.
-    this._patchLoadFromFile();
-
     this.injectStyles()
       .then(() => this.extendAPI())
       .then(() => this.extendRenderer())
       .then(() => this.initializeUI())
+      .then(() => this.app.initializeBrowserStorage())
       .then(() => {
         if (typeof callback === 'function') {
           callback(this);
@@ -323,96 +318,6 @@ async initializeUI() {
   }
 
   /**
-   * Patch loadFromFile to use DataPetriNetAPI.
-   * Called synchronously from the constructor to prevent race conditions.
-   */
-  _patchLoadFromFile() {
-    if (this._loadFromFilePatched) return;
-    this._loadFromFilePatched = true;
-
-    const integration = this;
-    this.app.loadFromFile = (file) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const json = e.target?.result;
-          if (!json) return;
-
-          // Stop all running processes
-          integration.app.stopAutoRun();
-          integration.app.stopAllInteractions();
-
-          // Clear any pending timeouts
-          if (integration.app.fitCanvasTimeout) {
-            clearTimeout(integration.app.fitCanvasTimeout);
-            integration.app.fitCanvasTimeout = null;
-          }
-
-          // Completely destroy the old editor
-          integration.app.destroyCurrentEditor();
-
-          // Clear the canvas
-          const canvas = integration.app.canvas;
-          const ctx = canvas.getContext('2d');
-          const width = canvas.width;
-          const height = canvas.height;
-          canvas.width = width;
-          canvas.height = height;
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, width, height);
-
-          setTimeout(() => {
-            // Create new API with DPN support
-            integration.app.api = DataPetriNetAPI.importFromJSON(json);
-            integration.app.editor = integration.app.api.attachEditor(integration.app.canvas);
-
-            // CRITICAL: Use the newly created API's petriNet, not the old one
-            const newPetriNet = integration.app.api.petriNet;
-            integration.app.editor.renderer = new DataPetriNetRenderer(integration.app.canvas, newPetriNet);
-
-            // Ensure editor also references the new petriNet
-            integration.app.editor.petriNet = newPetriNet;
-
-            integration.app.editor.app = integration.app;
-            integration.app.editor.setOnSelectCallback(integration.app.handleElementSelected.bind(integration.app));
-            integration.app.editor.setOnChangeCallback(integration.app.handleNetworkChanged.bind(integration.app));
-
-            // Reinitialize all handlers
-            integration.app.initEventHandlers();
-
-            integration.app.initialState = null;
-            integration.app.simulationStarted = false;
-            if (integration.app.applyEditorSettings) {
-              integration.app.applyEditorSettings(integration.app.editorSettings, { persist: false });
-            }
-            integration.app.editor.setMode('select');
-            integration.app.updateActiveButton('btn-select');
-            integration.app.propertiesPanel.innerHTML = '<p>No element selected.</p>';
-
-            integration.app.editor.render();
-            integration.app.updateTokensDisplay();
-            integration.app.updateZoomDisplay();
-            integration.app.updateFinalMarkingDisplay();
-
-            if (integration.dataPetriNetUI) {
-              integration.dataPetriNetUI.updateDataVariablesDisplay();
-              integration.dataPetriNetUI.updateDataValuesDisplay();
-            }
-
-            integration.app.fitCanvasTimeout = setTimeout(() => {
-              integration.app.fitNetworkToCanvas();
-            }, 100);
-          }, 50);
-        } catch (error) {
-          console.error("Error loading file:", error);
-          alert('Error loading file: ' + error);
-        }
-      };
-      reader.readAsText(file);
-    };
-  }
-
-  /**
    * Extend the app's functions
    */
   extendAppFunctions() {
@@ -439,7 +344,6 @@ async initializeUI() {
       }
     };
 
-    // loadFromFile is already patched synchronously via _patchLoadFromFile()
   }
 }
 

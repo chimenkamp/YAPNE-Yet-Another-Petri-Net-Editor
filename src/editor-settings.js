@@ -24,11 +24,10 @@ function normalizeBoolean(value, fallback) {
   return fallback;
 }
 
+/** Load optional preferences without preventing startup when storage is denied.
+ * @returns {typeof DEFAULT_EDITOR_SETTINGS} Normalized editor preferences.
+ */
 export function loadEditorSettings() {
-  if (!window.localStorage) {
-    return { ...DEFAULT_EDITOR_SETTINGS };
-  }
-
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_EDITOR_SETTINGS };

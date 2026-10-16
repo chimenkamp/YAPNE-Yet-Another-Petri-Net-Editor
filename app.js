@@ -75,6 +75,13 @@ setupMobileViewportSizing();
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
+        /** @type {Storage|null} */
+        let browserStorage = null;
+        try {
+            browserStorage = window.localStorage;
+        } catch (error) {
+            console.warn('Browser storage is unavailable; model recovery will show a warning.', error);
+        }
         let editorSettings = loadEditorSettings();
 
         // Sidebar tab functionality
@@ -95,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (targetPane) targetPane.classList.add('active');
                 
                 // Save active tab in localStorage
-                if (window.localStorage) {
+                if (browserStorage) {
                     localStorage.setItem('activeTab', tab.dataset.tab);
                 }
             });
@@ -122,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 sidebarToggle.title = 'Hide sidebar (Tab)';
                 document.body.classList.add('sidebar-open');
             }
-            if (window.localStorage) {
+            if (browserStorage) {
                 localStorage.setItem('sidebarHidden', isVisible ? 'true' : 'false');
             }
             // Trigger canvas resize after sidebar animation completes
@@ -138,7 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Restore sidebar state - default to hidden (File/Help on left)
-        if (window.localStorage) {
+        if (browserStorage) {
             const sidebarHidden = localStorage.getItem('sidebarHidden');
             if (sidebarHidden !== 'false') {
                 // Default hidden
@@ -170,7 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 section.classList.toggle('section-collapsed');
                 
                 // Save collapsed state
-                if (window.localStorage) {
+                if (browserStorage) {
                     saveCollapsedSections();
                 }
             });
@@ -202,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Check if this is the first time the user is using the tool
         function checkFirstTimeUser() {
-            if (window.localStorage) {
+            if (browserStorage) {
                 const hasSeenHelp = localStorage.getItem('hasSeenHelpDialog');
                 if (!hasSeenHelp) {
                     setTimeout(() => {
@@ -244,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         
         // Restore previous states
-        if (window.localStorage) {
+        if (browserStorage) {
             // Restore active tab
             const savedTab = localStorage.getItem('activeTab');
             if (savedTab) {

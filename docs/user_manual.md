@@ -70,6 +70,9 @@ These controls, located at the bottom left of the canvas, help you navigate your
 #### 3.1.2 File Operations
 Located in the "File" tab of the sidebar:
 -   **Save/Load (JSON):** Save your model to a `.json` file or load a previously saved one.
+-   **Save/Load (Browser):** Keep multiple models under names in this browser. Loading lists the saved models; replacing a named save asks for confirmation. The name **unsaved draft** is reserved for automatic recovery.
+-   **Unsaved changes and recovery:** The canvas shows whether the model has unsaved changes. Edits are backed up to an **unsaved draft**, with an additional check every five seconds and when leaving or hiding the page. The draft loads automatically when you return and remains marked unsaved until you save as JSON or under a browser name. Undoing back to the saved state clears the warning.
+-   **Browser storage limits:** These saves stay in the same browser, device, and site address. Clearing browser cache/site data can delete them. Storage failures appear in the editor or dialog; use JSON exports for durable backups. An unreadable recovery draft is preserved, and automatic draft replacement is paused so new work should be saved as JSON or under a browser name.
 -   **Export (PNML):** Export your model to the standard PNML format.
 -   **Load (PNML):** Import models from `.pnml` files.
 

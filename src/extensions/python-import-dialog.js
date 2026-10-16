@@ -552,8 +552,10 @@ export class PythonImportDialog {
     }
   }
 
-  /** Run the transpiler and load the result into the editor. */
-  _doImport() {
+  /** Run the transpiler and close only after successful model replacement.
+   * @returns {Promise<void>}
+   */
+  async _doImport() {
     const code = this._code;
     if (!code.trim()) return;
 
@@ -565,12 +567,10 @@ export class PythonImportDialog {
       const dpn = transpiler.convert(code);
       const jsonStr = dpn.toJSON();
 
-      // Wrap as a File so the existing (possibly DPN-patched) loadFromFile handles it
+      // Use the shared loader's validation and unsaved-change confirmation.
       const blob = new Blob([jsonStr], { type: 'application/json' });
       const file = new File([blob], 'python-import.json', { type: 'application/json' });
-      this._app.loadFromFile(file);
-
-      this.close();
+      if (await this._app.loadFromFile(file)) this.close();
     } catch (err) {
       console.error('Python import failed:', err);
       alert('Import failed: ' + err.message);
